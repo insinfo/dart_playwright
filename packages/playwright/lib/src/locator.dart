@@ -1,4 +1,3 @@
-import 'package:playwright_protocol/playwright_protocol.dart';
 import 'page.dart';
 
 /// A locator represents a way to find elements on the page.

@@ -1,4 +1,3 @@
-import 'package:playwright_protocol/playwright_protocol.dart';
 import 'frame.dart';
 
 /// Represents a network request made by a page.

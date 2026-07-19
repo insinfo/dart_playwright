@@ -12,6 +12,10 @@ export 'src/page.dart';
 export 'src/locator.dart';
 export 'src/frame.dart';
 export 'src/network.dart';
+export 'src/js_handle.dart';
+export 'src/element_handle.dart';
+export 'src/console_message.dart';
+export 'src/dialog.dart';
 
 // Re-export common types from protocol
 export 'package:playwright_protocol/playwright_protocol.dart'

@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:playwright_protocol/playwright_protocol.dart';
 import 'cr_connection.dart';
 

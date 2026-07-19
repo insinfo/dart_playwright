@@ -8,3 +8,5 @@ workspace:
   - packages/playwright_protocol
   - packages/playwright_core
   - packages/playwright
+dev_dependencies:
+  playwright: any

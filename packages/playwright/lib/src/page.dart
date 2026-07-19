@@ -1,5 +1,8 @@
 import 'package:playwright_core/src/server/chromium/cr_page.dart';
+import 'package:playwright_core/src/server/chromium/cr_element_handle.dart';
 import 'locator.dart';
+import 'js_handle.dart';
+import 'element_handle.dart';
 
 /// A single tab or page in a browser.
 abstract class Page {
@@ -11,6 +14,9 @@ abstract class Page {
 
   /// Evaluate JavaScript expression in the page.
   Future<dynamic> evaluate(String expression);
+
+  /// Evaluate JavaScript expression and return a handle.
+  Future<JSHandle> evaluateHandle(String expression);
 
   /// Create a locator for an element.
   Locator locator(String selector);
@@ -32,6 +38,16 @@ class PageImpl implements Page {
 
   @override
   Future<dynamic> evaluate(String expression) => _crPage.evaluate(expression);
+
+  @override
+  Future<JSHandle> evaluateHandle(String expression) async {
+    final handle = await _crPage.executionContext.evaluateHandle(expression);
+    // Cast appropriately based on the handle type returned
+    if (handle is CrElementHandle) {
+      return ElementHandleImpl(handle);
+    }
+    return JSHandleImpl(handle);
+  }
 
   @override
   Locator locator(String selector) {

@@ -1,4 +1,3 @@
-import 'package:playwright_protocol/playwright_protocol.dart';
 import 'page.dart';
 import 'locator.dart';
 

@@ -12,7 +12,7 @@
 - **Exemplo E2E**: Script `example.dart` capaz de iniciar o navegador, acessar um site e extrair informações remotas (`h1` e `title`).
 
 ### Changed
-- Configuração do SDK para `^3.5.0` para permitir suporte a _Dart Workspaces_.
+- Configuração do SDK para `^3.6.2` para permitir suporte a _Dart Workspaces_.
 - Modificação na injeção de pipes de comunicação do CDP no Windows (`--remote-debugging-port=0` temporariamente) para evitar limitações nativas com _File Descriptors_.
 
 ### Fixed

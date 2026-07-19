@@ -1,5 +1,4 @@
 import 'package:playwright_core/src/server/chromium/cr_browser.dart';
-import 'package:playwright_protocol/playwright_protocol.dart';
 import 'browser_context.dart';
 
 /// A browser instance.
