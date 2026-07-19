@@ -28,6 +28,23 @@ abstract class Page {
   /// Wait until the main frame URL matches [url].
   Future<void> waitForURL(Pattern url, {Duration? timeout});
 
+  /// Reload the page and wait for the navigation to reach [waitUntil].
+  Future<void> reload({WaitUntilState? waitUntil});
+
+  /// Navigate back in history. Returns false when there is no entry.
+  Future<bool> goBack({WaitUntilState? waitUntil});
+
+  /// Navigate forward in history. Returns false when there is no entry.
+  Future<bool> goForward({WaitUntilState? waitUntil});
+
+  /// Replace the document content and wait for it to reach [waitUntil].
+  Future<void> setContent(String html,
+      {WaitUntilState? waitUntil, Duration? timeout});
+
+  /// Poll [expression] until it evaluates to a truthy value and return it.
+  Future<dynamic> waitForFunction(String expression,
+      {Duration? timeout, Duration? polling});
+
   /// Get the page title.
   Future<String> title();
 
@@ -151,6 +168,29 @@ class PageImpl implements Page {
   @override
   Future<void> waitForURL(Pattern url, {Duration? timeout}) =>
       _corePage.mainFrame.waitForURL(url, timeout: timeout);
+
+  @override
+  Future<void> reload({WaitUntilState? waitUntil}) =>
+      _corePage.reload(waitUntil: waitUntil);
+
+  @override
+  Future<bool> goBack({WaitUntilState? waitUntil}) =>
+      _corePage.goBack(waitUntil: waitUntil);
+
+  @override
+  Future<bool> goForward({WaitUntilState? waitUntil}) =>
+      _corePage.goForward(waitUntil: waitUntil);
+
+  @override
+  Future<void> setContent(String html,
+          {WaitUntilState? waitUntil, Duration? timeout}) =>
+      _corePage.setContent(html, waitUntil: waitUntil, timeout: timeout);
+
+  @override
+  Future<dynamic> waitForFunction(String expression,
+          {Duration? timeout, Duration? polling}) =>
+      _corePage.waitForFunction(expression,
+          timeout: timeout, polling: polling);
 
   @override
   Future<String> title() => _corePage.title();

@@ -12,7 +12,7 @@ import '../core_js_handle.dart';
 
 /// Represents a Chromium Page (tab).
 class CrPage extends EventEmitter
-    with CorePageInputHelpers, CorePageDialogs
+    with CorePageInputHelpers, CorePageDialogs, CorePageContentHelpers
     implements CorePage {
   final dynamic session;
   final CrNetworkManager networkManager;
@@ -162,6 +162,37 @@ class CrPage extends EventEmitter
           'Navigation to $url failed: ${result['errorText']}');
     }
     await loaded;
+  }
+
+  @override
+  Future<void> reload({WaitUntilState? waitUntil}) async {
+    final frame = await frameManager.waitForMainFrame();
+    final loaded = frame.waitForNavigation(
+        waitUntil: waitUntil, timeout: const Duration(seconds: 30));
+    await session.send('Page.reload');
+    await loaded;
+  }
+
+  @override
+  Future<bool> goBack({WaitUntilState? waitUntil}) =>
+      _goHistory(-1, waitUntil);
+
+  @override
+  Future<bool> goForward({WaitUntilState? waitUntil}) =>
+      _goHistory(1, waitUntil);
+
+  Future<bool> _goHistory(int delta, WaitUntilState? waitUntil) async {
+    final history = await session.send('Page.getNavigationHistory');
+    final entries = history['entries'] as List;
+    final targetIndex = (history['currentIndex'] as int) + delta;
+    if (targetIndex < 0 || targetIndex >= entries.length) return false;
+    final entry = entries[targetIndex] as Map<String, dynamic>;
+    final frame = await frameManager.waitForMainFrame();
+    final loaded = frame.waitForNavigation(
+        waitUntil: waitUntil, timeout: const Duration(seconds: 30));
+    await session.send('Page.navigateToHistoryEntry', {'entryId': entry['id']});
+    await loaded;
+    return true;
   }
 
   /// Get the page title.

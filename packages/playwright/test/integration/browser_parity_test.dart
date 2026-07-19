@@ -127,6 +127,45 @@ void main() {
               equals('Appeared!'));
         });
 
+        test('Deve recarregar a pagina com reload', () async {
+          await page.goto(server.url('/title'));
+          await page.evaluate('() => { window.__marker = 1; }');
+          await page.reload();
+          expect(await page.evaluate('() => window.__marker'), isNull);
+          expect(await page.title(), equals('Test Page Title'));
+        });
+
+        test('Deve navegar no historico com goBack e goForward', () async {
+          await page.goto(server.url('/title'));
+          await page.goto(server.url('/text'));
+
+          expect(await page.goBack(), isTrue);
+          expect(await page.url(), equals(server.url('/title')));
+
+          expect(await page.goForward(), isTrue);
+          expect(await page.url(), equals(server.url('/text')));
+
+          expect(await page.goForward(), isFalse);
+        });
+
+        test('Deve substituir o documento com setContent', () async {
+          await page.goto(server.url('/hello'));
+          await page.setContent('<html><head><title>Injetado</title></head>'
+              '<body><h1 id="mark">Conteudo Dart</h1></body></html>');
+          expect(await page.title(), equals('Injetado'));
+          expect(await page.locator('#mark').textContent(),
+              equals('Conteudo Dart'));
+        });
+
+        test('Deve aguardar condicao com waitForFunction', () async {
+          await page.goto(server.url('/hello'));
+          await page.evaluate(
+              '() => { setTimeout(() => { window.__flag = 42; }, 200); }');
+          final value = await page.waitForFunction('() => window.__flag',
+              timeout: Duration(seconds: 5));
+          expect(value, equals(42));
+        });
+
         test('Deve expor content() e url()', () async {
           await page.goto(server.url('/text'));
           expect(await page.url(), equals(server.url('/text')));

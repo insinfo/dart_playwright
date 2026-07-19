@@ -16,7 +16,7 @@ import '../../accessibility.dart';
 /// [WkPageProxySession.sendToTarget]; page-level events arrive unwrapped
 /// on the same session (via `Target.dispatchMessageFromTarget`).
 class WkPage extends EventEmitter
-    with CorePageInputHelpers, CorePageDialogs
+    with CorePageInputHelpers, CorePageDialogs, CorePageContentHelpers
     implements CorePage {
   final WkPageProxySession session;
   final String? browserContextId;
@@ -136,6 +136,41 @@ class WkPage extends EventEmitter
       'pageProxyId': session.pageProxyId,
     });
     await loaded;
+  }
+
+  @override
+  Future<void> reload({WaitUntilState? waitUntil}) async {
+    final frame = await frameManager.waitForMainFrame();
+    final loaded = frame.waitForNavigation(
+        waitUntil: waitUntil, timeout: const Duration(seconds: 30));
+    await session.sendToTarget('Page.reload');
+    await loaded;
+  }
+
+  @override
+  Future<bool> goBack({WaitUntilState? waitUntil}) =>
+      _goHistory('Page.goBack', waitUntil);
+
+  @override
+  Future<bool> goForward({WaitUntilState? waitUntil}) =>
+      _goHistory('Page.goForward', waitUntil);
+
+  Future<bool> _goHistory(String method, WaitUntilState? waitUntil) async {
+    final frame = await frameManager.waitForMainFrame();
+    final loaded = frame.waitForNavigation(
+        waitUntil: waitUntil, timeout: const Duration(seconds: 30));
+    try {
+      await session.sendToTarget(method);
+    } on PlaywrightException catch (error) {
+      // WebKit reports an exhausted history as "Failed to go back/forward".
+      if (error.message.contains('Failed to go')) {
+        loaded.catchError((_) {});
+        return false;
+      }
+      rethrow;
+    }
+    await loaded;
+    return true;
   }
 
   Future<String> title() async {

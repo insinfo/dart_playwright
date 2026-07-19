@@ -22,6 +22,23 @@ abstract class CorePage extends EventEmitter {
   CoreFrame get mainFrame;
   List<CoreFrame> get frames;
   Future<void> goto(String url, {WaitUntilState? waitUntil});
+
+  /// Reloads the page and waits for the navigation to reach [waitUntil].
+  Future<void> reload({WaitUntilState? waitUntil});
+
+  /// Navigates back in history. Returns false when there is no entry.
+  Future<bool> goBack({WaitUntilState? waitUntil});
+
+  /// Navigates forward in history. Returns false when there is no entry.
+  Future<bool> goForward({WaitUntilState? waitUntil});
+
+  /// Replaces the document content and waits for it to reach [waitUntil].
+  Future<void> setContent(String html,
+      {WaitUntilState? waitUntil, Duration? timeout});
+
+  /// Polls [expression] until it evaluates to a truthy value and returns it.
+  Future<dynamic> waitForFunction(String expression,
+      {Duration? timeout, Duration? polling});
   Future<void> waitForLoadState(
       {WaitUntilState state = WaitUntilState.load, Duration? timeout});
   Future<void> waitForNavigation(
@@ -77,6 +94,51 @@ mixin CorePageDialogs {
   }
 }
 
+/// Content and script-polling helpers shared by the engine pages.
+///
+/// Both are built purely on [evaluate], so every engine gets them for free.
+mixin CorePageContentHelpers {
+  Future<dynamic> evaluate(String expression);
+
+  /// Polls [expression] until it evaluates to a truthy value and returns it.
+  Future<dynamic> waitForFunction(String expression,
+      {Duration? timeout, Duration? polling}) async {
+    final effectiveTimeout = timeout ?? const Duration(seconds: 30);
+    final interval = polling ?? const Duration(milliseconds: 100);
+    final deadline = DateTime.now().add(effectiveTimeout);
+    while (true) {
+      final value = await evaluate(expression);
+      final isTruthy =
+          value != null && value != false && value != 0 && value != '';
+      if (isTruthy) return value;
+      if (DateTime.now().isAfter(deadline)) {
+        throw TimeoutException('waitForFunction: condition not met',
+            timeout: effectiveTimeout);
+      }
+      await Future.delayed(interval);
+    }
+  }
+
+  /// Replaces the document content and waits for it to reach [waitUntil].
+  Future<void> setContent(String html,
+      {WaitUntilState? waitUntil, Duration? timeout}) async {
+    final encoded = jsonEncode(html);
+    await evaluate('''
+      () => {
+        document.open();
+        document.write($encoded);
+        document.close();
+      }
+    ''');
+    final state = waitUntil ?? WaitUntilState.load;
+    if (state == WaitUntilState.commit) return;
+    final condition = state == WaitUntilState.domcontentloaded
+        ? "document.readyState !== 'loading'"
+        : "document.readyState === 'complete'";
+    await waitForFunction('() => $condition', timeout: timeout);
+  }
+}
+
 /// Shared helpers for protocol-based input.
 ///
 /// Geometry and focus are resolved with injected JS (as upstream Playwright
@@ -123,12 +185,7 @@ mixin CorePageInputHelpers {
   /// Focuses [selector] and selects its current contents, so that inserted
   /// text replaces the existing value (fill semantics).
   Future<void> focusAndSelect(String selector) async {
-    final sel = jsonEncode(selector);
-    await evaluate('''
-      () => {
-        const el = document.querySelector($sel);
-        if (!el) throw new Error('Element not found: ' + $sel);
-        el.focus();
+    await _focusWithRetry(selector, '''
         if (typeof el.select === 'function') {
           el.select();
         } else if (el.isContentEditable) {
@@ -138,19 +195,32 @@ mixin CorePageInputHelpers {
           selection.removeAllRanges();
           selection.addRange(range);
         }
-      }
     ''');
   }
 
   /// Focuses [selector] without altering its selection.
   Future<void> focus(String selector) async {
+    await _focusWithRetry(selector, '');
+  }
+
+  /// el.focus() can silently fail while a headless window is still being
+  /// activated (seen on WebKit macOS, where a later keystroke then lands on
+  /// the page and e.g. Backspace navigates back). Verify activeElement and
+  /// retry briefly before giving up.
+  Future<void> _focusWithRetry(String selector, String afterFocusJs) async {
     final sel = jsonEncode(selector);
-    await evaluate('''
-      () => {
-        const el = document.querySelector($sel);
-        if (!el) throw new Error('Element not found: ' + $sel);
-        el.focus();
-      }
-    ''');
+    for (var attempt = 0; attempt < 10; attempt++) {
+      final focused = await evaluate('''
+        () => {
+          const el = document.querySelector($sel);
+          if (!el) throw new Error('Element not found: ' + $sel);
+          el.focus();
+          $afterFocusJs
+          return document.activeElement === el;
+        }
+      ''');
+      if (focused == true) return;
+      await Future.delayed(const Duration(milliseconds: 50));
+    }
   }
 }

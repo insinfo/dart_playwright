@@ -13,7 +13,7 @@ import '../core_js_handle.dart';
 
 /// Represents a Firefox Juggler Page (tab).
 class FfPage extends EventEmitter
-    with CorePageInputHelpers, CorePageDialogs
+    with CorePageInputHelpers, CorePageDialogs, CorePageContentHelpers
     implements CorePage {
   final FfSession session;
   @override
@@ -113,6 +113,37 @@ class FfPage extends EventEmitter
         waitUntil: waitUntil, timeout: const Duration(seconds: 30));
     await session.send('Page.navigate', {'url': url, 'frameId': frame.id});
     await loaded;
+  }
+
+  @override
+  Future<void> reload({WaitUntilState? waitUntil}) async {
+    final frame = await frameManager.waitForMainFrame();
+    final loaded = frame.waitForNavigation(
+        waitUntil: waitUntil, timeout: const Duration(seconds: 30));
+    await session.send('Page.reload');
+    await loaded;
+  }
+
+  @override
+  Future<bool> goBack({WaitUntilState? waitUntil}) =>
+      _goHistory('Page.goBack', waitUntil);
+
+  @override
+  Future<bool> goForward({WaitUntilState? waitUntil}) =>
+      _goHistory('Page.goForward', waitUntil);
+
+  Future<bool> _goHistory(String method, WaitUntilState? waitUntil) async {
+    final frame = await frameManager.waitForMainFrame();
+    final loaded = frame.waitForNavigation(
+        waitUntil: waitUntil, timeout: const Duration(seconds: 30));
+    final result = await session.send(method, {'frameId': frame.id});
+    if (result['success'] != true) {
+      // Nothing will navigate; drop the waiter silently.
+      loaded.catchError((_) {});
+      return false;
+    }
+    await loaded;
+    return true;
   }
 
   /// Get the page title.
