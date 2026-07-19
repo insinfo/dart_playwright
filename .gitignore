@@ -1,0 +1,19 @@
+# Dart and Pub
+.dart_tool/
+.packages
+build/
+pubspec.lock
+
+# IDEs
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+
+# Mac
+.DS_Store
+
+# Playwright specific
+referencias/
+.cache/

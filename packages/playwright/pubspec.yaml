@@ -1,0 +1,21 @@
+name: playwright
+description: Playwright for Dart — complete browser automation for Chromium, Firefox, and WebKit.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.6.2
+
+resolution: workspace
+
+dependencies:
+  playwright_core:
+    path: ../playwright_core
+  playwright_protocol:
+    path: ../playwright_protocol
+  args: ^2.5.0
+  path: ^1.9.0
+  meta: ^1.9.0
+
+dev_dependencies:
+  test: ^1.25.0

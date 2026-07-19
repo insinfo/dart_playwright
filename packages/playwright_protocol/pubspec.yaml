@@ -1,0 +1,13 @@
+name: playwright_protocol
+description: Protocol definitions, types, and serialization for Playwright Dart.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.6.2
+
+resolution: workspace
+
+dependencies:
+  meta: ^1.9.0
+  collection: ^1.18.0

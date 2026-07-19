@@ -1,0 +1,10 @@
+name: playwright_workspace
+publish_to: none
+
+environment:
+  sdk: ^3.6.2
+
+workspace:
+  - packages/playwright_protocol
+  - packages/playwright_core
+  - packages/playwright
