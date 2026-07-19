@@ -49,9 +49,16 @@ class CrPage extends EventEmitter
     session.on('Page.frameDetached', (params) {
       frameManager.frameDetached(params['frameId'] as String);
     });
+    session.on('Page.navigatedWithinDocument', (params) {
+      frameManager.frameNavigatedWithinDocument(
+          params['frameId'] as String, params['url'] as String);
+    });
     session.on('Page.lifecycleEvent', (params) {
       frameManager.frameLifecycleEvent(
-          params['frameId'] as String, params['name'] as String);
+        params['frameId'] as String,
+        params['name'] as String,
+        loaderId: params['loaderId'] as String?,
+      );
     });
     // Some Chromium builds do not deliver Page.lifecycleEvent reliably for
     // the main frame even after Page.setLifecycleEventsEnabled. The legacy
@@ -102,6 +109,27 @@ class CrPage extends EventEmitter
       session.send('Log.enable') as Future<dynamic>,
       session.send('Accessibility.enable') as Future<dynamic>,
     ]);
+    // Chromium only emits Page.frameAttached/frameNavigated for frames
+    // created after Page.enable. The main frame predates it, so seed the
+    // existing tree or waitForMainFrame() would never complete.
+    final result = await session.send('Page.getFrameTree');
+    _handleFrameTree(result['frameTree'] as Map<String, dynamic>);
+  }
+
+  void _handleFrameTree(Map<String, dynamic> frameTree) {
+    final frame = frameTree['frame'] as Map<String, dynamic>;
+    final parentId = frame['parentId'] as String?;
+    frameManager.frameAttached(frame['id'] as String, parentId);
+    frameManager.frameNavigated(
+      frame['id'] as String,
+      frame['url'] as String? ?? '',
+      frame['name'] as String? ?? '',
+      frame['loaderId'] as String? ?? '',
+      parentId: parentId,
+    );
+    for (final child in frameTree['childFrames'] as List? ?? const []) {
+      _handleFrameTree(child as Map<String, dynamic>);
+    }
   }
 
   @override

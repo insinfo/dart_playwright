@@ -44,7 +44,11 @@ class FrameManager extends EventEmitter {
     final frameId = params['frameId'] as String?;
     final name = params['name'] as String?;
     if (frameId != null && name != null) {
-      core.frameLifecycleEvent(frameId, name);
+      core.frameLifecycleEvent(
+        frameId,
+        name,
+        loaderId: params['loaderId'] as String?,
+      );
     }
   }
 

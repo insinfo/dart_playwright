@@ -27,6 +27,9 @@ abstract class Frame {
   Future<void> waitForNavigation(
       {WaitUntilState? waitUntil, Duration? timeout});
 
+  /// Wait until this frame URL matches [url].
+  Future<void> waitForURL(Pattern url, {Duration? timeout});
+
   /// Create a locator for an element within the frame.
   Locator locator(String selector);
 
@@ -69,6 +72,10 @@ class FrameImpl implements Frame {
   Future<void> waitForNavigation(
           {WaitUntilState? waitUntil, Duration? timeout}) =>
       _coreFrame.waitForNavigation(waitUntil: waitUntil, timeout: timeout);
+
+  @override
+  Future<void> waitForURL(Pattern url, {Duration? timeout}) =>
+      _coreFrame.waitForURL(url, timeout: timeout);
 
   @override
   Locator locator(String selector) => LocatorImpl(_page, selector);

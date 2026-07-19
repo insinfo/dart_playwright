@@ -29,7 +29,8 @@ class WkPage extends EventEmitter
   WkPage(this.session, {this.browserContextId}) {
     frameManager = CoreFrameManager(this);
     keyboard = Keyboard(WkRawKeyboard(session));
-    session.on('Page.javascriptDialogOpening', _onDialogOpening);
+    // WebKit reports dialogs via the Dialog domain on the pageProxy session.
+    session.on('Dialog.javascriptDialogOpening', _onDialogOpening);
     session.on('Page.frameNavigated', (params) {
       final frame = params['frame'] as Map<String, dynamic>;
       frameManager.frameNavigated(
@@ -75,8 +76,32 @@ class WkPage extends EventEmitter
     await session.send('Dialog.enable');
     await session.sendToTarget('Page.enable');
     await session.sendToTarget('Runtime.enable');
+    // WebKit only reports frame changes that happen after Page.enable. The
+    // main frame predates it, so seed the existing tree (mirrors upstream
+    // _handleFrameTree) or waitForMainFrame() would never complete.
+    final result = await session.sendToTarget('Page.getResourceTree');
+    _handleFrameTree(result['frameTree'] as Map<String, dynamic>);
     if (session.targetIsPaused) {
       await session.send('Target.resume', {'targetId': session.targetId});
+    }
+  }
+
+  void _handleFrameTree(Map<String, dynamic> frameTree) {
+    final frame = frameTree['frame'] as Map<String, dynamic>;
+    final frameId = frame['id'] as String;
+    final parentId = frame['parentId'] as String?;
+    frameManager.frameAttached(frameId, parentId);
+    frameManager.frameNavigated(
+      frameId,
+      frame['url'] as String? ?? '',
+      frame['name'] as String? ?? '',
+      frame['loaderId'] as String? ?? '',
+      parentId: parentId,
+    );
+    frameManager.frameLifecycleEvent(frameId, 'DOMContentLoaded');
+    frameManager.frameLifecycleEvent(frameId, 'load');
+    for (final child in frameTree['childFrames'] as List? ?? const []) {
+      _handleFrameTree(child as Map<String, dynamic>);
     }
   }
 

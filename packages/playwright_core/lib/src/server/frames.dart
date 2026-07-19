@@ -54,10 +54,51 @@ class CoreFrame {
       _lifecycleEvents.clear();
     }
     onLifecycleEvent('commit');
+    _emitter.emit('navigated', url);
   }
 
   void onNavigatedWithinDocument(String newUrl) {
     url = newUrl;
+    _emitter.emit('navigated', url);
+  }
+
+  /// Waits until this frame's URL matches [expected]. Strings may contain
+  /// `*`, `**`, and `?` glob wildcards; regular expressions are also accepted.
+  Future<void> waitForURL(Pattern expected, {Duration? timeout}) async {
+    if (_matchesURL(expected, url)) return;
+
+    final completer = Completer<void>();
+    void onNavigated(dynamic value) {
+      if (!completer.isCompleted && _matchesURL(expected, value as String)) {
+        completer.complete();
+      }
+    }
+
+    _emitter.on('navigated', onNavigated);
+    try {
+      if (timeout == null) {
+        await completer.future;
+      } else {
+        await completer.future.timeout(timeout);
+      }
+    } finally {
+      _emitter.off('navigated', onNavigated);
+    }
+  }
+
+  bool _matchesURL(Pattern expected, String value) {
+    if (expected is RegExp) return expected.hasMatch(value);
+    final pattern = expected.toString();
+    if (!pattern.contains('*') && !pattern.contains('?')) {
+      return value == pattern;
+    }
+    const doubleStar = '__PLAYWRIGHT_DOUBLE_STAR__';
+    var source = RegExp.escape(pattern)
+        .replaceAll(r'\*\*', doubleStar)
+        .replaceAll(r'\*', '[^/]*')
+        .replaceAll(r'\?', '.')
+        .replaceAll(doubleStar, '.*');
+    return RegExp('^$source\$').hasMatch(value);
   }
 
   /// Waits for a specific WaitUntilState for this frame's current navigation.
@@ -206,9 +247,20 @@ class CoreFrameManager {
     }
   }
 
-  void frameLifecycleEvent(String frameId, String eventName) {
+  void frameLifecycleEvent(String frameId, String eventName,
+      {String? loaderId}) {
     final frame = _frames[frameId];
     if (frame == null) return;
+    // Recent Chromium versions can send the lifecycle `commit` without a
+    // Page.frameNavigated event. Treat its loader as the new-document commit
+    // so navigation waiters advance before DOMContentLoaded/load arrive.
+    if (eventName == 'commit' &&
+        loaderId != null &&
+        loaderId.isNotEmpty &&
+        loaderId != frame.currentLoaderId) {
+      frame.onNavigated(frame.url, frame.name, loaderId);
+      return;
+    }
     final isNewEvent = frame.onLifecycleEvent(eventName);
     if (!isNewEvent) return;
     if (frameId == _mainFrameId) {

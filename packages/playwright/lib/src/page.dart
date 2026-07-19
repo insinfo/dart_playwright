@@ -25,6 +25,9 @@ abstract class Page {
   Future<void> waitForNavigation(
       {WaitUntilState? waitUntil, Duration? timeout});
 
+  /// Wait until the main frame URL matches [url].
+  Future<void> waitForURL(Pattern url, {Duration? timeout});
+
   /// Get the page title.
   Future<String> title();
 
@@ -144,6 +147,10 @@ class PageImpl implements Page {
   Future<void> waitForNavigation(
           {WaitUntilState? waitUntil, Duration? timeout}) =>
       _corePage.waitForNavigation(waitUntil: waitUntil, timeout: timeout);
+
+  @override
+  Future<void> waitForURL(Pattern url, {Duration? timeout}) =>
+      _corePage.mainFrame.waitForURL(url, timeout: timeout);
 
   @override
   Future<String> title() => _corePage.title();

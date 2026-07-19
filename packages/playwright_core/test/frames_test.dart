@@ -99,4 +99,42 @@ void main() {
     await navigation;
     expect(loadEvents, 1);
   });
+
+  test('Chromium commit lifecycle advances navigation without frameNavigated',
+      () async {
+    final manager = CoreFrameManager(FakeCorePage());
+    manager.frameAttached('main', null);
+    manager.frameNavigated('main', 'about:blank', '', 'loader-1');
+    final navigation = manager.mainFrame!
+        .waitForNavigation(timeout: const Duration(seconds: 1));
+
+    manager.frameLifecycleEvent('main', 'commit', loaderId: 'loader-2');
+    manager.frameLifecycleEvent('main', 'DOMContentLoaded',
+        loaderId: 'loader-2');
+    manager.frameLifecycleEvent('main', 'load', loaderId: 'loader-2');
+
+    await navigation;
+    expect(manager.mainFrame!.currentLoaderId, 'loader-2');
+  });
+
+  test('waitForURL supports exact, glob, regex and same-document URLs',
+      () async {
+    final manager = CoreFrameManager(FakeCorePage());
+    manager.frameAttached('main', null);
+    manager.frameNavigated('main', 'https://example.com/start', '', 'loader-1');
+    final frame = manager.mainFrame!;
+
+    await frame.waitForURL('https://example.com/start');
+
+    final globWait = frame.waitForURL('**/target?tab=*',
+        timeout: const Duration(seconds: 1));
+    manager.frameNavigatedWithinDocument(
+        'main', 'https://example.com/target?tab=one');
+    await globWait;
+
+    final regexWait = frame.waitForURL(RegExp(r'/done$'),
+        timeout: const Duration(seconds: 1));
+    manager.frameNavigatedWithinDocument('main', 'https://example.com/done');
+    await regexWait;
+  });
 }
