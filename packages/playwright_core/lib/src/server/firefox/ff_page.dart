@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:playwright_protocol/playwright_protocol.dart';
 import 'ff_connection.dart';
 import 'ff_input.dart';
+import 'ff_network_manager.dart';
 import 'ff_route.dart';
 import '../../accessibility.dart';
 
@@ -19,6 +20,7 @@ class FfPage extends EventEmitter
   @override
   late final Keyboard keyboard;
   late final CoreFrameManager frameManager;
+  late final FfNetworkManager networkManager;
 
   bool _isClosed = false;
   String? _executionContextId;
@@ -26,6 +28,8 @@ class FfPage extends EventEmitter
   FfPage(this.session) {
     frameManager = CoreFrameManager(this);
     keyboard = Keyboard(FfRawKeyboard(session));
+    networkManager = FfNetworkManager(session);
+    forwardNetworkEvents(networkManager, this);
     session.on('Page.dialogOpened', _onDialogOpened);
     session.on('Page.frameAttached', (params) {
       frameManager.frameAttached(

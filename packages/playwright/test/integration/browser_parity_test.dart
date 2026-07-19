@@ -292,6 +292,27 @@ void main() {
           await ctx2.close();
         });
 
+        test('Deve emitir eventos de request e response na navegacao',
+            () async {
+          final requestFuture = page.waitForRequest(
+              predicate: (r) => r.url().contains('/title'),
+              timeout: Duration(seconds: 10));
+          final responseFuture = page.waitForResponse(
+              predicate: (r) => r.url().contains('/title'),
+              timeout: Duration(seconds: 10));
+
+          await page.goto(server.url('/title'));
+
+          final request = await requestFuture;
+          expect(request.method(), equals('GET'));
+          expect(request.url(), equals(server.url('/title')));
+
+          final response = await responseFuture;
+          expect(response.status(), equals(200));
+          expect(response.ok(), isTrue);
+          expect(response.url(), equals(server.url('/title')));
+        });
+
         test('Deve interceptar rotas com Page.route', () async {
           await page.route('**/title', (route) async {
             await route.fulfill(

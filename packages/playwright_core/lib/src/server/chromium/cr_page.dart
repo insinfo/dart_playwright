@@ -28,6 +28,7 @@ class CrPage extends EventEmitter
     frameManager = CoreFrameManager(this);
     keyboard = Keyboard(CrRawKeyboard(session));
     executionContext = CrExecutionContext(session);
+    forwardNetworkEvents(networkManager, this);
     session.on('closed', () => _onClosed());
     session.on('Page.javascriptDialogOpening', _onDialogOpening);
 

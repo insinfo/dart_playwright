@@ -7,6 +7,7 @@ import '../core_js_handle.dart';
 import '../core_route.dart';
 import 'wk_connection.dart';
 import 'wk_input.dart';
+import 'wk_network_manager.dart';
 import 'wk_route.dart';
 import '../../accessibility.dart';
 
@@ -23,12 +24,15 @@ class WkPage extends EventEmitter
   @override
   late final Keyboard keyboard;
   late final CoreFrameManager frameManager;
+  late final WkNetworkManager networkManager;
 
   bool _isClosed = false;
 
   WkPage(this.session, {this.browserContextId}) {
     frameManager = CoreFrameManager(this);
     keyboard = Keyboard(WkRawKeyboard(session));
+    networkManager = WkNetworkManager(session);
+    forwardNetworkEvents(networkManager, this);
     // WebKit reports dialogs via the Dialog domain on the pageProxy session.
     session.on('Dialog.javascriptDialogOpening', _onDialogOpening);
     session.on('Page.frameNavigated', (params) {
@@ -76,6 +80,8 @@ class WkPage extends EventEmitter
     await session.send('Dialog.enable');
     await session.sendToTarget('Page.enable');
     await session.sendToTarget('Runtime.enable');
+    // Network events (requestWillBeSent & friends) only flow after enable.
+    await session.sendToTarget('Network.enable');
     // WebKit only reports frame changes that happen after Page.enable. The
     // main frame predates it, so seed the existing tree (mirrors upstream
     // _handleFrameTree) or waitForMainFrame() would never complete.

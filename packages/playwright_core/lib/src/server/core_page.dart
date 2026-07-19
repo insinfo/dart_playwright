@@ -103,6 +103,19 @@ mixin CorePageDialogs {
   }
 }
 
+/// Re-emits the engine network manager's events on the page, where the
+/// public API streams (onRequest/onResponse/...) listen.
+void forwardNetworkEvents(EventEmitter networkManager, EventEmitter page) {
+  for (final event in const [
+    'request',
+    'response',
+    'requestFinished',
+    'requestFailed'
+  ]) {
+    networkManager.on(event, (dynamic payload) => page.emit(event, payload));
+  }
+}
+
 /// Content and script-polling helpers shared by the engine pages.
 ///
 /// Both are built purely on [evaluate], so every engine gets them for free.
