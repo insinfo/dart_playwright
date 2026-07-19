@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:playwright_protocol/playwright_protocol.dart';
 import '../core_request.dart';
 import '../core_response.dart';
@@ -26,12 +27,24 @@ class CrRequest implements CoreRequest {
 }
 
 class CrResponse implements CoreResponse {
+  final dynamic session;
   final Map<String, dynamic> params;
   final CrRequest _request;
-  CrResponse(this.params, this._request);
+  CrResponse(this.session, this.params, this._request);
 
   @override
   CoreRequest get request => _request;
+
+  @override
+  Future<List<int>> body() async {
+    final result = await session.send('Network.getResponseBody', {
+      'requestId': params['requestId'],
+    });
+    final data = result['body'] as String? ?? '';
+    return result['base64Encoded'] == true
+        ? base64Decode(data)
+        : utf8.encode(data);
+  }
 
   @override
   String get url => params['response']?['url'] ?? '';
@@ -71,7 +84,7 @@ class CrNetworkManager extends EventEmitter {
     final requestId = params['requestId'] as String?;
     final req = requestId != null ? _requests[requestId] : null;
     if (req != null) {
-      final res = CrResponse(params, req);
+      final res = CrResponse(session, params, req);
       emit('response', res);
     }
   }

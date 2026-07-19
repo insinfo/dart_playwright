@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:playwright_core/playwright_core.dart';
 import 'frame.dart';
 
@@ -59,6 +60,15 @@ abstract class Response {
 
   /// Whether the response was successful (status 200-299).
   bool ok();
+
+  /// The raw response body bytes.
+  Future<List<int>> body();
+
+  /// The response body decoded as UTF-8 text.
+  Future<String> text();
+
+  /// The response body parsed as JSON.
+  Future<dynamic> json();
 }
 
 class ResponseImpl implements Response {
@@ -83,4 +93,13 @@ class ResponseImpl implements Response {
 
   @override
   bool ok() => _coreResponse.ok;
+
+  @override
+  Future<List<int>> body() => _coreResponse.body();
+
+  @override
+  Future<String> text() async => utf8.decode(await body());
+
+  @override
+  Future<dynamic> json() async => jsonDecode(await text());
 }

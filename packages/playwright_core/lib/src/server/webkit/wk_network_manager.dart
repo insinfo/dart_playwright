@@ -42,9 +42,21 @@ class WkRequest implements CoreRequest {
 
 /// A network response reported by the WebKit Network domain.
 class WkResponse implements CoreResponse {
+  final dynamic session;
   final Map<String, dynamic> params;
   final WkRequest _request;
-  WkResponse(this.params, this._request);
+  WkResponse(this.session, this.params, this._request);
+
+  @override
+  Future<List<int>> body() async {
+    final result = await session.sendToTarget('Network.getResponseBody', {
+      'requestId': params['requestId'],
+    });
+    final data = result['body'] as String? ?? '';
+    return result['base64Encoded'] == true
+        ? base64Decode(data)
+        : utf8.encode(data);
+  }
 
   Map<String, dynamic> get _response =>
       params['response'] as Map<String, dynamic>? ?? const {};
@@ -93,7 +105,7 @@ class WkNetworkManager extends EventEmitter {
     final requestId = params['requestId'] as String?;
     final req = requestId != null ? _requests[requestId] : null;
     if (req != null) {
-      emit('response', WkResponse(params, req));
+      emit('response', WkResponse(session, params, req));
     }
   }
 

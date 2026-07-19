@@ -7,4 +7,7 @@ abstract class CoreResponse {
   int get status;
   String get statusText;
   bool get ok;
+
+  /// The raw response body bytes, fetched from the browser cache.
+  Future<List<int>> body();
 }

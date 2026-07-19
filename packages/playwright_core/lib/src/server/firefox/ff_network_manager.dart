@@ -42,12 +42,21 @@ class FfRequest implements CoreRequest {
 
 /// A network response reported by Juggler.
 class FfResponse implements CoreResponse {
+  final dynamic session;
   final Map<String, dynamic> params;
   final FfRequest _request;
-  FfResponse(this.params, this._request);
+  FfResponse(this.session, this.params, this._request);
 
   @override
   CoreRequest get request => _request;
+
+  @override
+  Future<List<int>> body() async {
+    final result = await session.send('Network.getResponseBody', {
+      'requestId': params['requestId'],
+    });
+    return base64Decode(result['base64body'] as String? ?? '');
+  }
 
   @override
   String get url => _request.url;
@@ -87,7 +96,7 @@ class FfNetworkManager extends EventEmitter {
     final requestId = params['requestId'] as String?;
     final req = requestId != null ? _requests[requestId] : null;
     if (req != null) {
-      emit('response', FfResponse(params, req));
+      emit('response', FfResponse(session, params, req));
     }
   }
 

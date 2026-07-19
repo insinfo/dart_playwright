@@ -311,6 +311,7 @@ void main() {
           expect(response.status(), equals(200));
           expect(response.ok(), isTrue);
           expect(response.url(), equals(server.url('/title')));
+          expect(await response.text(), contains('Test Page Title'));
         });
 
         test('Deve interceptar rotas com Page.route', () async {
