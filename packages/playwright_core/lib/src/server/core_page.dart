@@ -55,6 +55,12 @@ abstract class CorePage extends EventEmitter {
   /// Click [selector] using trusted protocol-level input events.
   Future<void> click(String selector);
 
+  /// Double-click [selector] using trusted protocol-level input events.
+  Future<void> dblclick(String selector);
+
+  /// Hover over [selector] using a trusted protocol-level mouse move.
+  Future<void> hover(String selector);
+
   /// Fill [selector] with [text] using trusted protocol-level input events.
   Future<void> fill(String selector, String text);
 

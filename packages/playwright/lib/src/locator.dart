@@ -6,8 +6,23 @@ abstract class Locator {
   /// Click the element.
   Future<void> click();
 
+  /// Double-click the element.
+  Future<void> dblclick();
+
+  /// Hover over the element.
+  Future<void> hover();
+
   /// Fill an input field.
   Future<void> fill(String text);
+
+  /// Clear the input field.
+  Future<void> clear();
+
+  /// Focus the element.
+  Future<void> focus();
+
+  /// Remove focus from the element.
+  Future<void> blur();
 
   /// Focus the element then press [key] (or a chord like 'Control+A').
   Future<void> press(String key);
@@ -37,8 +52,17 @@ abstract class Locator {
   /// Whether the first matching element is visible.
   Future<bool> isVisible();
 
+  /// Whether the element is hidden (not visible or absent).
+  Future<bool> isHidden();
+
   /// Whether the first matching element is enabled (not disabled).
   Future<bool> isEnabled();
+
+  /// Whether the element is disabled.
+  Future<bool> isDisabled();
+
+  /// Whether the element accepts text editing.
+  Future<bool> isEditable();
 
   /// Whether a checkbox/radio element is checked.
   Future<bool> isChecked();
@@ -80,7 +104,22 @@ class LocatorImpl implements Locator {
   Future<void> click() => _page.click(_selector);
 
   @override
+  Future<void> dblclick() => _page.dblclick(_selector);
+
+  @override
+  Future<void> hover() => _page.hover(_selector);
+
+  @override
   Future<void> fill(String text) => _page.fill(_selector, text);
+
+  @override
+  Future<void> clear() => _page.fill(_selector, '');
+
+  @override
+  Future<void> focus() => _withElement('el.focus();');
+
+  @override
+  Future<void> blur() => _withElement('el.blur();');
 
   @override
   Future<void> press(String key) => _page.press(_selector, key);
@@ -142,8 +181,25 @@ class LocatorImpl implements Locator {
   }
 
   @override
+  Future<bool> isHidden() async => !await isVisible();
+
+  @override
   Future<bool> isEnabled() async {
     final result = await _withElement('return !el.disabled;');
+    return result == true;
+  }
+
+  @override
+  Future<bool> isDisabled() async => !await isEnabled();
+
+  @override
+  Future<bool> isEditable() async {
+    final result = await _withElement('''
+        if (el.isContentEditable) return true;
+        const editableTags = ['INPUT', 'TEXTAREA', 'SELECT'];
+        if (!editableTags.includes(el.tagName)) return false;
+        return !el.disabled && !el.readOnly;
+    ''');
     return result == true;
   }
 

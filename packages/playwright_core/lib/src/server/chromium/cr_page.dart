@@ -211,6 +211,25 @@ class CrPage extends EventEmitter
   @override
   Future<void> click(String selector) async {
     final point = await clickPointFor(selector);
+    await _mouseMove(point);
+    await _mousePressRelease(point, clickCount: 1);
+  }
+
+  @override
+  Future<void> dblclick(String selector) async {
+    final point = await clickPointFor(selector);
+    await _mouseMove(point);
+    await _mousePressRelease(point, clickCount: 1);
+    await _mousePressRelease(point, clickCount: 2);
+  }
+
+  @override
+  Future<void> hover(String selector) async {
+    final point = await clickPointFor(selector);
+    await _mouseMove(point);
+  }
+
+  Future<void> _mouseMove(({double x, double y}) point) async {
     await session.send('Input.dispatchMouseEvent', {
       'type': 'mouseMoved',
       'x': point.x,
@@ -218,13 +237,17 @@ class CrPage extends EventEmitter
       'button': 'none',
       'buttons': 0,
     });
+  }
+
+  Future<void> _mousePressRelease(({double x, double y}) point,
+      {required int clickCount}) async {
     await session.send('Input.dispatchMouseEvent', {
       'type': 'mousePressed',
       'x': point.x,
       'y': point.y,
       'button': 'left',
       'buttons': 1,
-      'clickCount': 1,
+      'clickCount': clickCount,
     });
     await session.send('Input.dispatchMouseEvent', {
       'type': 'mouseReleased',
@@ -232,7 +255,7 @@ class CrPage extends EventEmitter
       'y': point.y,
       'button': 'left',
       'buttons': 0,
-      'clickCount': 1,
+      'clickCount': clickCount,
     });
   }
 

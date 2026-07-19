@@ -185,6 +185,25 @@ class WkPage extends EventEmitter
   @override
   Future<void> click(String selector) async {
     final point = await clickPointFor(selector);
+    await _mouseMove(point);
+    await _mousePressRelease(point, clickCount: 1);
+  }
+
+  @override
+  Future<void> dblclick(String selector) async {
+    final point = await clickPointFor(selector);
+    await _mouseMove(point);
+    await _mousePressRelease(point, clickCount: 1);
+    await _mousePressRelease(point, clickCount: 2);
+  }
+
+  @override
+  Future<void> hover(String selector) async {
+    final point = await clickPointFor(selector);
+    await _mouseMove(point);
+  }
+
+  Future<void> _mouseMove(({double x, double y}) point) async {
     await session.send('Input.dispatchMouseEvent', {
       'type': 'move',
       'button': 'none',
@@ -193,6 +212,10 @@ class WkPage extends EventEmitter
       'y': point.y,
       'modifiers': 0,
     });
+  }
+
+  Future<void> _mousePressRelease(({double x, double y}) point,
+      {required int clickCount}) async {
     await session.send('Input.dispatchMouseEvent', {
       'type': 'down',
       'button': 'left',
@@ -200,7 +223,7 @@ class WkPage extends EventEmitter
       'x': point.x,
       'y': point.y,
       'modifiers': 0,
-      'clickCount': 1,
+      'clickCount': clickCount,
     });
     await session.send('Input.dispatchMouseEvent', {
       'type': 'up',
@@ -209,7 +232,7 @@ class WkPage extends EventEmitter
       'x': point.x,
       'y': point.y,
       'modifiers': 0,
-      'clickCount': 1,
+      'clickCount': clickCount,
     });
   }
 

@@ -75,6 +75,12 @@ abstract class Page {
   /// Click an element using trusted protocol-level input events.
   Future<void> click(String selector);
 
+  /// Double-click an element using trusted protocol-level input events.
+  Future<void> dblclick(String selector);
+
+  /// Hover over an element using a trusted protocol-level mouse move.
+  Future<void> hover(String selector);
+
   /// Fill an element with text using trusted protocol-level input events.
   Future<void> fill(String selector, String text);
 
@@ -256,6 +262,12 @@ class PageImpl implements Page {
 
   @override
   Future<void> click(String selector) => _corePage.click(selector);
+
+  @override
+  Future<void> dblclick(String selector) => _corePage.dblclick(selector);
+
+  @override
+  Future<void> hover(String selector) => _corePage.hover(selector);
 
   @override
   Future<void> fill(String selector, String text) =>

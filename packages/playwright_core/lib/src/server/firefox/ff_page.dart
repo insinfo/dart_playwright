@@ -156,16 +156,39 @@ class FfPage extends EventEmitter
   @override
   Future<void> click(String selector) async {
     final point = await clickPointFor(selector);
-    final x = point.x.floor();
-    final y = point.y.floor();
+    await _mouseMove(point);
+    await _mousePressRelease(point, clickCount: 1);
+  }
+
+  @override
+  Future<void> dblclick(String selector) async {
+    final point = await clickPointFor(selector);
+    await _mouseMove(point);
+    await _mousePressRelease(point, clickCount: 1);
+    await _mousePressRelease(point, clickCount: 2);
+  }
+
+  @override
+  Future<void> hover(String selector) async {
+    final point = await clickPointFor(selector);
+    await _mouseMove(point);
+  }
+
+  Future<void> _mouseMove(({double x, double y}) point) async {
     await session.send('Page.dispatchMouseEvent', {
       'type': 'mousemove',
       'button': 0,
       'buttons': 0,
-      'x': x,
-      'y': y,
+      'x': point.x.floor(),
+      'y': point.y.floor(),
       'modifiers': 0,
     });
+  }
+
+  Future<void> _mousePressRelease(({double x, double y}) point,
+      {required int clickCount}) async {
+    final x = point.x.floor();
+    final y = point.y.floor();
     await session.send('Page.dispatchMouseEvent', {
       'type': 'mousedown',
       'button': 0,
@@ -173,7 +196,7 @@ class FfPage extends EventEmitter
       'x': x,
       'y': y,
       'modifiers': 0,
-      'clickCount': 1,
+      'clickCount': clickCount,
     });
     await session.send('Page.dispatchMouseEvent', {
       'type': 'mouseup',
@@ -182,7 +205,7 @@ class FfPage extends EventEmitter
       'x': x,
       'y': y,
       'modifiers': 0,
-      'clickCount': 1,
+      'clickCount': clickCount,
     });
   }
 

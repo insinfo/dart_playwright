@@ -85,6 +85,42 @@ void main() {
           expect(clicked, isTrue);
         });
 
+        test('Deve dar dblclick e hover com eventos confiaveis', () async {
+          await page.goto(server.url('/mouse'));
+          await page.locator('#target').hover();
+          expect(await page.evaluate('() => window.__hovered'), isTrue);
+          await page.locator('#target').dblclick();
+          expect(await page.evaluate('() => window.__dblclicked'), isTrue);
+        });
+
+        test('Deve expor estados isHidden/isDisabled/isEditable e clear',
+            () async {
+          await page.goto(server.url('/form'));
+
+          expect(await page.locator('#hidden').isHidden(), isTrue);
+          expect(await page.locator('#name').isHidden(), isFalse);
+
+          expect(await page.locator('#btn').isDisabled(), isTrue);
+          expect(await page.locator('#name').isDisabled(), isFalse);
+
+          expect(await page.locator('#name').isEditable(), isTrue);
+          expect(await page.locator('#btn').isEditable(), isFalse);
+
+          final name = page.locator('#name');
+          await name.fill('algo');
+          await name.clear();
+          expect(await name.inputValue(), equals(''));
+
+          await name.focus();
+          expect(
+              await page.evaluate('() => document.activeElement.id'),
+              equals('name'));
+          await name.blur();
+          expect(
+              await page.evaluate('() => document.activeElement.id'),
+              isNot(equals('name')));
+        });
+
         test('Deve preencher e inspecionar formulario', () async {
           await page.goto(server.url('/form'));
 

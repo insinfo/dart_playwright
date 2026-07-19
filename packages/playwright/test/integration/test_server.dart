@@ -119,6 +119,28 @@ class TestServer {
             ''');
           break;
 
+        case '/mouse':
+          // Records dblclick and hover with isTrusted so tests can prove the
+          // events came from real protocol input.
+          request.response
+            ..statusCode = 200
+            ..headers.contentType = ContentType.html
+            ..write('''
+              <html><body>
+                <button id="target">Target</button>
+                <script>
+                  const t = document.getElementById('target');
+                  t.addEventListener('dblclick', (e) => {
+                    window.__dblclicked = e.isTrusted;
+                  });
+                  t.addEventListener('mouseover', (e) => {
+                    window.__hovered = e.isTrusted;
+                  });
+                </script>
+              </body></html>
+            ''');
+          break;
+
         case '/keyboard':
           // Records keydown events and mirrors the input value so tests can
           // assert both real key events and inserted text.
