@@ -2,16 +2,21 @@ import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:playwright_core/src/registry/registry.dart';
 
-void main(List<String> args) {
+Future<void> main(List<String> args) async {
   final runner = CommandRunner<void>(
     'playwright',
     'Playwright for Dart — Browser automation',
   )..addCommand(InstallCommand())..addCommand(ListCommand());
 
-  runner.run(args).catchError((error) {
+  try {
+    await runner.run(args);
+  } catch (error) {
     stderr.writeln('Error: $error');
     exit(1);
-  });
+  }
+  // Exit explicitly: lingering keep-alive sockets or isolates must not keep
+  // the CLI process alive after the command finished.
+  exit(0);
 }
 
 class InstallCommand extends Command<void> {

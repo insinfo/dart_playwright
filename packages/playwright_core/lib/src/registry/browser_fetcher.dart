@@ -89,7 +89,9 @@ class BrowserFetcher {
       
       throw lastError ?? PlaywrightException('Download failed from all mirrors.');
     } finally {
-      client.close();
+      // force: true — do not let idle keep-alive connections hold the
+      // event loop (and the whole CLI process) open after the download.
+      client.close(force: true);
     }
   }
 
