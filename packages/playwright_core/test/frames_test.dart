@@ -80,4 +80,23 @@ void main() {
 
     expect(events, ['attached', 'navigated', 'load', 'detached']);
   });
+
+  test('duplicate lifecycle signals complete navigation only once', () async {
+    final page = FakeCorePage();
+    final manager = CoreFrameManager(page);
+    manager.frameAttached('main', null);
+    manager.frameNavigated('main', 'about:blank', '', 'loader-1');
+
+    var loadEvents = 0;
+    page.on('load', () => loadEvents++);
+    final navigation = manager.mainFrame!
+        .waitForNavigation(timeout: const Duration(seconds: 1));
+
+    manager.frameNavigated('main', 'https://example.com', '', 'loader-2');
+    manager.frameLifecycleEvent('main', 'load');
+    manager.frameLifecycleEvent('main', 'load');
+
+    await navigation;
+    expect(loadEvents, 1);
+  });
 }

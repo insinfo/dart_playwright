@@ -28,15 +28,19 @@ class CoreFrame {
   List<CoreFrame> get childFrames =>
       manager.frames.where((frame) => frame.parentId == id).toList();
 
-  void onLifecycleEvent(String eventName) {
+  bool onLifecycleEvent(String eventName) {
     if (eventName == 'init') {
       _lifecycleEvents.clear();
     }
     if (eventName == 'networkidle') {
       eventName = 'networkIdle';
     }
+    // Chromium can report the same lifecycle transition through both
+    // Page.lifecycleEvent and its legacy Page.*EventFired counterpart.
+    if (_lifecycleEvents.contains(eventName)) return false;
     _lifecycleEvents.add(eventName);
     _emitter.emit('lifecycle', eventName);
+    return true;
   }
 
   void onNavigated(String newUrl, String newName, String newLoaderId) {
@@ -205,7 +209,8 @@ class CoreFrameManager {
   void frameLifecycleEvent(String frameId, String eventName) {
     final frame = _frames[frameId];
     if (frame == null) return;
-    frame.onLifecycleEvent(eventName);
+    final isNewEvent = frame.onLifecycleEvent(eventName);
+    if (!isNewEvent) return;
     if (frameId == _mainFrameId) {
       if (eventName == 'load') {
         page.emit('load');

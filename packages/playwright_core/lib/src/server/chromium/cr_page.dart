@@ -53,6 +53,21 @@ class CrPage extends EventEmitter
       frameManager.frameLifecycleEvent(
           params['frameId'] as String, params['name'] as String);
     });
+    // Some Chromium builds do not deliver Page.lifecycleEvent reliably for
+    // the main frame even after Page.setLifecycleEventsEnabled. The legacy
+    // load events are always emitted, so use them as a main-frame fallback.
+    session.on('Page.loadEventFired', (_) {
+      final frame = frameManager.mainFrame;
+      if (frame != null) {
+        frameManager.frameLifecycleEvent(frame.id, 'load');
+      }
+    });
+    session.on('Page.domContentEventFired', (_) {
+      final frame = frameManager.mainFrame;
+      if (frame != null) {
+        frameManager.frameLifecycleEvent(frame.id, 'DOMContentLoaded');
+      }
+    });
   }
 
   void _onDialogOpening(Map<String, dynamic> params) {
