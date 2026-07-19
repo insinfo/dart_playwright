@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:playwright_protocol/playwright_protocol.dart';
 import '../core_page.dart';
 import 'wk_connection.dart';
+import 'wk_input.dart';
 import 'wk_route.dart';
 import '../../accessibility.dart';
 
@@ -11,17 +12,38 @@ import '../../accessibility.dart';
 /// Page-level commands are wrapped in `Target.sendMessageToTarget` by
 /// [WkPageProxySession.sendToTarget]; page-level events arrive unwrapped
 /// on the same session (via `Target.dispatchMessageFromTarget`).
-class WkPage extends EventEmitter with CorePageInputHelpers implements CorePage {
+class WkPage extends EventEmitter
+    with CorePageInputHelpers, CorePageDialogs
+    implements CorePage {
   final WkPageProxySession session;
   final String? browserContextId;
+  @override
+  late final Keyboard keyboard;
 
   bool _isClosed = false;
 
   WkPage(this.session, {this.browserContextId}) {
+    keyboard = Keyboard(WkRawKeyboard(session));
+    session.on('Dialog.javascriptDialogOpening', _onDialogOpening);
     session.on('closed', () => _onClosed());
   }
 
+  void _onDialogOpening(Map<String, dynamic> params) {
+    dispatchDialog(Dialog(
+      params['type'] as String? ?? 'alert',
+      params['message'] as String? ?? '',
+      params['defaultPrompt'] as String? ?? '',
+      (accept, promptText) async {
+        await session.send('Dialog.handleJavaScriptDialog', {
+          'accept': accept,
+          if (promptText != null) 'promptText': promptText,
+        });
+      },
+    ));
+  }
+
   Future<void> initialize() async {
+    await session.send('Dialog.enable');
     await session.sendToTarget('Page.enable');
     await session.sendToTarget('Runtime.enable');
     if (session.targetIsPaused) {

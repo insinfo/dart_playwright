@@ -9,6 +9,13 @@ abstract class Locator {
   /// Fill an input field.
   Future<void> fill(String text);
 
+  /// Focus the element then press [key] (or a chord like 'Control+A').
+  Future<void> press(String key);
+
+  /// Focus the element then type [text] character by character, firing
+  /// real keyboard events for each character.
+  Future<void> pressSequentially(String text);
+
   /// Get the text content of the element.
   Future<String> textContent();
 
@@ -74,6 +81,12 @@ class LocatorImpl implements Locator {
 
   @override
   Future<void> fill(String text) => _page.fill(_selector, text);
+
+  @override
+  Future<void> press(String key) => _page.press(_selector, key);
+
+  @override
+  Future<void> pressSequentially(String text) => _page.type(_selector, text);
 
   @override
   Future<String> textContent() async {

@@ -9,20 +9,37 @@ import '../../accessibility.dart';
 import '../core_page.dart';
 
 /// Represents a Chromium Page (tab).
-class CrPage extends EventEmitter with CorePageInputHelpers implements CorePage {
+class CrPage extends EventEmitter
+    with CorePageInputHelpers, CorePageDialogs
+    implements CorePage {
   final dynamic session;
   final CrNetworkManager networkManager;
-  final CrInput input;
+  @override
+  late final Keyboard keyboard;
   late final CrExecutionContext executionContext;
   final _routes = <String, Function(CrRoute)>{};
-  
+
   bool _isClosed = false;
 
-  CrPage._(this.session)
-      : networkManager = CrNetworkManager(session),
-        input = CrInput(session) {
+  CrPage._(this.session) : networkManager = CrNetworkManager(session) {
+    keyboard = Keyboard(CrRawKeyboard(session));
     executionContext = CrExecutionContext(session);
     session.on('closed', () => _onClosed());
+    session.on('Page.javascriptDialogOpening', _onDialogOpening);
+  }
+
+  void _onDialogOpening(Map<String, dynamic> params) {
+    dispatchDialog(Dialog(
+      params['type'] as String? ?? 'alert',
+      params['message'] as String? ?? '',
+      params['defaultPrompt'] as String? ?? '',
+      (accept, promptText) async {
+        await session.send('Page.handleJavaScriptDialog', {
+          'accept': accept,
+          if (promptText != null) 'promptText': promptText,
+        });
+      },
+    ));
   }
 
   /// Create and initialize a new page.

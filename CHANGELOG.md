@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0] - Teclado, cookies e dialogs
+
+### Added
+- **Teclado real**: layout US completo (`us_keyboard_layout.dart`) e classe `Keyboard` com estado de modificadores. `Page.keyboard`, `Page.press/type`, `Locator.press/pressSequentially` disparam eventos de tecla reais (CDP `Input.dispatchKeyEvent`, Juggler `Page.dispatchKeyEvent`, WebKit `Input.dispatchKeyEvent`) com `insertText` para caracteres fora do layout. Suporta chords (`Control+A`, `Shift+ArrowLeft`) e `ControlOrMeta` sensível à plataforma.
+- **Cookies e storageState**: `BrowserContext.cookies/addCookies/clearCookies` e `storageState()` (cookies + localStorage por origem) nos três motores — CDP `Storage.*`, Juggler `Browser.*Cookies`, WebKit `Playwright.*Cookies`.
+- **Dialogs**: `Page.onDialog` recebe alert/confirm/prompt/beforeunload com `accept([texto])`/`dismiss()`; sem handler, o diálogo é auto-descartado. Eventos por motor: CDP `Page.javascriptDialogOpening`, Juggler `Page.dialogOpened`, WebKit `Dialog.javascriptDialogOpening`.
+
 ## [0.2.0] - Paridade multi-motor e multiplataforma
 
 ### Added

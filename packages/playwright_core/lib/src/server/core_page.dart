@@ -2,6 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:playwright_protocol/playwright_protocol.dart';
 import '../accessibility.dart';
+import 'dialog.dart';
+import 'keyboard.dart';
+export 'dialog.dart' show Dialog;
+export 'keyboard.dart' show Keyboard;
 
 abstract class CorePage extends EventEmitter {
   Future<void> goto(String url);
@@ -18,7 +22,40 @@ abstract class CorePage extends EventEmitter {
   /// Fill [selector] with [text] using trusted protocol-level input events.
   Future<void> fill(String selector, String text);
 
+  /// The page's keyboard, dispatching trusted key events via the protocol.
+  Keyboard get keyboard;
+
+  /// Focuses [selector] then presses [key] (or a chord like 'Control+A').
+  Future<void> press(String selector, String key);
+
+  /// Focuses [selector] then types [text] character by character.
+  Future<void> type(String selector, String text);
+
+  /// Registers a handler invoked when a JavaScript dialog opens. Without a
+  /// handler, dialogs are auto-dismissed.
+  void onDialog(void Function(Dialog dialog) handler);
+
   Future<void> close();
+}
+
+/// Dialog dispatch shared by the engine pages.
+mixin CorePageDialogs {
+  void Function(Dialog dialog)? _dialogHandler;
+
+  /// Registers the dialog handler (replaces any previous one).
+  void onDialog(void Function(Dialog dialog) handler) {
+    _dialogHandler = handler;
+  }
+
+  /// Routes an opened [dialog] to the handler, or auto-dismisses it.
+  void dispatchDialog(Dialog dialog) {
+    final handler = _dialogHandler;
+    if (handler != null) {
+      handler(dialog);
+    } else {
+      dialog.dismiss();
+    }
+  }
 }
 
 /// Shared helpers for protocol-based input.
@@ -28,6 +65,21 @@ abstract class CorePage extends EventEmitter {
 /// through its native protocol so pages receive trusted events.
 mixin CorePageInputHelpers {
   Future<dynamic> evaluate(String expression);
+
+  /// The page keyboard; classes using this mixin must provide it.
+  Keyboard get keyboard;
+
+  /// Focuses [selector] then presses [key] (or a chord like 'Control+A').
+  Future<void> press(String selector, String key) async {
+    await focus(selector);
+    await keyboard.press(key);
+  }
+
+  /// Focuses [selector] then types [text] character by character.
+  Future<void> type(String selector, String text) async {
+    await focus(selector);
+    await keyboard.type(text);
+  }
 
   /// Scrolls [selector] into view and returns the viewport coordinates of
   /// its center as `{x, y}`.
@@ -67,6 +119,18 @@ mixin CorePageInputHelpers {
           selection.removeAllRanges();
           selection.addRange(range);
         }
+      }
+    ''');
+  }
+
+  /// Focuses [selector] without altering its selection.
+  Future<void> focus(String selector) async {
+    final sel = jsonEncode(selector);
+    await evaluate('''
+      () => {
+        const el = document.querySelector($sel);
+        if (!el) throw new Error('Element not found: ' + $sel);
+        el.focus();
       }
     ''');
   }

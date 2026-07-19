@@ -2,21 +2,28 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:playwright_protocol/playwright_protocol.dart';
 import 'ff_connection.dart';
+import 'ff_input.dart';
 import 'ff_route.dart';
 import '../../accessibility.dart';
 
 import '../core_page.dart';
 
 /// Represents a Firefox Juggler Page (tab).
-class FfPage extends EventEmitter with CorePageInputHelpers implements CorePage {
+class FfPage extends EventEmitter
+    with CorePageInputHelpers, CorePageDialogs
+    implements CorePage {
   final FfSession session;
-  
+  @override
+  late final Keyboard keyboard;
+
   bool _isClosed = false;
 
   String? _mainFrameId;
   String? _executionContextId;
 
   FfPage(this.session) {
+    keyboard = Keyboard(FfRawKeyboard(session));
+    session.on('Page.dialogOpened', _onDialogOpened);
     session.on('Page.frameAttached', (params) {
       _mainFrameId ??= params['frameId'] as String;
     });
@@ -26,6 +33,22 @@ class FfPage extends EventEmitter with CorePageInputHelpers implements CorePage 
       }
     });
     session.on('closed', () => _onClosed());
+  }
+
+  void _onDialogOpened(Map<String, dynamic> params) {
+    final dialogId = params['dialogId'];
+    dispatchDialog(Dialog(
+      params['type'] as String? ?? 'alert',
+      params['message'] as String? ?? '',
+      params['defaultValue'] as String? ?? '',
+      (accept, promptText) async {
+        await session.send('Page.handleDialog', {
+          'dialogId': dialogId,
+          'accept': accept,
+          if (promptText != null) 'promptText': promptText,
+        });
+      },
+    ));
   }
 
   Future<void> initialize() async {

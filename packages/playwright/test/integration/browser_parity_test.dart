@@ -135,6 +135,68 @@ void main() {
           expect(html.toLowerCase(), contains('<html'));
         });
 
+        test('Deve digitar texto com eventos reais de teclado', () async {
+          await page.goto(server.url('/keyboard'));
+          await page.type('#field', 'abc');
+          expect(await page.locator('#field').inputValue(), equals('abc'));
+          // Real keydown events must have fired for each character.
+          final keys = await page.evaluate('() => window.__keys.join(",")');
+          expect(keys, equals('a,b,c'));
+        });
+
+        test('Deve suportar press de teclas especiais', () async {
+          await page.goto(server.url('/keyboard'));
+          await page.locator('#field').fill('hello');
+          await page.locator('#field').press('Backspace');
+          expect(await page.locator('#field').inputValue(), equals('hell'));
+        });
+
+        test('Deve gerenciar cookies no contexto', () async {
+          await page.goto(server.url('/hello'));
+          await context.addCookies([
+            {
+              'name': 'session',
+              'value': 'xyz',
+              'url': server.url('/'),
+            }
+          ]);
+          final cookies = await context.cookies();
+          expect(cookies.any((c) => c['name'] == 'session' && c['value'] == 'xyz'),
+              isTrue);
+
+          await context.clearCookies();
+          expect(await context.cookies(), isEmpty);
+        });
+
+        test('Deve aceitar dialog prompt com texto', () async {
+          await page.goto(server.url('/dialog'));
+          page.onDialog((dialog) {
+            expect(dialog.type, equals('prompt'));
+            dialog.accept('Playwright');
+          });
+          await page.evaluate('() => window.runPrompt()');
+          expect(await page.locator('#result').textContent(),
+              equals('got:Playwright'));
+        });
+
+        test('Deve capturar storageState com cookies e localStorage', () async {
+          await page.goto(server.url('/hello'));
+          await page.evaluate('() => localStorage.setItem("k", "v")');
+          await context.addCookies([
+            {'name': 'a', 'value': 'b', 'url': server.url('/')}
+          ]);
+
+          final state = await context.storageState();
+          expect((state['cookies'] as List).any((c) => c['name'] == 'a'),
+              isTrue);
+          final origins = state['origins'] as List;
+          expect(origins, isNotEmpty);
+          final ls = (origins.first as Map)['localStorage'] as List;
+          expect(ls.any((e) => e['name'] == 'k' && e['value'] == 'v'), isTrue);
+
+          await context.clearCookies();
+        });
+
         test('Deve isolar contextos e fechar contexto', () async {
           final ctx1 = await browser.newContext();
           final page1 = await ctx1.newPage();

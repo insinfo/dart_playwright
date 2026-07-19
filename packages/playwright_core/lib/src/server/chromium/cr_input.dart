@@ -1,39 +1,43 @@
-import 'dart:async';
+import '../keyboard.dart';
+import '../us_keyboard_layout.dart';
 
-/// Keyboard, Mouse, and Touchscreen input for Chromium.
-class CrInput {
+/// CDP keyboard event sink (Input.dispatchKeyEvent / Input.insertText).
+class CrRawKeyboard implements RawKeyboard {
   final dynamic session;
 
-  CrInput(this.session);
+  CrRawKeyboard(this.session);
 
-  /// Dispatch a mouse event.
-  Future<void> dispatchMouseEvent(
-      String type, double x, double y, String button, int modifiers, int clickCount) async {
-    await session.send('Input.dispatchMouseEvent', {
-      'type': type,
-      'x': x,
-      'y': y,
-      'button': button,
-      'modifiers': modifiers,
-      'clickCount': clickCount,
-    });
-  }
-
-  /// Dispatch a keyboard event.
-  Future<void> dispatchKeyEvent(
-      String type, int modifiers, String key, String text) async {
+  @override
+  Future<void> keyDown(
+      Set<String> modifiers, KeyDescription d, bool autoRepeat) async {
     await session.send('Input.dispatchKeyEvent', {
-      'type': type,
-      'modifiers': modifiers,
-      'key': key,
-      'text': text,
+      'type': d.text.isNotEmpty ? 'keyDown' : 'rawKeyDown',
+      'modifiers': toModifiersMask(modifiers),
+      'windowsVirtualKeyCode': d.keyCodeWithoutLocation,
+      'code': d.code,
+      'key': d.key,
+      'text': d.text,
+      'unmodifiedText': d.text,
+      'autoRepeat': autoRepeat,
+      'location': d.location,
+      'isKeypad': d.location == keypadLocation,
     });
   }
 
-  /// Insert text.
-  Future<void> insertText(String text) async {
-    await session.send('Input.insertText', {
-      'text': text,
+  @override
+  Future<void> keyUp(Set<String> modifiers, KeyDescription d) async {
+    await session.send('Input.dispatchKeyEvent', {
+      'type': 'keyUp',
+      'modifiers': toModifiersMask(modifiers),
+      'key': d.key,
+      'windowsVirtualKeyCode': d.keyCodeWithoutLocation,
+      'code': d.code,
+      'location': d.location,
     });
+  }
+
+  @override
+  Future<void> sendText(String text) async {
+    await session.send('Input.insertText', {'text': text});
   }
 }

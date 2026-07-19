@@ -1,9 +1,11 @@
-import 'package:playwright_core/src/server/core_page.dart';
+import 'package:playwright_core/src/server/core_page.dart' hide Dialog;
+import 'package:playwright_core/src/server/dialog.dart' as core;
 import 'package:playwright_core/src/server/chromium/cr_element_handle.dart';
 import 'locator.dart';
 import 'js_handle.dart';
 import 'element_handle.dart';
 import 'route.dart';
+import 'dialog.dart';
 import 'package:playwright_core/src/accessibility.dart';
 
 /// A single tab or page in a browser.
@@ -37,6 +39,19 @@ abstract class Page {
 
   /// Fill an element with text using trusted protocol-level input events.
   Future<void> fill(String selector, String text);
+
+  /// The page keyboard, dispatching trusted key events via the protocol.
+  Keyboard get keyboard;
+
+  /// Focus [selector] then press [key] (or a chord like 'Control+A').
+  Future<void> press(String selector, String key);
+
+  /// Focus [selector] then type [text] character by character.
+  Future<void> type(String selector, String text);
+
+  /// Register a handler for JavaScript dialogs (alert/confirm/prompt).
+  /// Without a handler, dialogs are auto-dismissed.
+  void onDialog(void Function(Dialog dialog) handler);
 
   /// Get the full HTML content of the page.
   Future<String> content();
@@ -74,6 +89,24 @@ class PageImpl implements Page {
     await _corePage.route(urlPattern, (crRoute) {
       final routeImpl = RouteImpl(crRoute);
       handler(routeImpl);
+    });
+  }
+
+  @override
+  Keyboard get keyboard => _corePage.keyboard;
+
+  @override
+  Future<void> press(String selector, String key) =>
+      _corePage.press(selector, key);
+
+  @override
+  Future<void> type(String selector, String text) =>
+      _corePage.type(selector, text);
+
+  @override
+  void onDialog(void Function(Dialog dialog) handler) {
+    _corePage.onDialog((core.Dialog coreDialog) {
+      handler(DialogImpl(coreDialog));
     });
   }
 

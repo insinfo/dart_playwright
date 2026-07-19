@@ -119,6 +119,49 @@ class TestServer {
             ''');
           break;
 
+        case '/keyboard':
+          // Records keydown events and mirrors the input value so tests can
+          // assert both real key events and inserted text.
+          request.response
+            ..statusCode = 200
+            ..headers.contentType = ContentType.html
+            ..write('''
+              <html><body>
+                <input id="field" type="text" />
+                <div id="log"></div>
+                <script>
+                  window.__keys = [];
+                  const f = document.getElementById('field');
+                  f.addEventListener('keydown', (e) => {
+                    window.__keys.push(e.key);
+                    document.getElementById('log').textContent = window.__keys.join(',');
+                  });
+                </script>
+              </body></html>
+            ''');
+          break;
+
+        case '/dialog':
+          request.response
+            ..statusCode = 200
+            ..headers.contentType = ContentType.html
+            ..write('''
+              <html><body>
+                <div id="result">pending</div>
+                <script>
+                  window.runPrompt = () => {
+                    const answer = prompt('Your name?', 'default');
+                    document.getElementById('result').textContent = 'got:' + answer;
+                  };
+                  window.runConfirm = () => {
+                    const ok = confirm('Proceed?');
+                    document.getElementById('result').textContent = 'confirm:' + ok;
+                  };
+                </script>
+              </body></html>
+            ''');
+          break;
+
         case '/visual':
           request.response
             ..statusCode = 200

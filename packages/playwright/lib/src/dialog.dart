@@ -1,15 +1,17 @@
+import 'package:playwright_core/src/server/dialog.dart' as core;
+
 /// Represents a JavaScript dialog (alert, confirm, prompt, beforeunload).
 abstract class Dialog {
   /// The type of the dialog (alert, beforeunload, confirm, prompt).
-  String type();
+  String get type;
 
   /// The message displayed in the dialog.
-  String message();
+  String get message;
 
   /// The default value of the prompt, if any.
-  String defaultValue();
+  String get defaultValue;
 
-  /// Accept the dialog.
+  /// Accept the dialog, optionally providing prompt text.
   Future<void> accept([String? promptText]);
 
   /// Dismiss the dialog.
@@ -17,26 +19,22 @@ abstract class Dialog {
 }
 
 class DialogImpl implements Dialog {
-  final String _type;
-  final String _message;
-  final String _defaultValue;
-  final Future<void> Function([String? promptText]) _onAccept;
-  final Future<void> Function() _onDismiss;
+  final core.Dialog _dialog;
 
-  DialogImpl(this._type, this._message, this._defaultValue, this._onAccept, this._onDismiss);
+  DialogImpl(this._dialog);
 
   @override
-  String type() => _type;
+  String get type => _dialog.type;
 
   @override
-  String message() => _message;
+  String get message => _dialog.message;
 
   @override
-  String defaultValue() => _defaultValue;
+  String get defaultValue => _dialog.defaultValue;
 
   @override
-  Future<void> accept([String? promptText]) => _onAccept(promptText);
+  Future<void> accept([String? promptText]) => _dialog.accept(promptText);
 
   @override
-  Future<void> dismiss() => _onDismiss();
+  Future<void> dismiss() => _dialog.dismiss();
 }

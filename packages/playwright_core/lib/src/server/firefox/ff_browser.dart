@@ -89,7 +89,9 @@ class FfBrowser extends EventEmitter implements CoreBrowser {
 }
 
 /// An isolated Firefox (Juggler) browser context.
-class FfBrowserContext implements CoreBrowserContext {
+class FfBrowserContext
+    with BrowserContextStorage
+    implements CoreBrowserContext {
   final FfBrowser browser;
   final String browserContextId;
   bool _closed = false;
@@ -102,8 +104,36 @@ class FfBrowserContext implements CoreBrowserContext {
     final result = await browser.session.send('Browser.newPage', {
       'browserContextId': browserContextId,
     });
-    return browser.waitForPage(result['targetId'] as String);
+    final page = await browser.waitForPage(result['targetId'] as String);
+    trackedPages.add(page);
+    return page;
   }
+
+  @override
+  Future<List<Map<String, dynamic>>> cookies([List<String>? urls]) async {
+    final result = await browser.session.send('Browser.getCookies', {
+      'browserContextId': browserContextId,
+    });
+    return (result['cookies'] as List).cast<Map<String, dynamic>>();
+  }
+
+  @override
+  Future<void> addCookies(List<Map<String, dynamic>> cookies) async {
+    await browser.connection.send('Browser.setCookies', {
+      'browserContextId': browserContextId,
+      'cookies': rewriteCookies(cookies),
+    });
+  }
+
+  @override
+  Future<void> clearCookies() async {
+    await browser.session.send('Browser.clearCookies', {
+      'browserContextId': browserContextId,
+    });
+  }
+
+  @override
+  Future<Map<String, dynamic>> storageState() => collectStorageState();
 
   @override
   Future<void> close() async {

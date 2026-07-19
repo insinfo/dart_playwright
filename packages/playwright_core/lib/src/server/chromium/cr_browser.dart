@@ -87,10 +87,11 @@ class CrBrowser extends EventEmitter implements CoreBrowser {
 }
 
 /// An isolated Chromium browser context (incognito-like partition).
-class CrBrowserContext implements CoreBrowserContext {
+class CrBrowserContext
+    with BrowserContextStorage
+    implements CoreBrowserContext {
   final CrBrowser browser;
   final String browserContextId;
-  final _pages = <CrPage>[];
   bool _closed = false;
 
   CrBrowserContext(this.browser, this.browserContextId);
@@ -112,9 +113,35 @@ class CrBrowserContext implements CoreBrowserContext {
 
     final page =
         await CrPage.create(connection.createSession(sessionId, 'page'));
-    _pages.add(page);
+    trackedPages.add(page);
     return page;
   }
+
+  @override
+  Future<List<Map<String, dynamic>>> cookies([List<String>? urls]) async {
+    final result = await browser.connection.send('Storage.getCookies', {
+      'browserContextId': browserContextId,
+    });
+    return (result['cookies'] as List).cast<Map<String, dynamic>>();
+  }
+
+  @override
+  Future<void> addCookies(List<Map<String, dynamic>> cookies) async {
+    await browser.connection.send('Storage.setCookies', {
+      'browserContextId': browserContextId,
+      'cookies': rewriteCookies(cookies),
+    });
+  }
+
+  @override
+  Future<void> clearCookies() async {
+    await browser.connection.send('Storage.clearCookies', {
+      'browserContextId': browserContextId,
+    });
+  }
+
+  @override
+  Future<Map<String, dynamic>> storageState() => collectStorageState();
 
   @override
   Future<void> close() async {
@@ -124,6 +151,6 @@ class CrBrowserContext implements CoreBrowserContext {
     await browser.connection.send('Target.disposeBrowserContext', {
       'browserContextId': browserContextId,
     });
-    _pages.clear();
+    trackedPages.clear();
   }
 }

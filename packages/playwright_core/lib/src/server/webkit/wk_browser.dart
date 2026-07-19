@@ -42,7 +42,9 @@ class WkBrowser extends EventEmitter implements CoreBrowser {
 }
 
 /// An isolated WebKit browser context.
-class WkBrowserContext implements CoreBrowserContext {
+class WkBrowserContext
+    with BrowserContextStorage
+    implements CoreBrowserContext {
   final WkBrowser browser;
   final String browserContextId;
   bool _closed = false;
@@ -66,8 +68,51 @@ class WkBrowserContext implements CoreBrowserContext {
 
     final page = WkPage(session, browserContextId: browserContextId);
     await page.initialize();
+    trackedPages.add(page);
     return page;
   }
+
+  @override
+  Future<List<Map<String, dynamic>>> cookies([List<String>? urls]) async {
+    final result = await browser.connection.send('Playwright.getAllCookies', {
+      'browserContextId': browserContextId,
+    });
+    final cookies = (result['cookies'] as List).cast<Map<String, dynamic>>();
+    for (final c in cookies) {
+      if (c.containsKey('expires') && c['expires'] != -1) {
+        c['expires'] = (c['expires'] as num) / 1000;
+      }
+    }
+    return cookies;
+  }
+
+  @override
+  Future<void> addCookies(List<Map<String, dynamic>> cookies) async {
+    final cc = <Map<String, dynamic>>[];
+    for (final c in rewriteCookies(cookies)) {
+      final copy = Map<String, dynamic>.from(c);
+      if (copy.containsKey('expires') && copy['expires'] != -1) {
+        copy['expires'] = (copy['expires'] as num) * 1000;
+      } else {
+        copy['session'] = true;
+      }
+      cc.add(copy);
+    }
+    await browser.connection.send('Playwright.setCookies', {
+      'browserContextId': browserContextId,
+      'cookies': cc,
+    });
+  }
+
+  @override
+  Future<void> clearCookies() async {
+    await browser.connection.send('Playwright.deleteAllCookies', {
+      'browserContextId': browserContextId,
+    });
+  }
+
+  @override
+  Future<Map<String, dynamic>> storageState() => collectStorageState();
 
   @override
   Future<void> close() async {
