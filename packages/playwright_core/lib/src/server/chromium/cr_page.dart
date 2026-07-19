@@ -60,10 +60,34 @@ class CrPage extends EventEmitter
     ]);
   }
 
+  @override
+  Future<void> waitForLoadState({WaitUntilState state = WaitUntilState.load, Duration? timeout}) async {
+    String eventName;
+    if (state == WaitUntilState.load || state == WaitUntilState.networkidle) {
+      eventName = 'Page.loadEventFired';
+    } else {
+      eventName = 'Page.domContentEventFired';
+    }
+    
+    await session.waitForEvent(eventName, timeout: timeout);
+    
+    // For networkidle, add a small buffer for simplicity without full FrameManager
+    if (state == WaitUntilState.networkidle) {
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
+  }
+
+  @override
+  Future<void> waitForNavigation({WaitUntilState? waitUntil, Duration? timeout}) async {
+    // In Chromium, a navigation triggers frameNavigated and then lifecycle events.
+    // We wait for the load state.
+    await waitForLoadState(state: waitUntil ?? WaitUntilState.load, timeout: timeout);
+  }
+
   /// Navigate to a URL.
-  Future<void> goto(String url) async {
-    final loaded = session.waitForEvent('Page.loadEventFired',
-        timeout: const Duration(seconds: 30));
+  @override
+  Future<void> goto(String url, {WaitUntilState? waitUntil}) async {
+    final loaded = waitForLoadState(state: waitUntil ?? WaitUntilState.load, timeout: const Duration(seconds: 30));
     final result = await session.send('Page.navigate', {'url': url});
     if (result['errorText'] != null) {
       throw PlaywrightException(

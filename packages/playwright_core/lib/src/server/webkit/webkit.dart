@@ -39,6 +39,8 @@ class WebKitBrowserType {
         await launchBrowserWithInspectorPipe(executablePath, launchArgs);
     try {
       final connection = WkConnection(transport);
+      final environment = Map<String, String>.from(Platform.environment);
+      environment['CURL_OPT_NO_AUTOMATION_WARNING'] = '1';
       final wkBrowser = WkBrowser(connection);
       await wkBrowser.init();
 

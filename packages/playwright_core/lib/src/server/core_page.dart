@@ -7,8 +7,16 @@ import 'keyboard.dart';
 export 'dialog.dart' show Dialog;
 export 'keyboard.dart' show Keyboard;
 
+enum WaitUntilState {
+  load,
+  domcontentloaded,
+  networkidle,
+}
+
 abstract class CorePage extends EventEmitter {
-  Future<void> goto(String url);
+  Future<void> goto(String url, {WaitUntilState? waitUntil});
+  Future<void> waitForLoadState({WaitUntilState state = WaitUntilState.load, Duration? timeout});
+  Future<void> waitForNavigation({WaitUntilState? waitUntil, Duration? timeout});
   Future<String> title();
   Future<dynamic> evaluate(String expression);
   Future<dynamic> evaluateHandle(String expression);

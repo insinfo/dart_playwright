@@ -83,7 +83,8 @@ class Win32Process {
     }
   }
 
-  static Win32Process start(String executablePath, List<String> arguments) {
+  static Win32Process start(String executablePath, List<String> arguments,
+      {Map<String, String>? environment}) {
     if (!Platform.isWindows) {
       throw UnsupportedError('Win32Process is only supported on Windows');
     }
@@ -162,6 +163,16 @@ class Win32Process {
     
     final pCommandLine = cmdBuffer.toString().toNativeUtf16(allocator: arena);
 
+    Pointer<Void> lpEnvironment = nullptr;
+    if (environment != null) {
+      final envBuffer = StringBuffer();
+      for (final entry in environment.entries) {
+        envBuffer.write('${entry.key}=${entry.value}\x00');
+      }
+      envBuffer.write('\x00');
+      lpEnvironment = envBuffer.toString().toNativeUtf16(allocator: arena).cast();
+    }
+
     final processInformation = arena<PROCESS_INFORMATION>();
 
     final result = CreateProcess(
@@ -171,7 +182,7 @@ class Win32Process {
       nullptr,
       TRUE,
       PROCESS_CREATION_FLAGS.CREATE_UNICODE_ENVIRONMENT,
-      nullptr,
+      lpEnvironment,
       nullptr,
       startupInfo,
       processInformation,

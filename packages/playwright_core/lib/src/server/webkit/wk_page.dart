@@ -51,9 +51,30 @@ class WkPage extends EventEmitter
     }
   }
 
-  Future<void> goto(String url) async {
-    final loaded = session.waitForEvent('Page.loadEventFired',
-        timeout: Duration(seconds: 30));
+  @override
+  Future<void> waitForLoadState({WaitUntilState state = WaitUntilState.load, Duration? timeout}) async {
+    String eventName;
+    if (state == WaitUntilState.load || state == WaitUntilState.networkidle) {
+      eventName = 'Page.loadEventFired';
+    } else {
+      eventName = 'Page.domContentEventFired';
+    }
+    
+    await session.waitForEvent(eventName, timeout: timeout);
+    
+    if (state == WaitUntilState.networkidle) {
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
+  }
+
+  @override
+  Future<void> waitForNavigation({WaitUntilState? waitUntil, Duration? timeout}) async {
+    await waitForLoadState(state: waitUntil ?? WaitUntilState.load, timeout: timeout);
+  }
+
+  @override
+  Future<void> goto(String url, {WaitUntilState? waitUntil}) async {
+    final loaded = waitForLoadState(state: waitUntil ?? WaitUntilState.load, timeout: const Duration(seconds: 30));
     // Navigation is a Playwright-domain command on the browser session,
     // scoped by pageProxyId (WebKit's Page domain has no Page.navigate).
     await session.connection.send('Playwright.navigate', {

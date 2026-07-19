@@ -8,10 +8,18 @@ import 'route.dart';
 import 'dialog.dart';
 import 'package:playwright_core/src/accessibility.dart';
 
+export 'package:playwright_core/src/server/core_page.dart' show WaitUntilState;
+
 /// A single tab or page in a browser.
 abstract class Page {
   /// Navigate to a URL.
-  Future<void> goto(String url);
+  Future<void> goto(String url, {WaitUntilState? waitUntil});
+
+  /// Wait for the page to reach a specific load state.
+  Future<void> waitForLoadState({WaitUntilState state = WaitUntilState.load, Duration? timeout});
+
+  /// Wait for the page to navigate to a new URL.
+  Future<void> waitForNavigation({WaitUntilState? waitUntil, Duration? timeout});
 
   /// Get the page title.
   Future<String> title();
@@ -73,7 +81,15 @@ class PageImpl implements Page {
   PageImpl(this._corePage);
 
   @override
-  Future<void> goto(String url) => _corePage.goto(url);
+  Future<void> goto(String url, {WaitUntilState? waitUntil}) => _corePage.goto(url, waitUntil: waitUntil);
+
+  @override
+  Future<void> waitForLoadState({WaitUntilState state = WaitUntilState.load, Duration? timeout}) =>
+      _corePage.waitForLoadState(state: state, timeout: timeout);
+
+  @override
+  Future<void> waitForNavigation({WaitUntilState? waitUntil, Duration? timeout}) =>
+      _corePage.waitForNavigation(waitUntil: waitUntil, timeout: timeout);
 
   @override
   Future<String> title() => _corePage.title();

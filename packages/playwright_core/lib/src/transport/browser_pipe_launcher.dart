@@ -13,9 +13,9 @@ import 'win32_process.dart';
 /// If transport initialization fails, the browser process is killed before
 /// the error propagates.
 Future<ConnectionTransport> launchBrowserWithInspectorPipe(
-    String executablePath, List<String> arguments) async {
+    String executablePath, List<String> arguments, {Map<String, String>? environment}) async {
   if (Platform.isWindows) {
-    final process = Win32Process.start(executablePath, arguments);
+    final process = Win32Process.start(executablePath, arguments, environment: environment);
     final transport = PipeTransport(process);
     try {
       await transport.init();
@@ -26,7 +26,7 @@ Future<ConnectionTransport> launchBrowserWithInspectorPipe(
     return transport;
   }
 
-  final process = await PosixProcess.start(executablePath, arguments);
+  final process = await PosixProcess.start(executablePath, arguments, environment: environment);
   final transport = PosixPipeTransport(process);
   try {
     await transport.init();

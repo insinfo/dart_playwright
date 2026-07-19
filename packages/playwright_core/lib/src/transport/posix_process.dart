@@ -48,7 +48,7 @@ class PosixProcess {
   static String _shQuote(String s) => "'${s.replaceAll("'", "'\\''")}'";
 
   static Future<PosixProcess> start(
-      String executablePath, List<String> arguments) async {
+      String executablePath, List<String> arguments, {Map<String, String>? environment}) async {
     if (Platform.isWindows) {
       throw UnsupportedError('PosixProcess is not supported on Windows');
     }
@@ -70,7 +70,7 @@ class PosixProcess {
         '${arguments.map(_shQuote).join(' ')} '
         '3<${_shQuote(fifo3)} 4>${_shQuote(fifo4)}';
 
-    final process = await Process.start('/bin/sh', ['-c', command]);
+    final process = await Process.start('/bin/sh', ['-c', command], environment: environment);
     // Drain stdio so the child never blocks on full pipe buffers. With
     // PLAYWRIGHT_DEBUG set, surface the browser's output for diagnosis.
     final debug = Platform.environment['PLAYWRIGHT_DEBUG'] != null;

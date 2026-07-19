@@ -17,10 +17,25 @@ class PlaywrightMcpServer {
   
   final _tools = <String, McpTool>{};
   
-  Future<void> start() async {
+  Future<void> start({String browserName = 'chromium'}) async {
     // 1. Inicializar Playwright
     _playwright = await Playwright.create();
-    _browser = await _playwright!.chromium.launch(headless: true);
+    
+    BrowserType type;
+    switch (browserName.toLowerCase()) {
+      case 'firefox':
+        type = _playwright!.firefox;
+        break;
+      case 'webkit':
+        type = _playwright!.webkit;
+        break;
+      case 'chromium':
+      default:
+        type = _playwright!.chromium;
+        break;
+    }
+    
+    _browser = await type.launch(headless: true);
     _context = await _browser!.newContext();
     
     // 2. Registrar ferramentas

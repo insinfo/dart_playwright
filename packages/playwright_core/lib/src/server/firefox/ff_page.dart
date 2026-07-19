@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:playwright_protocol/playwright_protocol.dart';
@@ -57,10 +58,51 @@ class FfPage extends EventEmitter
     await session.waitForEvent('Page.ready');
   }
 
+  @override
+  Future<void> waitForLoadState({WaitUntilState state = WaitUntilState.load, Duration? timeout}) async {
+    final targetName = (state == WaitUntilState.load || state == WaitUntilState.networkidle) 
+        ? 'load' 
+        : 'DOMContentLoaded';
+        
+    final completer = Completer<void>();
+    void Function(dynamic)? listener;
+    Timer? timer;
+    
+    listener = (payload) {
+      if (payload['name'] == targetName) {
+        session.off('Page.eventFired', listener!);
+        timer?.cancel();
+        if (!completer.isCompleted) completer.complete();
+      }
+    };
+    
+    session.on('Page.eventFired', listener);
+    
+    if (timeout != null) {
+      timer = Timer(timeout, () {
+        session.off('Page.eventFired', listener!);
+        if (!completer.isCompleted) completer.completeError(TimeoutException('Timeout waiting for $targetName'));
+      });
+    }
+    
+    await completer.future;
+    
+    if (state == WaitUntilState.networkidle) {
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
+  }
+
+  @override
+  Future<void> waitForNavigation({WaitUntilState? waitUntil, Duration? timeout}) async {
+    await waitForLoadState(state: waitUntil ?? WaitUntilState.load, timeout: timeout);
+  }
+
   /// Navigate to a URL.
-  Future<void> goto(String url) async {
+  @override
+  Future<void> goto(String url, {WaitUntilState? waitUntil}) async {
+    final loaded = waitForLoadState(state: waitUntil ?? WaitUntilState.load, timeout: const Duration(seconds: 30));
     await session.send('Page.navigate', {'url': url, 'frameId': _mainFrameId});
-    await session.waitForEvent('Page.navigationCommitted');
+    await loaded;
   }
 
   /// Get the page title.
