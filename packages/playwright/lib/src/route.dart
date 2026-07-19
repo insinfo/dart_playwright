@@ -11,7 +11,16 @@ abstract class Route {
   Future<void> continue_();
 
   /// Fulfill the request with the given response.
-  Future<void> fulfill({int status = 200, Map<String, String>? headers, String? body, List<int>? bodyBytes});
+  ///
+  /// [json] serializes the value and defaults the content type to
+  /// application/json; [contentType] sets the Content-Type header.
+  Future<void> fulfill(
+      {int status = 200,
+      Map<String, String>? headers,
+      String? body,
+      List<int>? bodyBytes,
+      String? contentType,
+      Object? json});
 
   /// Abort the request.
   Future<void> abort([String errorCode = 'failed']);
@@ -32,12 +41,31 @@ class RouteImpl implements Route {
   Future<void> continue_() => _coreRoute.continue_();
 
   @override
-  Future<void> fulfill({int status = 200, Map<String, String>? headers, String? body, List<int>? bodyBytes}) {
-    List<int>? finalBytes = bodyBytes;
-    if (body != null && finalBytes == null) {
-      finalBytes = utf8.encode(body);
+  Future<void> fulfill(
+      {int status = 200,
+      Map<String, String>? headers,
+      String? body,
+      List<int>? bodyBytes,
+      String? contentType,
+      Object? json}) {
+    var finalContentType = contentType;
+    var finalBody = body;
+    if (json != null) {
+      assert(finalBody == null && bodyBytes == null,
+          'json cannot be combined with body or bodyBytes');
+      finalBody = jsonEncode(json);
+      finalContentType ??= 'application/json';
     }
-    return _coreRoute.fulfill(status: status, headers: headers, bodyBytes: finalBytes);
+    List<int>? finalBytes = bodyBytes;
+    if (finalBody != null && finalBytes == null) {
+      finalBytes = utf8.encode(finalBody);
+    }
+    Map<String, String>? finalHeaders = headers;
+    if (finalContentType != null) {
+      finalHeaders = {...?headers, 'Content-Type': finalContentType};
+    }
+    return _coreRoute.fulfill(
+        status: status, headers: finalHeaders, bodyBytes: finalBytes);
   }
 
   @override

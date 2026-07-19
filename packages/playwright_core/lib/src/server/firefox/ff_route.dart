@@ -12,8 +12,11 @@ class FfRoute implements CoreRoute {
   late final CoreRequest _request;
 
   FfRoute(this.session, this.requestId, this.url,
-      {this.method = 'GET', this.headers = const <String, String>{}}) {
-    _request = BasicCoreRequest(url: url, method: method, headers: headers);
+      {this.method = 'GET',
+      this.headers = const <String, String>{},
+      String? postData}) {
+    _request = BasicCoreRequest(
+        url: url, method: method, headers: headers, postData: postData);
   }
 
   @override

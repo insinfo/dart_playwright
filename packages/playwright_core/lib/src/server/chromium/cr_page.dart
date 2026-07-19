@@ -337,19 +337,32 @@ class CrPage extends EventEmitter
     return AccessibilitySnapshot(title: title, root: root);
   }
 
+  bool _routeListenerInstalled = false;
+
   /// Add a route interception handler.
   @override
   Future<void> route(
       String urlPattern, void Function(CoreRoute) handler) async {
+    if (!_routeListenerInstalled) {
+      _routeListenerInstalled = true;
+      session.on('Fetch.requestPaused', _onRequestPaused);
+    }
     if (_routes.isEmpty) {
       await session.send('Fetch.enable', {
         'patterns': [
           {'requestStage': 'Request'}
         ]
       });
-      session.on('Fetch.requestPaused', _onRequestPaused);
     }
     _routes[urlPattern] = handler;
+  }
+
+  @override
+  Future<void> unroute(String urlPattern) async {
+    _routes.remove(urlPattern);
+    if (_routes.isEmpty) {
+      await session.send('Fetch.disable');
+    }
   }
 
   void _onRequestPaused(Map<String, dynamic> params) {
@@ -374,13 +387,14 @@ class CrPage extends EventEmitter
         url,
         method: request['method'] as String? ?? 'GET',
         headers: _stringHeaders(request['headers']),
+        postData: request['postData'] as String?,
       ));
     } else {
       // Fire-and-forget: the page may be closing and the session already
       // gone; that must not surface as an unhandled async error.
       (session.send('Fetch.continueRequest', {'requestId': fetchRequestId})
-              as Future<dynamic>)
-          .catchError((_) {});
+              as Future<Map<String, dynamic>>)
+          .catchError((_) => <String, dynamic>{});
     }
   }
 

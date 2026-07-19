@@ -57,6 +57,12 @@ abstract class Page {
   /// Intercept network requests.
   Future<void> route(String urlPattern, void Function(Route) handler);
 
+  /// Remove the route handler for [urlPattern].
+  Future<void> unroute(String urlPattern);
+
+  /// Remove all route handlers.
+  Future<void> unrouteAll();
+
   /// Evaluate JavaScript expression in the page.
   Future<dynamic> evaluate(String expression);
 
@@ -209,12 +215,28 @@ class PageImpl implements Page {
   Future<AccessibilitySnapshot> accessibilitySnapshot() =>
       _corePage.accessibilitySnapshot();
 
+  final _routePatterns = <String>{};
+
   @override
   Future<void> route(String urlPattern, void Function(Route) handler) async {
+    _routePatterns.add(urlPattern);
     await _corePage.route(urlPattern, (crRoute) {
       final routeImpl = RouteImpl(crRoute);
       handler(routeImpl);
     });
+  }
+
+  @override
+  Future<void> unroute(String urlPattern) async {
+    _routePatterns.remove(urlPattern);
+    await _corePage.unroute(urlPattern);
+  }
+
+  @override
+  Future<void> unrouteAll() async {
+    for (final pattern in _routePatterns.toList()) {
+      await unroute(pattern);
+    }
   }
 
   @override

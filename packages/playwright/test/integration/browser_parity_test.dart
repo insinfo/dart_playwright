@@ -299,9 +299,64 @@ void main() {
               body: '<html><head><title>Intercepted</title></head><body></body></html>',
             );
           });
-          
+
           await page.goto(server.url('/title'));
           expect(await page.title(), equals('Intercepted'));
+        });
+
+        test('Deve responder rota com fulfill json e contentType', () async {
+          await page.goto(server.url('/hello'));
+          await page.route('**/api', (route) async {
+            await route.fulfill(json: {'ok': true, 'n': 7});
+          });
+
+          await page.evaluate('''
+            () => {
+              fetch('/api')
+                .then(r => r.json().then(j => ({ct: r.headers.get('content-type'), j})))
+                .then(v => { window.__api = v; });
+            }
+          ''');
+          final result = await page.waitForFunction('() => window.__api',
+              timeout: Duration(seconds: 10));
+          final map = result as Map;
+          expect(map['ct'], contains('application/json'));
+          expect(map['j'], equals({'ok': true, 'n': 7}));
+        });
+
+        test('Deve remover rota com unroute', () async {
+          await page.route('**/title', (route) async {
+            await route.fulfill(
+              body:
+                  '<html><head><title>Intercepted</title></head><body></body></html>',
+            );
+          });
+          await page.goto(server.url('/title'));
+          expect(await page.title(), equals('Intercepted'));
+
+          await page.unroute('**/title');
+          await page.goto(server.url('/title'));
+          expect(await page.title(), equals('Test Page Title'));
+        });
+
+        test('Deve expor postData da requisicao interceptada', () async {
+          await page.goto(server.url('/hello'));
+          String? captured;
+          await page.route('**/api', (route) async {
+            captured = route.request().postData();
+            await route.fulfill(json: {'ok': true});
+          });
+
+          await page.evaluate('''
+            () => {
+              fetch('/api', {method: 'POST', body: 'payload=42',
+                  headers: {'content-type': 'text/plain'}})
+                .then(r => r.json()).then(j => { window.__posted = j.ok; });
+            }
+          ''');
+          await page.waitForFunction('() => window.__posted === true',
+              timeout: Duration(seconds: 10));
+          expect(captured, equals('payload=42'));
         });
       });
     }

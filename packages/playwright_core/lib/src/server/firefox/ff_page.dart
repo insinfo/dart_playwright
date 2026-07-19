@@ -291,14 +291,27 @@ class FfPage extends EventEmitter
 
   final _routes = <String, void Function(CoreRoute)>{};
 
+  bool _routeListenerInstalled = false;
+
   @override
   Future<void> route(
       String urlPattern, void Function(CoreRoute) handler) async {
-    if (_routes.isEmpty) {
+    if (!_routeListenerInstalled) {
+      _routeListenerInstalled = true;
       session.on('Network.requestWillBeSent', _onRequestWillBeSent);
+    }
+    if (_routes.isEmpty) {
       await session.send('Network.setRequestInterception', {'enabled': true});
     }
     _routes[urlPattern] = handler;
+  }
+
+  @override
+  Future<void> unroute(String urlPattern) async {
+    _routes.remove(urlPattern);
+    if (_routes.isEmpty) {
+      await session.send('Network.setRequestInterception', {'enabled': false});
+    }
   }
 
   void _onRequestWillBeSent(Map<String, dynamic> params) {
@@ -322,6 +335,7 @@ class FfPage extends EventEmitter
         url,
         method: params['method'] as String? ?? 'GET',
         headers: _stringHeaders(params['headers']),
+        postData: _decodePostData(params['postData'] as String?),
       ));
     } else {
       // Fire-and-forget: the page may be closing and the session already
@@ -329,6 +343,17 @@ class FfPage extends EventEmitter
       session
           .send('Network.resumeInterceptedRequest', {'requestId': requestId})
           .catchError((_) => <String, dynamic>{});
+    }
+  }
+
+  /// Juggler reports request bodies base64-encoded (upstream decodes with
+  /// Buffer.from(postData, 'base64')).
+  String? _decodePostData(String? base64Body) {
+    if (base64Body == null) return null;
+    try {
+      return utf8.decode(base64Decode(base64Body));
+    } catch (_) {
+      return base64Body;
     }
   }
 

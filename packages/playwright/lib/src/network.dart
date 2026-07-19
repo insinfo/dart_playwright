@@ -12,6 +12,9 @@ abstract class Request {
   /// Headers of the request.
   Map<String, String> headers();
 
+  /// Request body for POST-like requests, when the protocol reports it.
+  String? postData();
+
   /// The frame that initiated this request.
   Frame frame();
 }
@@ -29,6 +32,9 @@ class RequestImpl implements Request {
 
   @override
   Map<String, String> headers() => _coreRequest.headers;
+
+  @override
+  String? postData() => _coreRequest.postData;
 
   @override
   Frame frame() {

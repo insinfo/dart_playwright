@@ -19,6 +19,9 @@ class CrRequest implements CoreRequest {
   }
 
   @override
+  String? get postData => params['request']?['postData'] as String?;
+
+  @override
   dynamic get frame => params['frameId'];
 }
 

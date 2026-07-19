@@ -301,11 +301,16 @@ class WkPage extends EventEmitter
 
   final _routes = <String, void Function(CoreRoute)>{};
 
+  bool _routeListenerInstalled = false;
+
   @override
   Future<void> route(
       String urlPattern, void Function(CoreRoute) handler) async {
-    if (_routes.isEmpty) {
+    if (!_routeListenerInstalled) {
+      _routeListenerInstalled = true;
       session.on('Network.requestIntercepted', _onRequestIntercepted);
+    }
+    if (_routes.isEmpty) {
       await session.sendToTarget('Network.enable');
       await session
           .sendToTarget('Network.setInterceptionEnabled', {'enabled': true});
@@ -316,6 +321,20 @@ class WkPage extends EventEmitter
       });
     }
     _routes[urlPattern] = handler;
+  }
+
+  @override
+  Future<void> unroute(String urlPattern) async {
+    _routes.remove(urlPattern);
+    if (_routes.isEmpty) {
+      await session.sendToTarget('Network.removeInterception', {
+        'url': '.*',
+        'stage': 'request',
+        'isRegex': true,
+      });
+      await session
+          .sendToTarget('Network.setInterceptionEnabled', {'enabled': false});
+    }
   }
 
   void _onRequestIntercepted(Map<String, dynamic> params) {
@@ -339,6 +358,7 @@ class WkPage extends EventEmitter
         url,
         method: request['method'] as String? ?? 'GET',
         headers: _stringHeaders(request['headers']),
+        postData: _decodePostData(request['postData'] as String?),
       ));
     } else {
       // Fire-and-forget: the page may be closing and the session already
@@ -347,6 +367,16 @@ class WkPage extends EventEmitter
         'requestId': requestId,
         'stage': 'request',
       }).catchError((_) => <String, dynamic>{});
+    }
+  }
+
+  /// WebKit reports intercepted request bodies base64-encoded.
+  String? _decodePostData(String? base64Body) {
+    if (base64Body == null) return null;
+    try {
+      return utf8.decode(base64Decode(base64Body));
+    } catch (_) {
+      return base64Body;
     }
   }
 

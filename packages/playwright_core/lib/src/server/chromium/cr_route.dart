@@ -12,8 +12,11 @@ class CrRoute implements CoreRoute {
   late final CoreRequest _request;
 
   CrRoute(this.session, this.fetchRequestId, this.url,
-      {this.method = 'GET', this.headers = const <String, String>{}}) {
-    _request = BasicCoreRequest(url: url, method: method, headers: headers);
+      {this.method = 'GET',
+      this.headers = const <String, String>{},
+      String? postData}) {
+    _request = BasicCoreRequest(
+        url: url, method: method, headers: headers, postData: postData);
   }
 
   @override

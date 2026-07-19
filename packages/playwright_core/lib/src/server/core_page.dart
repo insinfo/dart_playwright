@@ -52,6 +52,9 @@ abstract class CorePage extends EventEmitter {
   /// Intercept network requests.
   Future<void> route(String urlPattern, void Function(CoreRoute) handler);
 
+  /// Remove a route handler; disables interception when none remain.
+  Future<void> unroute(String urlPattern);
+
   /// Click [selector] using trusted protocol-level input events.
   Future<void> click(String selector);
 
