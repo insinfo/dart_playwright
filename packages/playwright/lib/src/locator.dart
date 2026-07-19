@@ -4,13 +4,20 @@ import 'page.dart';
 /// A locator represents a way to find elements on the page.
 abstract class Locator {
   /// Click the element.
-  Future<void> click();
+  Future<void> click(
+      {String button = 'left',
+      int clickCount = 1,
+      Duration? delay,
+      ({double x, double y})? position});
 
   /// Double-click the element.
-  Future<void> dblclick();
+  Future<void> dblclick(
+      {String button = 'left',
+      Duration? delay,
+      ({double x, double y})? position});
 
   /// Hover over the element.
-  Future<void> hover();
+  Future<void> hover({({double x, double y})? position});
 
   /// Fill an input field.
   Future<void> fill(String text);
@@ -101,13 +108,28 @@ class LocatorImpl implements Locator {
   }
 
   @override
-  Future<void> click() => _page.click(_selector);
+  Future<void> click(
+          {String button = 'left',
+          int clickCount = 1,
+          Duration? delay,
+          ({double x, double y})? position}) =>
+      _page.click(_selector,
+          button: button,
+          clickCount: clickCount,
+          delay: delay,
+          position: position);
 
   @override
-  Future<void> dblclick() => _page.dblclick(_selector);
+  Future<void> dblclick(
+          {String button = 'left',
+          Duration? delay,
+          ({double x, double y})? position}) =>
+      _page.dblclick(_selector,
+          button: button, delay: delay, position: position);
 
   @override
-  Future<void> hover() => _page.hover(_selector);
+  Future<void> hover({({double x, double y})? position}) =>
+      _page.hover(_selector, position: position);
 
   @override
   Future<void> fill(String text) => _page.fill(_selector, text);

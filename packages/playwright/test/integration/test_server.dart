@@ -22,7 +22,20 @@ class TestServer {
   
   void _handleRequest(HttpRequest request) {
     final path = request.uri.path;
-    
+
+    // Responds only after a long delay; used to exercise goto timeouts.
+    // Handled outside the try/finally so the response is not closed early.
+    if (path == '/slow') {
+      Future.delayed(const Duration(seconds: 5), () {
+        request.response
+          ..statusCode = 200
+          ..headers.contentType = ContentType.html
+          ..write('<html><body>slow</body></html>');
+        request.response.close().catchError((_) {});
+      });
+      return;
+    }
+
     try {
       switch (path) {
         case '/hello':
@@ -128,6 +141,7 @@ class TestServer {
             ..write('''
               <html><body>
                 <button id="target">Target</button>
+                <div id="pad" style="position:fixed;left:0;top:150px;width:100px;height:100px;background:#eee"></div>
                 <script>
                   const t = document.getElementById('target');
                   t.addEventListener('dblclick', (e) => {
@@ -135,6 +149,13 @@ class TestServer {
                   });
                   t.addEventListener('mouseover', (e) => {
                     window.__hovered = e.isTrusted;
+                  });
+                  t.addEventListener('contextmenu', (e) => {
+                    e.preventDefault();
+                    window.__ctx = e.isTrusted && e.button === 2;
+                  });
+                  document.getElementById('pad').addEventListener('mousedown', (e) => {
+                    window.__off = {x: e.offsetX, y: e.offsetY};
                   });
                 </script>
               </body></html>

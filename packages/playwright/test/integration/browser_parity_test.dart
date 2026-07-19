@@ -93,6 +93,25 @@ void main() {
           expect(await page.evaluate('() => window.__dblclicked'), isTrue);
         });
 
+        test('Deve suportar opcoes de click: botao direito e posicao',
+            () async {
+          await page.goto(server.url('/mouse'));
+
+          await page.locator('#target').click(button: 'right');
+          expect(await page.evaluate('() => window.__ctx'), isTrue);
+
+          await page.locator('#pad').click(position: (x: 10, y: 10));
+          final off = await page.evaluate('() => window.__off') as Map;
+          expect((off['x'] as num).toDouble(), closeTo(10, 2));
+          expect((off['y'] as num).toDouble(), closeTo(10, 2));
+        });
+
+        test('Deve estourar timeout de goto em pagina lenta', () async {
+          await expectLater(
+              page.goto(server.url('/slow'), timeout: Duration(seconds: 1)),
+              throwsA(anything));
+        });
+
         test('Deve expor estados isHidden/isDisabled/isEditable e clear',
             () async {
           await page.goto(server.url('/form'));

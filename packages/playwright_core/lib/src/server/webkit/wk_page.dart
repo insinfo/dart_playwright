@@ -131,10 +131,14 @@ class WkPage extends EventEmitter
   }
 
   @override
-  Future<void> goto(String url, {WaitUntilState? waitUntil}) async {
+  Future<void> goto(String url,
+      {WaitUntilState? waitUntil, Duration? timeout}) async {
     final frame = await frameManager.waitForMainFrame();
     final loaded = frame.waitForNavigation(
-        waitUntil: waitUntil, timeout: const Duration(seconds: 30));
+        waitUntil: waitUntil, timeout: timeout ?? const Duration(seconds: 30));
+    // Keep the waiter's timeout handled even while the navigate command
+    // stalls on a slow server; the awaited rethrow below still surfaces it.
+    loaded.catchError((_) {});
     // Navigation is a Playwright-domain command on the browser session,
     // scoped by pageProxyId (WebKit's Page domain has no Page.navigate).
     await session.connection.send('Playwright.navigate', {
@@ -189,25 +193,36 @@ class WkPage extends EventEmitter
   /// Mouse events are a pageProxy-level command (`Input.dispatchMouseEvent`),
   /// not a page-target command.
   @override
-  Future<void> click(String selector) async {
-    final point = await clickPointFor(selector);
+  Future<void> click(String selector,
+      {String button = 'left',
+      int clickCount = 1,
+      Duration? delay,
+      ({double x, double y})? position}) async {
+    final point = await clickPointFor(selector, position: position);
     await _mouseMove(point);
-    await _mousePressRelease(point, clickCount: 1);
+    for (var count = 1; count <= clickCount; count++) {
+      await _mousePressRelease(point,
+          button: button, clickCount: count, delay: delay);
+    }
   }
 
   @override
-  Future<void> dblclick(String selector) async {
-    final point = await clickPointFor(selector);
-    await _mouseMove(point);
-    await _mousePressRelease(point, clickCount: 1);
-    await _mousePressRelease(point, clickCount: 2);
+  Future<void> dblclick(String selector,
+      {String button = 'left',
+      Duration? delay,
+      ({double x, double y})? position}) {
+    return click(selector,
+        button: button, clickCount: 2, delay: delay, position: position);
   }
 
   @override
-  Future<void> hover(String selector) async {
-    final point = await clickPointFor(selector);
+  Future<void> hover(String selector,
+      {({double x, double y})? position}) async {
+    final point = await clickPointFor(selector, position: position);
     await _mouseMove(point);
   }
+
+  static const _buttonsMask = {'left': 1, 'right': 2, 'middle': 4};
 
   Future<void> _mouseMove(({double x, double y}) point) async {
     await session.send('Input.dispatchMouseEvent', {
@@ -221,19 +236,20 @@ class WkPage extends EventEmitter
   }
 
   Future<void> _mousePressRelease(({double x, double y}) point,
-      {required int clickCount}) async {
+      {String button = 'left', required int clickCount, Duration? delay}) async {
     await session.send('Input.dispatchMouseEvent', {
       'type': 'down',
-      'button': 'left',
-      'buttons': 1,
+      'button': button,
+      'buttons': _buttonsMask[button] ?? 1,
       'x': point.x,
       'y': point.y,
       'modifiers': 0,
       'clickCount': clickCount,
     });
+    if (delay != null) await Future.delayed(delay);
     await session.send('Input.dispatchMouseEvent', {
       'type': 'up',
-      'button': 'left',
+      'button': button,
       'buttons': 0,
       'x': point.x,
       'y': point.y,

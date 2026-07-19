@@ -111,10 +111,14 @@ class FfPage extends EventEmitter
 
   /// Navigate to a URL.
   @override
-  Future<void> goto(String url, {WaitUntilState? waitUntil}) async {
+  Future<void> goto(String url,
+      {WaitUntilState? waitUntil, Duration? timeout}) async {
     final frame = await frameManager.waitForMainFrame();
     final loaded = frame.waitForNavigation(
-        waitUntil: waitUntil, timeout: const Duration(seconds: 30));
+        waitUntil: waitUntil, timeout: timeout ?? const Duration(seconds: 30));
+    // Keep the waiter's timeout handled even while Page.navigate stalls on a
+    // slow server; the awaited rethrow below still surfaces it.
+    loaded.catchError((_) {});
     await session.send('Page.navigate', {'url': url, 'frameId': frame.id});
     await loaded;
   }
@@ -158,25 +162,38 @@ class FfPage extends EventEmitter
 
   /// Click an element using trusted Juggler input events.
   @override
-  Future<void> click(String selector) async {
-    final point = await clickPointFor(selector);
+  Future<void> click(String selector,
+      {String button = 'left',
+      int clickCount = 1,
+      Duration? delay,
+      ({double x, double y})? position}) async {
+    final point = await clickPointFor(selector, position: position);
     await _mouseMove(point);
-    await _mousePressRelease(point, clickCount: 1);
+    for (var count = 1; count <= clickCount; count++) {
+      await _mousePressRelease(point,
+          button: button, clickCount: count, delay: delay);
+    }
   }
 
   @override
-  Future<void> dblclick(String selector) async {
-    final point = await clickPointFor(selector);
-    await _mouseMove(point);
-    await _mousePressRelease(point, clickCount: 1);
-    await _mousePressRelease(point, clickCount: 2);
+  Future<void> dblclick(String selector,
+      {String button = 'left',
+      Duration? delay,
+      ({double x, double y})? position}) {
+    return click(selector,
+        button: button, clickCount: 2, delay: delay, position: position);
   }
 
   @override
-  Future<void> hover(String selector) async {
-    final point = await clickPointFor(selector);
+  Future<void> hover(String selector,
+      {({double x, double y})? position}) async {
+    final point = await clickPointFor(selector, position: position);
     await _mouseMove(point);
   }
+
+  /// Juggler buttons: 0=left, 1=middle, 2=right; buttons mask like CDP.
+  static const _buttonCode = {'left': 0, 'middle': 1, 'right': 2};
+  static const _buttonsMask = {'left': 1, 'right': 2, 'middle': 4};
 
   Future<void> _mouseMove(({double x, double y}) point) async {
     await session.send('Page.dispatchMouseEvent', {
@@ -190,21 +207,22 @@ class FfPage extends EventEmitter
   }
 
   Future<void> _mousePressRelease(({double x, double y}) point,
-      {required int clickCount}) async {
+      {String button = 'left', required int clickCount, Duration? delay}) async {
     final x = point.x.floor();
     final y = point.y.floor();
     await session.send('Page.dispatchMouseEvent', {
       'type': 'mousedown',
-      'button': 0,
-      'buttons': 1,
+      'button': _buttonCode[button] ?? 0,
+      'buttons': _buttonsMask[button] ?? 1,
       'x': x,
       'y': y,
       'modifiers': 0,
       'clickCount': clickCount,
     });
+    if (delay != null) await Future.delayed(delay);
     await session.send('Page.dispatchMouseEvent', {
       'type': 'mouseup',
-      'button': 0,
+      'button': _buttonCode[button] ?? 0,
       'buttons': 0,
       'x': x,
       'y': y,

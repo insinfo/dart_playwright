@@ -15,7 +15,7 @@ export 'package:playwright_core/src/server/core_page.dart' show WaitUntilState;
 /// A single tab or page in a browser.
 abstract class Page {
   /// Navigate to a URL.
-  Future<void> goto(String url, {WaitUntilState? waitUntil});
+  Future<void> goto(String url, {WaitUntilState? waitUntil, Duration? timeout});
 
   /// Wait for the page to reach a specific load state.
   Future<void> waitForLoadState(
@@ -79,13 +79,24 @@ abstract class Page {
   List<Frame> frames();
 
   /// Click an element using trusted protocol-level input events.
-  Future<void> click(String selector);
+  ///
+  /// [button] is 'left', 'middle' or 'right'. [position] is an offset from
+  /// the element's top-left corner (defaults to its center). [delay] is
+  /// held between press and release.
+  Future<void> click(String selector,
+      {String button = 'left',
+      int clickCount = 1,
+      Duration? delay,
+      ({double x, double y})? position});
 
   /// Double-click an element using trusted protocol-level input events.
-  Future<void> dblclick(String selector);
+  Future<void> dblclick(String selector,
+      {String button = 'left',
+      Duration? delay,
+      ({double x, double y})? position});
 
   /// Hover over an element using a trusted protocol-level mouse move.
-  Future<void> hover(String selector);
+  Future<void> hover(String selector, {({double x, double y})? position});
 
   /// Fill an element with text using trusted protocol-level input events.
   Future<void> fill(String selector, String text);
@@ -164,8 +175,9 @@ class PageImpl implements Page {
   PageImpl(this._corePage);
 
   @override
-  Future<void> goto(String url, {WaitUntilState? waitUntil}) =>
-      _corePage.goto(url, waitUntil: waitUntil);
+  Future<void> goto(String url,
+          {WaitUntilState? waitUntil, Duration? timeout}) =>
+      _corePage.goto(url, waitUntil: waitUntil, timeout: timeout);
 
   @override
   Future<void> waitForLoadState(
@@ -283,13 +295,28 @@ class PageImpl implements Page {
       _corePage.frames.map((frame) => FrameImpl(frame, this)).toList();
 
   @override
-  Future<void> click(String selector) => _corePage.click(selector);
+  Future<void> click(String selector,
+          {String button = 'left',
+          int clickCount = 1,
+          Duration? delay,
+          ({double x, double y})? position}) =>
+      _corePage.click(selector,
+          button: button,
+          clickCount: clickCount,
+          delay: delay,
+          position: position);
 
   @override
-  Future<void> dblclick(String selector) => _corePage.dblclick(selector);
+  Future<void> dblclick(String selector,
+          {String button = 'left',
+          Duration? delay,
+          ({double x, double y})? position}) =>
+      _corePage.dblclick(selector,
+          button: button, delay: delay, position: position);
 
   @override
-  Future<void> hover(String selector) => _corePage.hover(selector);
+  Future<void> hover(String selector, {({double x, double y})? position}) =>
+      _corePage.hover(selector, position: position);
 
   @override
   Future<void> fill(String selector, String text) =>

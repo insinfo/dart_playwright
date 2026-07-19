@@ -21,7 +21,7 @@ enum WaitUntilState {
 abstract class CorePage extends EventEmitter {
   CoreFrame get mainFrame;
   List<CoreFrame> get frames;
-  Future<void> goto(String url, {WaitUntilState? waitUntil});
+  Future<void> goto(String url, {WaitUntilState? waitUntil, Duration? timeout});
 
   /// Reloads the page and waits for the navigation to reach [waitUntil].
   Future<void> reload({WaitUntilState? waitUntil});
@@ -56,13 +56,24 @@ abstract class CorePage extends EventEmitter {
   Future<void> unroute(String urlPattern);
 
   /// Click [selector] using trusted protocol-level input events.
-  Future<void> click(String selector);
+  ///
+  /// [button] is 'left', 'middle' or 'right'. [position] is an offset from
+  /// the element's top-left corner (defaults to its center). [delay] is
+  /// held between press and release.
+  Future<void> click(String selector,
+      {String button = 'left',
+      int clickCount = 1,
+      Duration? delay,
+      ({double x, double y})? position});
 
   /// Double-click [selector] using trusted protocol-level input events.
-  Future<void> dblclick(String selector);
+  Future<void> dblclick(String selector,
+      {String button = 'left',
+      Duration? delay,
+      ({double x, double y})? position});
 
   /// Hover over [selector] using a trusted protocol-level mouse move.
-  Future<void> hover(String selector);
+  Future<void> hover(String selector, {({double x, double y})? position});
 
   /// Fill [selector] with [text] using trusted protocol-level input events.
   Future<void> fill(String selector, String text);
@@ -184,16 +195,22 @@ mixin CorePageInputHelpers {
     await keyboard.type(text);
   }
 
-  /// Scrolls [selector] into view and returns the viewport coordinates of
-  /// its center as `{x, y}`.
-  Future<({double x, double y})> clickPointFor(String selector) async {
+  /// Scrolls [selector] into view and returns the viewport coordinates to
+  /// click: the element center, or [position] relative to its top-left.
+  Future<({double x, double y})> clickPointFor(String selector,
+      {({double x, double y})? position}) async {
     final sel = jsonEncode(selector);
+    final offset = position == null
+        ? 'null'
+        : '{ x: ${position.x}, y: ${position.y} }';
     final result = await evaluate('''
       () => {
         const el = document.querySelector($sel);
         if (!el) throw new Error('Element not found: ' + $sel);
         el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
         const rect = el.getBoundingClientRect();
+        const offset = $offset;
+        if (offset) return { x: rect.x + offset.x, y: rect.y + offset.y };
         return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
       }
     ''');
