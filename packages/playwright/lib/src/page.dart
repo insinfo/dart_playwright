@@ -3,6 +3,7 @@ import 'package:playwright_core/src/server/chromium/cr_element_handle.dart';
 import 'locator.dart';
 import 'js_handle.dart';
 import 'element_handle.dart';
+import 'route.dart';
 
 /// A single tab or page in a browser.
 abstract class Page {
@@ -11,6 +12,12 @@ abstract class Page {
 
   /// Get the page title.
   Future<String> title();
+
+  /// Take a screenshot of the page.
+  Future<List<int>> screenshot({String? path});
+
+  /// Intercept network requests.
+  Future<void> route(String urlPattern, void Function(Route) handler);
 
   /// Evaluate JavaScript expression in the page.
   Future<dynamic> evaluate(String expression);
@@ -35,6 +42,17 @@ class PageImpl implements Page {
 
   @override
   Future<String> title() => _crPage.title();
+
+  @override
+  Future<List<int>> screenshot({String? path}) => _crPage.screenshot(path: path);
+
+  @override
+  Future<void> route(String urlPattern, void Function(Route) handler) async {
+    await _crPage.route(urlPattern, (crRoute) {
+      final routeImpl = RouteImpl(crRoute);
+      handler(routeImpl);
+    });
+  }
 
   @override
   Future<dynamic> evaluate(String expression) => _crPage.evaluate(expression);

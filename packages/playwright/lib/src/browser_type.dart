@@ -1,5 +1,7 @@
 import 'package:playwright_core/playwright_core.dart';
 import 'package:playwright_core/src/server/chromium/chromium.dart';
+import 'package:playwright_core/src/server/firefox/firefox.dart';
+import 'package:playwright_core/src/server/webkit/webkit.dart';
 import 'browser.dart';
 
 /// Launcher for a specific browser type (chromium, firefox, webkit).
@@ -35,6 +37,14 @@ class BrowserTypeImpl implements BrowserType {
         ),
       );
       return BrowserImpl(crBrowser);
+    } else if (name == 'firefox') {
+      final ffType = FirefoxBrowserType(_registry);
+      final ffBrowser = await ffType.launch(headless: headless, args: args);
+      return BrowserImpl(ffBrowser);
+    } else if (name == 'webkit') {
+      final wkType = WebKitBrowserType(_registry);
+      final wkBrowser = await wkType.launch(headless: headless, args: args);
+      return BrowserImpl(wkBrowser);
     }
     throw UnimplementedError('Browser $name is not fully ported yet.');
   }

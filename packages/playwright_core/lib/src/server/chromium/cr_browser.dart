@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:playwright_protocol/playwright_protocol.dart';
+import '../core_browser.dart';
 import 'cr_connection.dart';
 
 /// Represents a Chromium browser instance.
-class CrBrowser extends EventEmitter {
+class CrBrowser extends EventEmitter implements CoreBrowser {
+  @override
   final CRConnection connection;
   final Process? process;
   final String? _tempUserDataDir;

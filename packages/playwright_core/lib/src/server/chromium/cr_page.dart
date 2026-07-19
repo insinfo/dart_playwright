@@ -1,9 +1,11 @@
-import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'package:playwright_protocol/playwright_protocol.dart';
 import 'cr_connection.dart';
 import 'cr_execution_context.dart';
 import 'cr_input.dart';
 import 'cr_network_manager.dart';
+import 'cr_route.dart';
 
 /// Represents a Chromium Page (tab).
 class CrPage extends EventEmitter {
@@ -11,6 +13,7 @@ class CrPage extends EventEmitter {
   final CrNetworkManager networkManager;
   final CrInput input;
   late final CrExecutionContext executionContext;
+  final _routes = <String, Function(CrRoute)>{};
   
   bool _isClosed = false;
 
@@ -59,13 +62,50 @@ class CrPage extends EventEmitter {
   }
 
   /// Take a screenshot.
-  Future<List<int>> screenshot() async {
+  Future<List<int>> screenshot({String? path}) async {
     final result = await session.send('Page.captureScreenshot', {
       'format': 'png',
     });
-    // result['data'] is base64 encoded image
-    // Need dart:convert to decode
-    throw UnimplementedError('Needs base64 decode');
+    final data = result['data'] as String;
+    final bytes = base64Decode(data);
+    
+    if (path != null) {
+      await File(path).writeAsBytes(bytes);
+    }
+    return bytes;
+  }
+
+  /// Add a route interception handler.
+  Future<void> route(String urlPattern, Function(CrRoute) handler) async {
+    if (_routes.isEmpty) {
+      await session.send('Fetch.enable', {
+        'patterns': [{'requestStage': 'Request'}]
+      });
+      session.on('Fetch.requestPaused', _onRequestPaused);
+    }
+    _routes[urlPattern] = handler;
+  }
+
+  void _onRequestPaused(Map<String, dynamic> params) {
+    final fetchRequestId = params['requestId'] as String;
+    final request = params['request'] as Map<String, dynamic>;
+    final url = request['url'] as String;
+    
+    // Find matching route handler
+    Function(CrRoute)? matchedHandler;
+    for (final pattern in _routes.keys) {
+      if (pattern == '**/*' || url.contains(pattern)) {
+        matchedHandler = _routes[pattern];
+        break;
+      }
+    }
+    
+    if (matchedHandler != null) {
+      final crRoute = CrRoute(session, fetchRequestId, url);
+      matchedHandler(crRoute);
+    } else {
+      session.send('Fetch.continueRequest', {'requestId': fetchRequestId});
+    }
   }
 
   /// Close the page.
