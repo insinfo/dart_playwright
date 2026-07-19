@@ -94,7 +94,23 @@ class BrowserFetcher {
   }
 
   /// Extract a zip file to the destination directory.
+  ///
+  /// On POSIX systems the system `unzip` is used: it is much faster than
+  /// in-memory decoding and, crucially, preserves the executable bits of
+  /// the many helper binaries browsers ship (pw_run.sh, crashpad handlers,
+  /// subprocess launchers) which package:archive discards.
   static Future<void> _extractZip(File zipFile, String destination) async {
+    if (!Platform.isWindows) {
+      await Directory(destination).create(recursive: true);
+      final result = await Process.run(
+          'unzip', ['-q', '-o', zipFile.path, '-d', destination]);
+      if (result.exitCode != 0) {
+        throw PlaywrightException(
+            'unzip failed (${result.exitCode}): ${result.stderr}');
+      }
+      return;
+    }
+
     final bytes = await zipFile.readAsBytes();
     final archive = ZipDecoder().decodeBytes(bytes);
 

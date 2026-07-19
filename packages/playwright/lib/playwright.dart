@@ -16,6 +16,7 @@ export 'src/js_handle.dart';
 export 'src/element_handle.dart';
 export 'src/console_message.dart';
 export 'src/dialog.dart';
+export 'package:playwright_core/src/accessibility.dart';
 export 'src/route.dart';
 
 // Re-export common types from protocol

@@ -2,7 +2,7 @@ import 'cr_js_handle.dart';
 
 /// Represents a DOM element in the page.
 class CrElementHandle extends CrJSHandle {
-  CrElementHandle(super.context, super.objectId);
+  CrElementHandle(dynamic context, String objectId) : super(context, objectId);
 
   /// Get the text content of this element.
   Future<String> textContent() async {

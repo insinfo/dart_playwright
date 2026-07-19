@@ -1,25 +1,26 @@
 import 'dart:convert';
-import 'package:playwright_core/src/server/chromium/cr_route.dart';
 
 /// Represents a route interception.
 abstract class Route {
   /// Continue the request.
   Future<void> continue_();
-  
+
   /// Fulfill the request with the given response.
   Future<void> fulfill({int status = 200, Map<String, String>? headers, String? body, List<int>? bodyBytes});
-  
+
   /// Abort the request.
   Future<void> abort([String errorCode = 'failed']);
 }
 
 class RouteImpl implements Route {
-  final CrRoute _crRoute;
-  
-  RouteImpl(this._crRoute);
+  /// Engine-specific route object (CrRoute, FfRoute or WkRoute); all expose
+  /// the same continue_/fulfill/abort shape.
+  final dynamic _route;
+
+  RouteImpl(this._route);
 
   @override
-  Future<void> continue_() => _crRoute.continue_();
+  Future<void> continue_() => _route.continue_();
 
   @override
   Future<void> fulfill({int status = 200, Map<String, String>? headers, String? body, List<int>? bodyBytes}) {
@@ -27,9 +28,9 @@ class RouteImpl implements Route {
     if (body != null && finalBytes == null) {
       finalBytes = utf8.encode(body);
     }
-    return _crRoute.fulfill(status: status, headers: headers, bodyBytes: finalBytes);
+    return _route.fulfill(status: status, headers: headers, bodyBytes: finalBytes);
   }
 
   @override
-  Future<void> abort([String errorCode = 'failed']) => _crRoute.abort(errorCode);
+  Future<void> abort([String errorCode = 'failed']) => _route.abort(errorCode);
 }

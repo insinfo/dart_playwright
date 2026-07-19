@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# A new push cancels in-progress runs for the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: Install dependencies
+        run: dart pub get
+      - name: Analyze packages
+        run: dart analyze packages
+
+  test:
+    name: E2E ${{ matrix.os }}
+    needs: analyze
+    strategy:
+      fail-fast: false
+      matrix:
+        # ubuntu-22.04: avoids the 24.04 AppArmor restriction on the Chromium
+        # sandbox. macos-15: matches the webkit-mac-15 build in the registry.
+        os: [ubuntu-22.04, windows-latest, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Install dependencies
+        run: dart pub get
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/Library/Caches/ms-playwright
+            ~/AppData/Local/ms-playwright
+          key: pw-browsers-${{ runner.os }}-${{ hashFiles('packages/playwright_core/lib/src/registry/browsers_json.dart') }}
+
+      - name: Install browser system dependencies (Linux)
+        if: runner.os == 'Linux'
+        # System libraries only (revision-agnostic); browser binaries come
+        # from our own Dart registry in the next step.
+        run: npx --yes playwright install-deps chromium firefox webkit
+
+      - name: Install browsers
+        working-directory: packages/playwright
+        run: dart run playwright install chromium firefox webkit
+
+      - name: Run browser parity tests
+        working-directory: packages/playwright
+        run: dart test test/integration/browser_parity_test.dart --reporter expanded --timeout 120s

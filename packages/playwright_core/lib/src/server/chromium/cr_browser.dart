@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:io';
 import 'package:playwright_protocol/playwright_protocol.dart';
 import '../core_browser.dart';
+import '../core_page.dart';
 import 'cr_connection.dart';
+import 'cr_page.dart';
 
 /// Represents a Chromium browser instance.
 class CrBrowser extends EventEmitter implements CoreBrowser {
@@ -44,6 +46,20 @@ class CrBrowser extends EventEmitter implements CoreBrowser {
   Future<String> version() async {
     final result = await connection.send('Browser.getVersion');
     return result['product'] as String;
+  }
+
+  @override
+  Future<CorePage> newPage() async {
+    final targetId = (await connection.send('Target.createTarget', {
+      'url': 'about:blank',
+    }))['targetId'];
+
+    final sessionId = (await connection.send('Target.attachToTarget', {
+      'targetId': targetId,
+      'flatten': true,
+    }))['sessionId'];
+
+    return CrPage.create(connection.createSession(sessionId, 'page'));
   }
 
   /// Close the browser.

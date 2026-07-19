@@ -20,6 +20,9 @@ dependencies:
   collection: ^1.18.0
   async: ^2.11.0
   meta: ^1.9.0
+  # POSIX (Linux/macOS) FFI bindings used by posix_process.dart to create the
+  # fd3/fd4 FIFO pair handed to browser processes. Not loaded on Windows.
+  stdlibc: ^0.1.4
 
 dev_dependencies:
   test: ^1.25.0

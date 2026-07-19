@@ -1,27 +1,32 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:ffi';
 import 'dart:isolate';
 
 import 'package:playwright_protocol/playwright_protocol.dart';
-import 'package:ffi/ffi.dart';
-import 'package:win32/win32.dart';
+import 'package:stdlibc/stdlibc.dart' as libc;
 
 import 'message_framer.dart';
+import 'posix_process.dart';
 import 'transport.dart';
-import 'win32_process.dart';
 
-class PipeTransport implements ConnectionTransport {
-  final Win32Process _process;
+/// fd3/fd4 pipe transport for Linux/macOS, mirroring the Windows
+/// [PipeTransport] design: a helper isolate blocks on read() and streams
+/// chunks back; writes go straight to the child's fd3.
+///
+/// When the browser process dies its end of the fd4 FIFO closes, read()
+/// returns EOF and the reader isolate exits on its own — which is also how
+/// [close] unblocks the reader (kill process first, EOF follows).
+class PosixPipeTransport implements ConnectionTransport {
+  final PosixProcess _process;
   final _messageController = StreamController<ProtocolResponse>.broadcast();
   final _closeController = StreamController<String?>.broadcast();
   final _framer = NullDelimitedFramer();
   bool _closed = false;
-  
+
   late final Isolate _readerIsolate;
   late final ReceivePort _receivePort;
 
-  PipeTransport(this._process);
+  PosixPipeTransport(this._process);
 
   @override
   Stream<ProtocolResponse> get onMessage => _messageController.stream;
@@ -31,10 +36,10 @@ class PipeTransport implements ConnectionTransport {
 
   Future<void> init() async {
     _receivePort = ReceivePort();
-    
+
     _readerIsolate = await Isolate.spawn(
       _pipeReaderLoop,
-      [_process.jugglerReadHandle, _receivePort.sendPort],
+      [_process.jugglerReadFd, _receivePort.sendPort],
     );
 
     _receivePort.listen((message) {
@@ -70,60 +75,42 @@ class PipeTransport implements ConnectionTransport {
   @override
   void send(ProtocolRequest message) {
     if (_closed) throw Exception('Pipe has been closed');
-    
-    final messageStr = message.toJsonString();
-    final bytes = utf8.encode(messageStr);
-    
-    final buffer = calloc<Uint8>(bytes.length + 1);
-    buffer.asTypedList(bytes.length).setAll(0, bytes);
-    buffer[bytes.length] = 0; // Null byte terminator
-    
-    final bytesWritten = calloc<DWORD>();
-    
-    final success = WriteFile(
-      _process.jugglerWriteHandle,
-      buffer,
-      bytes.length + 1,
-      bytesWritten,
-      nullptr,
-    );
-    
-    calloc.free(buffer);
-    calloc.free(bytesWritten);
-    
-    if (success == 0) {
-      throw Exception('Failed to write to Juggler pipe: ${GetLastError()}');
+
+    final bytes = utf8.encode(message.toJsonString());
+    final framed = <int>[...bytes, 0];
+
+    var offset = 0;
+    while (offset < framed.length) {
+      final written =
+          libc.write(_process.jugglerWriteFd, framed.sublist(offset));
+      if (written <= 0) {
+        throw Exception(
+            'Failed to write to inspector pipe: errno ${libc.errno}');
+      }
+      offset += written;
     }
   }
 
   @override
   Future<void> close() async {
-    _handleClose('User initiated close');
+    // Kill the browser first: its death closes the fd4 FIFO, read() returns
+    // EOF and the reader isolate unblocks and exits.
     _process.kill();
+    _handleClose('User initiated close');
   }
 }
 
 void _pipeReaderLoop(List<dynamic> args) {
-  final int handle = args[0];
+  final int fd = args[0];
   final SendPort sendPort = args[1];
 
-  final bufferSize = 65536;
-  final buffer = calloc<Uint8>(bufferSize);
-  final bytesRead = calloc<DWORD>();
-
   while (true) {
-    final success = ReadFile(handle, buffer, bufferSize, bytesRead, nullptr);
-    if (success == 0 || bytesRead.value == 0) {
+    final chunk = libc.read(fd, 65536);
+    if (chunk.isEmpty) {
+      // EOF or error: the browser exited or the fd was closed.
       sendPort.send('closed');
       break;
     }
-    
-    // Copy the bytes and send
-    final chunk = buffer.asTypedList(bytesRead.value).toList();
-    // print('Read \${chunk.length} bytes from pipe');
     sendPort.send(chunk);
   }
-
-  calloc.free(buffer);
-  calloc.free(bytesRead);
 }

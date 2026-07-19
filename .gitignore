@@ -17,3 +17,7 @@ pubspec.lock
 # Playwright specific
 referencias/
 .cache/
+
+# Local debug artifacts
+scratch/
+/test_win32.dart

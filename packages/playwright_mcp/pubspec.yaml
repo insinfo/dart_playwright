@@ -1,0 +1,16 @@
+name: playwright_mcp
+description: Model Context Protocol (MCP) server for Playwright Dart.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.6.2
+
+resolution: workspace
+
+dependencies:
+  playwright:
+    path: ../playwright
+
+dev_dependencies:
+  lints: ^3.0.0

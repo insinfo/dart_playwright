@@ -20,19 +20,8 @@ class BrowserImpl implements Browser {
 
   @override
   Future<BrowserContext> newContext() async {
-    // In full implementation, this uses Browser.createBrowserContext CDP
-    // For this prototype, we'll just connect directly to default target
-    final targetId = (await _coreBrowser.connection.send('Target.createTarget', {
-      'url': 'about:blank',
-    }))['targetId'];
-
-    final sessionId = (await _coreBrowser.connection.send('Target.attachToTarget', {
-      'targetId': targetId,
-      'flatten': true,
-    }))['sessionId'];
-
-    final session = _coreBrowser.connection.createSession(sessionId, 'page');
-    return BrowserContextImpl(session);
+    // Passamos o CoreBrowser que agora gerencia as CorePages diretamente
+    return BrowserContextImpl(_coreBrowser, null);
   }
 
   @override

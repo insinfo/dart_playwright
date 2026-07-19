@@ -1,8 +1,6 @@
-import 'cr_execution_context.dart';
-
 /// Represents a JavaScript object in the page.
 class CrJSHandle {
-  final CrExecutionContext context;
+  final dynamic context;
   final String objectId;
 
   CrJSHandle(this.context, this.objectId);

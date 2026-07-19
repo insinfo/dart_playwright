@@ -1,9 +1,8 @@
 import 'dart:convert';
-import 'cr_connection.dart';
 
 /// Implementation of network interception for Chromium.
 class CrRoute {
-  final CDPSession session;
+  final dynamic session;
   final String fetchRequestId;
   final String url;
   

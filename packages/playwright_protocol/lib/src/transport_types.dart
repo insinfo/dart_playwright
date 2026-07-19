@@ -18,11 +18,15 @@ class ProtocolRequest {
   /// Optional session ID (CDP uses this for target-specific sessions).
   final String? sessionId;
 
+  /// WebKit-specific: page proxy identifier for pageProxy-scoped messages.
+  final String? pageProxyId;
+
   ProtocolRequest({
     required this.id,
     required this.method,
     this.params,
     this.sessionId,
+    this.pageProxyId,
   });
 
   Map<String, dynamic> toJson() {
@@ -30,8 +34,9 @@ class ProtocolRequest {
       'id': id,
       'method': method,
     };
-    if (params != null && params!.isNotEmpty) json['params'] = params;
+    if (params != null) json['params'] = params;
     if (sessionId != null) json['sessionId'] = sessionId;
+    if (pageProxyId != null) json['pageProxyId'] = pageProxyId;
     return json;
   }
 

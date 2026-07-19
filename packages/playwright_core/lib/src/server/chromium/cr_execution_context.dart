@@ -1,12 +1,11 @@
 import 'dart:async';
 import 'package:playwright_protocol/playwright_protocol.dart';
-import 'cr_connection.dart';
 import 'cr_js_handle.dart';
 import 'cr_element_handle.dart';
 
 /// Handles JavaScript execution in Chromium.
 class CrExecutionContext {
-  final CDPSession session;
+  final dynamic session;
   int? _executionContextId;
 
   CrExecutionContext(this.session) {
@@ -35,8 +34,14 @@ class CrExecutionContext {
 
   /// Evaluate a JS expression and return the raw primitive value.
   Future<dynamic> evaluate(String expression) async {
+    bool isFunction = expression.trim().startsWith('function') || expression.contains('=>');
+    String finalExpression = expression;
+    if (isFunction) {
+      finalExpression = '($expression)()';
+    }
+
     final params = <String, dynamic>{
-      'expression': expression,
+      'expression': finalExpression,
       'returnByValue': true,
       'awaitPromise': true,
     };

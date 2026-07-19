@@ -1,15 +1,16 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:playwright_protocol/playwright_protocol.dart';
-import 'cr_connection.dart';
 import 'cr_execution_context.dart';
 import 'cr_input.dart';
 import 'cr_network_manager.dart';
 import 'cr_route.dart';
+import '../../accessibility.dart';
+import '../core_page.dart';
 
 /// Represents a Chromium Page (tab).
-class CrPage extends EventEmitter {
-  final CDPSession session;
+class CrPage extends EventEmitter with CorePageInputHelpers implements CorePage {
+  final dynamic session;
   final CrNetworkManager networkManager;
   final CrInput input;
   late final CrExecutionContext executionContext;
@@ -25,7 +26,7 @@ class CrPage extends EventEmitter {
   }
 
   /// Create and initialize a new page.
-  static Future<CrPage> create(CDPSession session) async {
+  static Future<CrPage> create(dynamic session) async {
     final page = CrPage._(session);
     await page._initialize();
     return page;
@@ -33,11 +34,12 @@ class CrPage extends EventEmitter {
 
   Future<void> _initialize() async {
     // Enable essential domains
-    await Future.wait([
-      session.send('Page.enable'),
-      session.send('Runtime.enable'),
-      session.send('Network.enable'),
-      session.send('Log.enable'),
+    await Future.wait(<Future<dynamic>>[
+      session.send('Page.enable') as Future<dynamic>,
+      session.send('Runtime.enable') as Future<dynamic>,
+      session.send('Network.enable') as Future<dynamic>,
+      session.send('Log.enable') as Future<dynamic>,
+      session.send('Accessibility.enable') as Future<dynamic>,
     ]);
   }
 
@@ -47,7 +49,7 @@ class CrPage extends EventEmitter {
     // For a real implementation, we need to wait for the frame to load
     // This requires tracking frames and lifecycle events.
     // For now, we just wait a bit to simulate network delay.
-    await Future.delayed(const Duration(milliseconds: 500));
+    await Future.delayed(const Duration(milliseconds: 1500));
   }
 
   /// Get the page title.
@@ -57,8 +59,64 @@ class CrPage extends EventEmitter {
   }
 
   /// Evaluate JavaScript in the page.
+  @override
   Future<dynamic> evaluate(String expression) async {
     return executionContext.evaluate(expression);
+  }
+
+  /// Click an element using trusted CDP input events.
+  @override
+  Future<void> click(String selector) async {
+    final point = await clickPointFor(selector);
+    await session.send('Input.dispatchMouseEvent', {
+      'type': 'mouseMoved',
+      'x': point.x,
+      'y': point.y,
+      'button': 'none',
+      'buttons': 0,
+    });
+    await session.send('Input.dispatchMouseEvent', {
+      'type': 'mousePressed',
+      'x': point.x,
+      'y': point.y,
+      'button': 'left',
+      'buttons': 1,
+      'clickCount': 1,
+    });
+    await session.send('Input.dispatchMouseEvent', {
+      'type': 'mouseReleased',
+      'x': point.x,
+      'y': point.y,
+      'button': 'left',
+      'buttons': 0,
+      'clickCount': 1,
+    });
+  }
+
+  /// Fill an element using trusted CDP input events.
+  @override
+  Future<void> fill(String selector, String text) async {
+    await focusAndSelect(selector);
+    if (text.isEmpty) {
+      await session.send('Input.dispatchKeyEvent', {
+        'type': 'keyDown',
+        'key': 'Delete',
+        'code': 'Delete',
+        'windowsVirtualKeyCode': 46,
+      });
+      await session.send('Input.dispatchKeyEvent', {
+        'type': 'keyUp',
+        'key': 'Delete',
+        'code': 'Delete',
+        'windowsVirtualKeyCode': 46,
+      });
+      return;
+    }
+    await session.send('Input.insertText', {'text': text});
+  }
+
+  Future<dynamic> evaluateHandle(String expression) async {
+    return executionContext.evaluateHandle(expression);
   }
 
   /// Take a screenshot.
@@ -73,6 +131,46 @@ class CrPage extends EventEmitter {
       await File(path).writeAsBytes(bytes);
     }
     return bytes;
+  }
+
+  /// Get Accessibility Snapshot
+  Future<AccessibilitySnapshot> accessibilitySnapshot() async {
+    final result = await session.send('Accessibility.getFullAXTree');
+    final nodes = result['nodes'] as List;
+    
+    // Simplistic parser for V0.1
+    if (nodes.isEmpty) {
+      return AccessibilitySnapshot(title: '', root: AccessibilityNode(role: 'WebArea', name: '', ref: 'root'));
+    }
+    
+    final rootData = nodes.firstWhere((n) => n['role']?['value'] == 'WebArea', orElse: () => nodes.first);
+    
+    AccessibilityNode parseNode(Map<String, dynamic> data) {
+      final role = data['role']?['value'] as String? ?? 'Unknown';
+      final name = data['name']?['value'] as String? ?? '';
+      final description = data['description']?['value'] as String?;
+      final value = data['value']?['value']?.toString();
+
+      final childIds = (data['childIds'] as List?)?.cast<String>() ?? [];
+      final children = childIds.map((id) {
+        final childData = nodes.firstWhere((n) => n['nodeId'] == id, orElse: () => null);
+        return childData != null ? parseNode(childData) : null;
+      }).whereType<AccessibilityNode>().toList();
+      
+      return AccessibilityNode(
+        role: role,
+        name: name,
+        description: description,
+        value: value,
+        children: children,
+        ref: 'node_\$nodeId',
+      );
+    }
+    
+    final root = parseNode(rootData);
+    final title = await this.title();
+    
+    return AccessibilitySnapshot(title: title, root: root);
   }
 
   /// Add a route interception handler.
@@ -94,7 +192,8 @@ class CrPage extends EventEmitter {
     // Find matching route handler
     Function(CrRoute)? matchedHandler;
     for (final pattern in _routes.keys) {
-      if (pattern == '**/*' || url.contains(pattern)) {
+      final cleanPattern = pattern.replaceAll('**/', '');
+      if (pattern == '**/*' || url.contains(cleanPattern)) {
         matchedHandler = _routes[pattern];
         break;
       }

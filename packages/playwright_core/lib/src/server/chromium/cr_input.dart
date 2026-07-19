@@ -1,9 +1,8 @@
 import 'dart:async';
-import 'cr_connection.dart';
 
 /// Keyboard, Mouse, and Touchscreen input for Chromium.
 class CrInput {
-  final CDPSession session;
+  final dynamic session;
 
   CrInput(this.session);
 

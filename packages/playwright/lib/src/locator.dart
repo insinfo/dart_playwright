@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'page.dart';
 
 /// A locator represents a way to find elements on the page.
@@ -10,6 +11,42 @@ abstract class Locator {
 
   /// Get the text content of the element.
   Future<String> textContent();
+
+  /// Get the rendered inner text of the element.
+  Future<String> innerText();
+
+  /// Get the inner HTML of the element.
+  Future<String> innerHTML();
+
+  /// Get the current value of an input/textarea/select element.
+  Future<String> inputValue();
+
+  /// Get an attribute value, or null if absent.
+  Future<String?> getAttribute(String name);
+
+  /// Number of elements matching the selector.
+  Future<int> count();
+
+  /// Whether the first matching element is visible.
+  Future<bool> isVisible();
+
+  /// Whether the first matching element is enabled (not disabled).
+  Future<bool> isEnabled();
+
+  /// Whether a checkbox/radio element is checked.
+  Future<bool> isChecked();
+
+  /// Check a checkbox/radio element.
+  Future<void> check();
+
+  /// Uncheck a checkbox element.
+  Future<void> uncheck();
+
+  /// Select option(s) in a <select> element by value.
+  Future<void> selectOption(String value);
+
+  /// Wait until the selector matches an element, or throw on timeout.
+  Future<void> waitFor({Duration timeout = const Duration(seconds: 30)});
 }
 
 class LocatorImpl implements Locator {
@@ -18,42 +55,123 @@ class LocatorImpl implements Locator {
 
   LocatorImpl(this._page, this._selector);
 
-  @override
-  Future<void> click() async {
-    // For this prototype v0.1, we evaluate JS directly.
-    // In full implementation, this uses DOM.querySelector + Input.dispatchMouseEvent.
-    final result = await _page.evaluate('''
-      (() => {
-        const el = document.querySelector('$_selector');
-        if (!el) throw new Error('Element not found');
-        el.click();
-      })()
+  /// The selector as a safely-escaped JS string literal.
+  String get _sel => jsonEncode(_selector);
+
+  /// Runs [body] with `el` bound to the first matching element.
+  Future<dynamic> _withElement(String body) {
+    return _page.evaluate('''
+      () => {
+        const el = document.querySelector($_sel);
+        if (!el) throw new Error('Element not found: ' + $_sel);
+        $body
+      }
     ''');
-    return result;
   }
 
   @override
-  Future<void> fill(String text) async {
-    await _page.evaluate('''
-      (() => {
-        const el = document.querySelector('$_selector');
-        if (!el) throw new Error('Element not found');
-        el.value = '$text';
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-      })()
-    ''');
-  }
+  Future<void> click() => _page.click(_selector);
+
+  @override
+  Future<void> fill(String text) => _page.fill(_selector, text);
 
   @override
   Future<String> textContent() async {
-    final result = await _page.evaluate('''
-      (() => {
-        const el = document.querySelector('$_selector');
-        if (!el) throw new Error('Element not found');
-        return el.textContent;
-      })()
-    ''');
+    final result = await _withElement('return el.textContent;');
     return result.toString();
+  }
+
+  @override
+  Future<String> innerText() async {
+    final result = await _withElement('return el.innerText;');
+    return result.toString();
+  }
+
+  @override
+  Future<String> innerHTML() async {
+    final result = await _withElement('return el.innerHTML;');
+    return result.toString();
+  }
+
+  @override
+  Future<String> inputValue() async {
+    final result = await _withElement('return el.value;');
+    return result.toString();
+  }
+
+  @override
+  Future<String?> getAttribute(String name) async {
+    final jsName = jsonEncode(name);
+    final result = await _withElement('return el.getAttribute($jsName);');
+    return result as String?;
+  }
+
+  @override
+  Future<int> count() async {
+    final result =
+        await _page.evaluate('() => document.querySelectorAll($_sel).length');
+    return (result as num).toInt();
+  }
+
+  @override
+  Future<bool> isVisible() async {
+    final result = await _page.evaluate('''
+      () => {
+        const el = document.querySelector($_sel);
+        if (!el) return false;
+        const style = window.getComputedStyle(el);
+        if (style.visibility === 'hidden' || style.display === 'none') return false;
+        const rect = el.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      }
+    ''');
+    return result == true;
+  }
+
+  @override
+  Future<bool> isEnabled() async {
+    final result = await _withElement('return !el.disabled;');
+    return result == true;
+  }
+
+  @override
+  Future<bool> isChecked() async {
+    final result = await _withElement('return !!el.checked;');
+    return result == true;
+  }
+
+  @override
+  Future<void> check() async {
+    if (!await isChecked()) await click();
+  }
+
+  @override
+  Future<void> uncheck() async {
+    if (await isChecked()) await click();
+  }
+
+  @override
+  Future<void> selectOption(String value) async {
+    final jsValue = jsonEncode(value);
+    await _withElement('''
+        el.value = $jsValue;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+    ''');
+  }
+
+  @override
+  Future<void> waitFor({Duration timeout = const Duration(seconds: 30)}) async {
+    final deadline = DateTime.now().add(timeout);
+    while (true) {
+      final found =
+          await _page.evaluate('() => document.querySelector($_sel) !== null');
+      if (found == true) return;
+      if (DateTime.now().isAfter(deadline)) {
+        throw Exception(
+            'Timeout ${timeout.inMilliseconds}ms waiting for selector $_selector');
+      }
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
   }
 }

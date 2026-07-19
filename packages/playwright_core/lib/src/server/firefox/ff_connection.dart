@@ -71,9 +71,10 @@ class FfConnection extends EventEmitter {
         }
       }
     } else if (response.method != null) {
-      if (response.sessionId != null) {
+      if (response.sessionId != null && response.sessionId!.isNotEmpty) {
         emit('session-${response.sessionId}', response);
       } else {
+        rootSession.emit(response.method!, response.params);
         emit(response.method!, response.params);
       }
     }
@@ -85,7 +86,10 @@ class FfConnection extends EventEmitter {
     for (final completer in _callbacks.values) completer.completeError(PlaywrightException(reason ?? 'Closed'));
     _callbacks.clear();
     for (final session in _sessions.values) session._onClosed();
-    _sessions.clear();
     emit('closed');
+  }
+
+  Future<void> close() async {
+    await transport.close();
   }
 }

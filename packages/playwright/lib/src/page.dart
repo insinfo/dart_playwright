@@ -1,9 +1,10 @@
-import 'package:playwright_core/src/server/chromium/cr_page.dart';
+import 'package:playwright_core/src/server/core_page.dart';
 import 'package:playwright_core/src/server/chromium/cr_element_handle.dart';
 import 'locator.dart';
 import 'js_handle.dart';
 import 'element_handle.dart';
 import 'route.dart';
+import 'package:playwright_core/src/accessibility.dart';
 
 /// A single tab or page in a browser.
 abstract class Page {
@@ -15,6 +16,9 @@ abstract class Page {
 
   /// Take a screenshot of the page.
   Future<List<int>> screenshot({String? path});
+
+  /// Get the accessibility snapshot.
+  Future<AccessibilitySnapshot> accessibilitySnapshot();
 
   /// Intercept network requests.
   Future<void> route(String urlPattern, void Function(Route) handler);
@@ -28,38 +32,57 @@ abstract class Page {
   /// Create a locator for an element.
   Locator locator(String selector);
 
+  /// Click an element using trusted protocol-level input events.
+  Future<void> click(String selector);
+
+  /// Fill an element with text using trusted protocol-level input events.
+  Future<void> fill(String selector, String text);
+
+  /// Get the full HTML content of the page.
+  Future<String> content();
+
+  /// Get the current URL of the page.
+  Future<String> url();
+
+  /// Wait until [selector] matches an element, or throw on timeout.
+  Future<void> waitForSelector(String selector,
+      {Duration timeout = const Duration(seconds: 30)});
+
   /// Close the page.
   Future<void> close();
 }
 
 class PageImpl implements Page {
-  final CrPage _crPage;
+  final CorePage _corePage;
 
-  PageImpl(this._crPage);
-
-  @override
-  Future<void> goto(String url) => _crPage.goto(url);
+  PageImpl(this._corePage);
 
   @override
-  Future<String> title() => _crPage.title();
+  Future<void> goto(String url) => _corePage.goto(url);
 
   @override
-  Future<List<int>> screenshot({String? path}) => _crPage.screenshot(path: path);
+  Future<String> title() => _corePage.title();
+
+  @override
+  Future<List<int>> screenshot({String? path}) => _corePage.screenshot(path: path);
+
+  @override
+  Future<AccessibilitySnapshot> accessibilitySnapshot() => _corePage.accessibilitySnapshot();
 
   @override
   Future<void> route(String urlPattern, void Function(Route) handler) async {
-    await _crPage.route(urlPattern, (crRoute) {
+    await _corePage.route(urlPattern, (crRoute) {
       final routeImpl = RouteImpl(crRoute);
       handler(routeImpl);
     });
   }
 
   @override
-  Future<dynamic> evaluate(String expression) => _crPage.evaluate(expression);
+  Future<dynamic> evaluate(String expression) => _corePage.evaluate(expression);
 
   @override
   Future<JSHandle> evaluateHandle(String expression) async {
-    final handle = await _crPage.executionContext.evaluateHandle(expression);
+    final handle = await _corePage.evaluateHandle(expression);
     // Cast appropriately based on the handle type returned
     if (handle is CrElementHandle) {
       return ElementHandleImpl(handle);
@@ -73,5 +96,31 @@ class PageImpl implements Page {
   }
 
   @override
-  Future<void> close() => _crPage.close();
+  Future<void> click(String selector) => _corePage.click(selector);
+
+  @override
+  Future<void> fill(String selector, String text) =>
+      _corePage.fill(selector, text);
+
+  @override
+  Future<String> content() async {
+    final result =
+        await _corePage.evaluate('() => document.documentElement.outerHTML');
+    return result.toString();
+  }
+
+  @override
+  Future<String> url() async {
+    final result = await _corePage.evaluate('() => window.location.href');
+    return result.toString();
+  }
+
+  @override
+  Future<void> waitForSelector(String selector,
+      {Duration timeout = const Duration(seconds: 30)}) {
+    return LocatorImpl(this, selector).waitFor(timeout: timeout);
+  }
+
+  @override
+  Future<void> close() => _corePage.close();
 }

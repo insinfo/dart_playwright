@@ -1,5 +1,4 @@
-import 'package:playwright_core/src/server/chromium/cr_connection.dart';
-import 'package:playwright_core/src/server/chromium/cr_page.dart';
+import 'package:playwright_core/src/server/core_browser.dart';
 import 'page.dart';
 
 /// An isolated browser context.
@@ -12,14 +11,16 @@ abstract class BrowserContext {
 }
 
 class BrowserContextImpl implements BrowserContext {
-  final CDPSession _session;
-  
-  BrowserContextImpl(this._session);
+  final CoreBrowser _browser;
+
+  BrowserContextImpl(this._browser, [dynamic session]);
 
   @override
   Future<Page> newPage() async {
-    final crPage = await CrPage.create(_session);
-    return PageImpl(crPage);
+    // Agora utilizamos o próprio CoreBrowser que já conhece o tipo de motor (Cr, Ff, Wk)
+    // para retornar a sua própria subclasse de CorePage.
+    final corePage = await _browser.newPage();
+    return PageImpl(corePage);
   }
 
   @override

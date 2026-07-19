@@ -1,9 +1,8 @@
 import 'package:playwright_protocol/playwright_protocol.dart';
-import 'cr_connection.dart';
 
 /// Tracks network requests and responses in Chromium.
 class CrNetworkManager extends EventEmitter {
-  final CDPSession session;
+  final dynamic session;
 
   CrNetworkManager(this.session) {
     session.on('Network.requestWillBeSent', _onRequestWillBeSent);

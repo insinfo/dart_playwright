@@ -101,9 +101,9 @@ class EventEmitter {
   Future<T> waitForEvent<T>(String event, {Duration? timeout}) {
     final completer = Completer<T>();
 
-    void listener(dynamic arg) {
+    void listener([dynamic arg]) {
       if (!completer.isCompleted) {
-        completer.complete(arg as T);
+        completer.complete(arg as T?);
       }
     }
 
