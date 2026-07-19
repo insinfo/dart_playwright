@@ -45,11 +45,14 @@ class CrPage extends EventEmitter with CorePageInputHelpers implements CorePage 
 
   /// Navigate to a URL.
   Future<void> goto(String url) async {
-    await session.send('Page.navigate', {'url': url});
-    // For a real implementation, we need to wait for the frame to load
-    // This requires tracking frames and lifecycle events.
-    // For now, we just wait a bit to simulate network delay.
-    await Future.delayed(const Duration(milliseconds: 1500));
+    final loaded = session.waitForEvent('Page.loadEventFired',
+        timeout: const Duration(seconds: 30));
+    final result = await session.send('Page.navigate', {'url': url});
+    if (result['errorText'] != null) {
+      throw PlaywrightException(
+          'Navigation to $url failed: ${result['errorText']}');
+    }
+    await loaded;
   }
 
   /// Get the page title.

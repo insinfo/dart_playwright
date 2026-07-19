@@ -46,18 +46,16 @@ class FfBrowser extends EventEmitter implements CoreBrowser {
   }
 
   @override
-  Future<CorePage> newPage() async {
-    final contextResult = await session.send('Browser.createBrowserContext', {
-      'removeOnDetach': true
+  Future<CoreBrowserContext> createBrowserContext() async {
+    final result = await session.send('Browser.createBrowserContext', {
+      'removeOnDetach': true,
     });
-    final browserContextId = contextResult['browserContextId'] as String;
+    return FfBrowserContext(this, result['browserContextId'] as String);
+  }
 
-    // Call Browser.newPage
-    final result = await session.send('Browser.newPage', {
-      'browserContextId': browserContextId
-    });
-    final targetId = result['targetId'] as String;
-    
+  /// Waits for the page session attached to [targetId] (created via
+  /// Browser.newPage) and initializes it.
+  Future<FfPage> waitForPage(String targetId) async {
     if (_attachedPages.containsKey(targetId)) {
       final page = _attachedPages.remove(targetId)!;
       await page.initialize();
@@ -66,19 +64,55 @@ class FfBrowser extends EventEmitter implements CoreBrowser {
 
     final completer = Completer<FfPage>();
     _pendingPages[targetId] = completer;
-    
-    // Wait for Browser.attachedToTarget
-    final page = await completer.future.timeout(Duration(seconds: 10), onTimeout: () {
+
+    final page =
+        await completer.future.timeout(Duration(seconds: 10), onTimeout: () {
       _pendingPages.remove(targetId);
       throw PlaywrightException('Timeout waiting for Firefox page session');
     });
-    
+
     await page.initialize();
     return page;
   }
 
   @override
   Future<void> close() async {
-    connection.close();
+    // Ask Firefox to shut down gracefully; fall back to killing the process
+    // if it does not comply in time.
+    try {
+      await session
+          .send('Browser.close')
+          .timeout(const Duration(seconds: 3));
+    } catch (_) {}
+    await connection.transport.close();
+  }
+}
+
+/// An isolated Firefox (Juggler) browser context.
+class FfBrowserContext implements CoreBrowserContext {
+  final FfBrowser browser;
+  final String browserContextId;
+  bool _closed = false;
+
+  FfBrowserContext(this.browser, this.browserContextId);
+
+  @override
+  Future<CorePage> newPage() async {
+    if (_closed) throw PlaywrightException('Context closed');
+    final result = await browser.session.send('Browser.newPage', {
+      'browserContextId': browserContextId,
+    });
+    return browser.waitForPage(result['targetId'] as String);
+  }
+
+  @override
+  Future<void> close() async {
+    if (_closed) return;
+    _closed = true;
+    // Removing the context closes its pages (removeOnDetach: true semantics
+    // apply to disconnect; removal is explicit here).
+    await browser.session.send('Browser.removeBrowserContext', {
+      'browserContextId': browserContextId,
+    });
   }
 }

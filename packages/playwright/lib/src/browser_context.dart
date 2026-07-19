@@ -6,25 +6,21 @@ abstract class BrowserContext {
   /// Create a new page in this context.
   Future<Page> newPage();
 
-  /// Close the context.
+  /// Close the context and every page that belongs to it.
   Future<void> close();
 }
 
 class BrowserContextImpl implements BrowserContext {
-  final CoreBrowser _browser;
+  final CoreBrowserContext _coreContext;
 
-  BrowserContextImpl(this._browser, [dynamic session]);
+  BrowserContextImpl(this._coreContext);
 
   @override
   Future<Page> newPage() async {
-    // Agora utilizamos o próprio CoreBrowser que já conhece o tipo de motor (Cr, Ff, Wk)
-    // para retornar a sua própria subclasse de CorePage.
-    final corePage = await _browser.newPage();
+    final corePage = await _coreContext.newPage();
     return PageImpl(corePage);
   }
 
   @override
-  Future<void> close() async {
-    // Requires Target.closeTarget
-  }
+  Future<void> close() => _coreContext.close();
 }

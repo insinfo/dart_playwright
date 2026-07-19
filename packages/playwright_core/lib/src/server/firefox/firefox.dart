@@ -21,8 +21,9 @@ class FirefoxBrowserType {
     final launchArgs = <String>[
       '-no-remote',
       '-wait-for-browser',
-      '-foreground',
-      '-juggler-pipe', 
+      // -foreground is a macOS-only flag; other platforms warn about it.
+      if (Platform.isMacOS) '-foreground',
+      '-juggler-pipe',
     ];
     
     if (headless) {

@@ -20,8 +20,8 @@ class BrowserImpl implements Browser {
 
   @override
   Future<BrowserContext> newContext() async {
-    // Passamos o CoreBrowser que agora gerencia as CorePages diretamente
-    return BrowserContextImpl(_coreBrowser, null);
+    final coreContext = await _coreBrowser.createBrowserContext();
+    return BrowserContextImpl(coreContext);
   }
 
   @override

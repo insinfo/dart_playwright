@@ -17,6 +17,13 @@ class WkBrowser extends EventEmitter implements CoreBrowser {
 
   @override
   Future<void> close() async {
+    // Ask WebKit to shut down gracefully; fall back to killing the process
+    // if it does not comply in time.
+    try {
+      await connection
+          .send('Playwright.close', {})
+          .timeout(const Duration(seconds: 3));
+    } catch (_) {}
     await connection.transport.close();
   }
 
@@ -28,12 +35,27 @@ class WkBrowser extends EventEmitter implements CoreBrowser {
   }
 
   @override
+  Future<CoreBrowserContext> createBrowserContext() async {
+    final result = await connection.send('Playwright.createContext', {});
+    return WkBrowserContext(this, result['browserContextId'] as String);
+  }
+}
+
+/// An isolated WebKit browser context.
+class WkBrowserContext implements CoreBrowserContext {
+  final WkBrowser browser;
+  final String browserContextId;
+  bool _closed = false;
+
+  WkBrowserContext(this.browser, this.browserContextId);
+
+  @override
   Future<CorePage> newPage() async {
-    final contextResult = await connection.send('Playwright.createContext', {});
-    final contextId = contextResult['browserContextId'] as String;
+    if (_closed) throw PlaywrightException('Context closed');
+    final connection = browser.connection;
 
     final pageResult = await connection.send('Playwright.createPage', {
-      'browserContextId': contextId,
+      'browserContextId': browserContextId,
     });
     final pageProxyId = pageResult['pageProxyId'] as String;
 
@@ -42,8 +64,18 @@ class WkBrowser extends EventEmitter implements CoreBrowser {
     final session = connection.pageProxySession(pageProxyId);
     await session.waitForTarget(timeout: Duration(seconds: 10));
 
-    final page = WkPage(session, browserContextId: contextId);
+    final page = WkPage(session, browserContextId: browserContextId);
     await page.initialize();
     return page;
+  }
+
+  @override
+  Future<void> close() async {
+    if (_closed) return;
+    _closed = true;
+    // Deleting the context closes all pages that belong to it.
+    await browser.connection.send('Playwright.deleteContext', {
+      'browserContextId': browserContextId,
+    });
   }
 }

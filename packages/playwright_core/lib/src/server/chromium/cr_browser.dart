@@ -49,17 +49,11 @@ class CrBrowser extends EventEmitter implements CoreBrowser {
   }
 
   @override
-  Future<CorePage> newPage() async {
-    final targetId = (await connection.send('Target.createTarget', {
-      'url': 'about:blank',
-    }))['targetId'];
-
-    final sessionId = (await connection.send('Target.attachToTarget', {
-      'targetId': targetId,
-      'flatten': true,
-    }))['sessionId'];
-
-    return CrPage.create(connection.createSession(sessionId, 'page'));
+  Future<CoreBrowserContext> createBrowserContext() async {
+    final result = await connection.send('Target.createBrowserContext', {
+      'disposeOnDetach': true,
+    });
+    return CrBrowserContext(this, result['browserContextId'] as String);
   }
 
   /// Close the browser.
@@ -89,5 +83,47 @@ class CrBrowser extends EventEmitter implements CoreBrowser {
         Directory(_tempUserDataDir).deleteSync(recursive: true);
       } catch (_) {}
     }
+  }
+}
+
+/// An isolated Chromium browser context (incognito-like partition).
+class CrBrowserContext implements CoreBrowserContext {
+  final CrBrowser browser;
+  final String browserContextId;
+  final _pages = <CrPage>[];
+  bool _closed = false;
+
+  CrBrowserContext(this.browser, this.browserContextId);
+
+  @override
+  Future<CorePage> newPage() async {
+    if (_closed) throw PlaywrightException('Context closed');
+    final connection = browser.connection;
+
+    final targetId = (await connection.send('Target.createTarget', {
+      'url': 'about:blank',
+      'browserContextId': browserContextId,
+    }))['targetId'];
+
+    final sessionId = (await connection.send('Target.attachToTarget', {
+      'targetId': targetId,
+      'flatten': true,
+    }))['sessionId'];
+
+    final page =
+        await CrPage.create(connection.createSession(sessionId, 'page'));
+    _pages.add(page);
+    return page;
+  }
+
+  @override
+  Future<void> close() async {
+    if (_closed) return;
+    _closed = true;
+    // Disposing the context closes every target that belongs to it.
+    await browser.connection.send('Target.disposeBrowserContext', {
+      'browserContextId': browserContextId,
+    });
+    _pages.clear();
   }
 }

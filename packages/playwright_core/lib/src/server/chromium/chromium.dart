@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:playwright_protocol/playwright_protocol.dart';
 import 'package:playwright_core/playwright_core.dart';
+import '../../transport/browser_pipe_launcher.dart';
 import 'chromium_switches.dart';
 import 'cr_connection.dart';
 import 'cr_browser.dart';
@@ -65,9 +66,12 @@ class ChromiumBrowserType {
     }
     chromeArgs.addAll(options.args);
 
-    // Required for WebSocket transport in Dart (Pipe needs extra FDs not supported natively)
+    // CDP over fd3/fd4, exactly like upstream Playwright. Chromium reads the
+    // fds installed by our lpReserved2 (Windows) or FIFO/sh (POSIX) launchers
+    // and frames messages with a trailing \0 — the same framing as the
+    // Firefox/WebKit inspector pipes.
     if (!chromeArgs.any((arg) => arg.startsWith('--remote-debugging-'))) {
-      chromeArgs.add('--remote-debugging-port=0');
+      chromeArgs.add('--remote-debugging-pipe');
     }
 
     String? tempUserDataDir;
@@ -79,32 +83,14 @@ class ChromiumBrowserType {
       chromeArgs.add('--user-data-dir=${options.userDataDir}');
     }
 
-    final process = await Process.start(
-      execPath,
-      chromeArgs,
-      environment: options.env,
-    );
-
-    // Wait for the WebSocket URL on stderr
-    final completer = Completer<String>();
-    process.stderr.transform(SystemEncoding().decoder).listen((line) {
-      if (line.contains('DevTools listening on ws://')) {
-        final match = RegExp(r'ws://[^\s]+').firstMatch(line);
-        if (match != null && !completer.isCompleted) {
-          completer.complete(match.group(0));
-        }
-      }
-    });
+    final transport = await launchBrowserWithInspectorPipe(execPath, chromeArgs);
 
     try {
-      final wsUrl = await completer.future.timeout(const Duration(seconds: 15));
-      final transport = await WebSocketTransport.connect(wsUrl);
       final connection = CRConnection(transport);
-
-      final browser = await CrBrowser.connect(connection, process, tempUserDataDir);
+      final browser = await CrBrowser.connect(connection, null, tempUserDataDir);
       return browser;
     } catch (e) {
-      process.kill();
+      await transport.close();
       if (tempUserDataDir != null) {
         try {
           Directory(tempUserDataDir).deleteSync(recursive: true);

@@ -135,6 +135,25 @@ void main() {
           expect(html.toLowerCase(), contains('<html'));
         });
 
+        test('Deve isolar contextos e fechar contexto', () async {
+          final ctx1 = await browser.newContext();
+          final page1 = await ctx1.newPage();
+          await page1.goto(server.url('/hello'));
+          await page1.evaluate('() => localStorage.setItem("pw", "ctx1")');
+          expect(await page1.evaluate('() => localStorage.getItem("pw")'),
+              equals('ctx1'));
+
+          // A second context must not see the first context's storage.
+          final ctx2 = await browser.newContext();
+          final page2 = await ctx2.newPage();
+          await page2.goto(server.url('/hello'));
+          expect(
+              await page2.evaluate('() => localStorage.getItem("pw")'), isNull);
+
+          await ctx1.close();
+          await ctx2.close();
+        });
+
         test('Deve interceptar rotas com Page.route', () async {
           await page.route('**/title', (route) async {
             await route.fulfill(
