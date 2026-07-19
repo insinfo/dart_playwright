@@ -146,6 +146,7 @@ void main() {
 
         test('Deve suportar press de teclas especiais', () async {
           await page.goto(server.url('/keyboard'));
+          await page.waitForSelector('#field');
           await page.locator('#field').fill('hello');
           await page.locator('#field').press('Backspace');
           expect(await page.locator('#field').inputValue(), equals('hell'));
