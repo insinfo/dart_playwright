@@ -75,6 +75,9 @@ class PosixProcess {
     // PLAYWRIGHT_DEBUG set, surface the browser's output for diagnosis.
     final debug = Platform.environment['PLAYWRIGHT_DEBUG'] != null;
     if (debug) {
+      process.exitCode
+          .then((code) => print('[browser exit] code=$code'))
+          .catchError((_) {});
       process.stdout
           .transform(const SystemEncoding().decoder)
           .transform(const LineSplitter())

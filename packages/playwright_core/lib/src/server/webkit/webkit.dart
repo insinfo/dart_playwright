@@ -18,21 +18,21 @@ class WebKitBrowserType {
       throw PlaywrightException('$name executable not found.');
     }
     
-    final launchArgs = <String>[];
-    
+    // Mirrors upstream webkit.ts defaultArgs (non-persistent launch).
+    final launchArgs = <String>['--inspector-pipe'];
+
+    if (Platform.isWindows) {
+      launchArgs.add('--disable-accelerated-compositing');
+    }
     if (headless) {
       launchArgs.add('--headless');
     }
-    
-    // WebKit uses inspector-pipe just like Firefox/Chromium
-    launchArgs.add('--inspector-pipe');
-    
+    // Without this, WebKit opens a startup window — which aborts on
+    // display-less Linux even in headless mode.
+    launchArgs.add('--no-startup-window');
+
     if (args != null) {
       launchArgs.addAll(args);
-    }
-    
-    if (Platform.isWindows) {
-      launchArgs.add('--disable-accelerated-compositing');
     }
     
     final transport =
