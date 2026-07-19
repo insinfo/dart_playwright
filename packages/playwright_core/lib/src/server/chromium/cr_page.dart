@@ -7,6 +7,7 @@ import 'cr_network_manager.dart';
 import 'cr_route.dart';
 import '../../accessibility.dart';
 import '../core_page.dart';
+import '../core_js_handle.dart';
 
 /// Represents a Chromium Page (tab).
 class CrPage extends EventEmitter
@@ -159,7 +160,8 @@ class CrPage extends EventEmitter
     await session.send('Input.insertText', {'text': text});
   }
 
-  Future<dynamic> evaluateHandle(String expression) async {
+  @override
+  Future<CoreJSHandle> evaluateHandle(String expression) async {
     return executionContext.evaluateHandle(expression);
   }
 

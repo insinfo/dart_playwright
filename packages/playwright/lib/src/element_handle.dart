@@ -1,4 +1,4 @@
-import 'package:playwright_core/src/server/chromium/cr_element_handle.dart';
+import 'package:playwright_core/src/server/core_element_handle.dart';
 import 'js_handle.dart';
 
 /// Represents an in-page DOM element.
@@ -17,19 +17,19 @@ abstract class ElementHandle extends JSHandle {
 }
 
 class ElementHandleImpl extends JSHandleImpl implements ElementHandle {
-  final CrElementHandle _crElementHandle;
+  final CoreElementHandle _coreElementHandle;
 
-  ElementHandleImpl(this._crElementHandle) : super(_crElementHandle);
-
-  @override
-  Future<String> textContent() => _crElementHandle.textContent();
+  ElementHandleImpl(this._coreElementHandle) : super(_coreElementHandle);
 
   @override
-  Future<void> click() => _crElementHandle.click();
+  Future<String> textContent() => _coreElementHandle.textContent();
 
   @override
-  Future<void> fill(String value) => _crElementHandle.fill(value);
+  Future<void> click() => _coreElementHandle.click();
 
   @override
-  Future<void> focus() => _crElementHandle.focus();
+  Future<void> fill(String value) => _coreElementHandle.fill(value);
+
+  @override
+  Future<void> focus() => _coreElementHandle.focus();
 }

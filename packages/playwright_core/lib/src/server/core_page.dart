@@ -4,6 +4,7 @@ import 'package:playwright_protocol/playwright_protocol.dart';
 import '../accessibility.dart';
 import 'dialog.dart';
 import 'keyboard.dart';
+import 'core_js_handle.dart';
 export 'dialog.dart' show Dialog;
 export 'keyboard.dart' show Keyboard;
 
@@ -19,7 +20,7 @@ abstract class CorePage extends EventEmitter {
   Future<void> waitForNavigation({WaitUntilState? waitUntil, Duration? timeout});
   Future<String> title();
   Future<dynamic> evaluate(String expression);
-  Future<dynamic> evaluateHandle(String expression);
+  Future<CoreJSHandle> evaluateHandle(String expression);
   Future<List<int>> screenshot({String? path});
   Future<AccessibilitySnapshot> accessibilitySnapshot();
   Future<void> route(String urlPattern, Function(dynamic) handler);

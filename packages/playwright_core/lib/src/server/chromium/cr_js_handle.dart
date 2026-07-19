@@ -1,5 +1,7 @@
+import '../core_js_handle.dart';
+
 /// Represents a JavaScript object in the page.
-class CrJSHandle {
+class CrJSHandle implements CoreJSHandle {
   final dynamic context;
   final String objectId;
 

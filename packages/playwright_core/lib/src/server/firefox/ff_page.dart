@@ -8,6 +8,7 @@ import 'ff_route.dart';
 import '../../accessibility.dart';
 
 import '../core_page.dart';
+import '../core_js_handle.dart';
 
 /// Represents a Firefox Juggler Page (tab).
 class FfPage extends EventEmitter
@@ -192,7 +193,8 @@ class FfPage extends EventEmitter
     return result['result']?['value'];
   }
 
-  Future<dynamic> evaluateHandle(String expression) async {
+  @override
+  Future<CoreJSHandle> evaluateHandle(String expression) async {
     throw UnsupportedError('evaluateHandle not fully implemented for FfPage yet');
   }
 

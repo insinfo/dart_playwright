@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:playwright_protocol/playwright_protocol.dart';
 import '../core_page.dart';
+import '../core_js_handle.dart';
 import 'wk_connection.dart';
 import 'wk_input.dart';
 import 'wk_route.dart';
@@ -168,7 +169,8 @@ class WkPage extends EventEmitter
     return result['result']?['value'];
   }
 
-  Future<dynamic> evaluateHandle(String expression) async {
+  @override
+  Future<CoreJSHandle> evaluateHandle(String expression) async {
     throw UnsupportedError('evaluateHandle not fully implemented for WkPage yet');
   }
 

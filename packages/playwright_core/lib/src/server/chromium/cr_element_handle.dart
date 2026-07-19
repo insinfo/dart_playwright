@@ -1,7 +1,8 @@
+import '../core_element_handle.dart';
 import 'cr_js_handle.dart';
 
 /// Represents a DOM element in the page.
-class CrElementHandle extends CrJSHandle {
+class CrElementHandle extends CrJSHandle implements CoreElementHandle {
   CrElementHandle(dynamic context, String objectId) : super(context, objectId);
 
   /// Get the text content of this element.

@@ -1,6 +1,6 @@
 import 'package:playwright_core/src/server/core_page.dart' hide Dialog;
 import 'package:playwright_core/src/server/dialog.dart' as core;
-import 'package:playwright_core/src/server/chromium/cr_element_handle.dart';
+import 'package:playwright_core/src/server/core_element_handle.dart';
 import 'locator.dart';
 import 'js_handle.dart';
 import 'element_handle.dart';
@@ -73,6 +73,9 @@ abstract class Page {
 
   /// Close the page.
   Future<void> close();
+
+  /// Event emitted when the page closes.
+  Stream<void> get onClose;
 }
 
 class PageImpl implements Page {
@@ -133,7 +136,7 @@ class PageImpl implements Page {
   Future<JSHandle> evaluateHandle(String expression) async {
     final handle = await _corePage.evaluateHandle(expression);
     // Cast appropriately based on the handle type returned
-    if (handle is CrElementHandle) {
+    if (handle is CoreElementHandle) {
       return ElementHandleImpl(handle);
     }
     return JSHandleImpl(handle);
@@ -172,4 +175,7 @@ class PageImpl implements Page {
 
   @override
   Future<void> close() => _corePage.close();
+
+  @override
+  Stream<void> get onClose => _corePage.stream<void>('close');
 }
