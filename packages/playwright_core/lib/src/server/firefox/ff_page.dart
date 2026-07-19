@@ -214,23 +214,7 @@ class FfPage extends EventEmitter
   Future<void> fill(String selector, String text) async {
     await focusAndSelect(selector);
     if (text.isEmpty) {
-      await session.send('Page.dispatchKeyEvent', {
-        'type': 'keydown',
-        'key': 'Delete',
-        'code': 'Delete',
-        'keyCode': 46,
-        'location': 0,
-        'repeat': false,
-        'text': '',
-      });
-      await session.send('Page.dispatchKeyEvent', {
-        'type': 'keyup',
-        'key': 'Delete',
-        'code': 'Delete',
-        'keyCode': 46,
-        'location': 0,
-        'repeat': false,
-      });
+      await keyboard.press('Delete');
       return;
     }
     await session.send('Page.insertText', {'text': text});
@@ -340,8 +324,11 @@ class FfPage extends EventEmitter
         headers: _stringHeaders(params['headers']),
       ));
     } else {
+      // Fire-and-forget: the page may be closing and the session already
+      // gone; that must not surface as an unhandled async error.
       session
-          .send('Network.resumeInterceptedRequest', {'requestId': requestId});
+          .send('Network.resumeInterceptedRequest', {'requestId': requestId})
+          .catchError((_) => <String, dynamic>{});
     }
   }
 

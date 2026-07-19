@@ -264,18 +264,7 @@ class CrPage extends EventEmitter
   Future<void> fill(String selector, String text) async {
     await focusAndSelect(selector);
     if (text.isEmpty) {
-      await session.send('Input.dispatchKeyEvent', {
-        'type': 'keyDown',
-        'key': 'Delete',
-        'code': 'Delete',
-        'windowsVirtualKeyCode': 46,
-      });
-      await session.send('Input.dispatchKeyEvent', {
-        'type': 'keyUp',
-        'key': 'Delete',
-        'code': 'Delete',
-        'windowsVirtualKeyCode': 46,
-      });
+      await keyboard.press('Delete');
       return;
     }
     await session.send('Input.insertText', {'text': text});
@@ -387,7 +376,11 @@ class CrPage extends EventEmitter
         headers: _stringHeaders(request['headers']),
       ));
     } else {
-      session.send('Fetch.continueRequest', {'requestId': fetchRequestId});
+      // Fire-and-forget: the page may be closing and the session already
+      // gone; that must not surface as an unhandled async error.
+      (session.send('Fetch.continueRequest', {'requestId': fetchRequestId})
+              as Future<dynamic>)
+          .catchError((_) {});
     }
   }
 

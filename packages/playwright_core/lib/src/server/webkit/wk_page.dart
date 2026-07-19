@@ -241,22 +241,9 @@ class WkPage extends EventEmitter
   Future<void> fill(String selector, String text) async {
     await focusAndSelect(selector);
     if (text.isEmpty) {
-      await session.send('Input.dispatchKeyEvent', {
-        'type': 'keyDown',
-        'modifiers': 0,
-        'key': 'Delete',
-        'code': 'Delete',
-        'windowsVirtualKeyCode': 46,
-        'isKeypad': false,
-      });
-      await session.send('Input.dispatchKeyEvent', {
-        'type': 'keyUp',
-        'modifiers': 0,
-        'key': 'Delete',
-        'code': 'Delete',
-        'windowsVirtualKeyCode': 46,
-        'isKeypad': false,
-      });
+      // Goes through the keyboard so macCommands (deleteForward:) are
+      // attached; a bare key event does not edit on macOS.
+      await keyboard.press('Delete');
       return;
     }
     await session.sendToTarget('Page.insertText', {'text': text});
@@ -354,10 +341,12 @@ class WkPage extends EventEmitter
         headers: _stringHeaders(request['headers']),
       ));
     } else {
+      // Fire-and-forget: the page may be closing and the session already
+      // gone; that must not surface as an unhandled async error.
       session.sendToTarget('Network.interceptContinue', {
         'requestId': requestId,
         'stage': 'request',
-      });
+      }).catchError((_) => <String, dynamic>{});
     }
   }
 
