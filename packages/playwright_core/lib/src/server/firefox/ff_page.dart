@@ -8,6 +8,7 @@ import 'ff_route.dart';
 import '../../accessibility.dart';
 
 import '../core_page.dart';
+import '../core_route.dart';
 import '../core_js_handle.dart';
 
 /// Represents a Firefox Juggler Page (tab).
@@ -17,20 +18,46 @@ class FfPage extends EventEmitter
   final FfSession session;
   @override
   late final Keyboard keyboard;
+  late final CoreFrameManager frameManager;
 
   bool _isClosed = false;
-
-  String? _mainFrameId;
   String? _executionContextId;
 
   FfPage(this.session) {
+    frameManager = CoreFrameManager(this);
     keyboard = Keyboard(FfRawKeyboard(session));
     session.on('Page.dialogOpened', _onDialogOpened);
     session.on('Page.frameAttached', (params) {
-      _mainFrameId ??= params['frameId'] as String;
+      frameManager.frameAttached(
+          params['frameId'] as String, params['parentFrameId'] as String?);
+    });
+    session.on('Page.frameDetached', (params) {
+      frameManager.frameDetached(params['frameId'] as String);
+    });
+    // Firefox Juggler reports document navigations as
+    // Page.navigationCommitted (not Page.navigated).
+    session.on('Page.navigationCommitted', (params) {
+      frameManager.frameNavigated(
+        params['frameId'] as String,
+        params['url'] as String,
+        params['name'] as String? ?? '',
+        params['navigationId'] as String? ?? '',
+        parentId: params['parentFrameId'] as String?,
+      );
+    });
+    session.on('Page.sameDocumentNavigation', (params) {
+      frameManager.frameNavigatedWithinDocument(
+        params['frameId'] as String,
+        params['url'] as String,
+      );
+    });
+    session.on('Page.eventFired', (params) {
+      frameManager.frameLifecycleEvent(
+          params['frameId'] as String, params['name'] as String);
     });
     session.on('Runtime.executionContextCreated', (params) {
-      if (params['auxData'] != null && params['auxData']['frameId'] == _mainFrameId) {
+      if (params['auxData'] != null &&
+          params['auxData']['frameId'] == frameManager.mainFrame?.id) {
         _executionContextId = params['executionContextId'] as String;
       }
     });
@@ -60,49 +87,31 @@ class FfPage extends EventEmitter
   }
 
   @override
-  Future<void> waitForLoadState({WaitUntilState state = WaitUntilState.load, Duration? timeout}) async {
-    final targetName = (state == WaitUntilState.load || state == WaitUntilState.networkidle) 
-        ? 'load' 
-        : 'DOMContentLoaded';
-        
-    final completer = Completer<void>();
-    void Function(dynamic)? listener;
-    Timer? timer;
-    
-    listener = (payload) {
-      if (payload['name'] == targetName) {
-        session.off('Page.eventFired', listener!);
-        timer?.cancel();
-        if (!completer.isCompleted) completer.complete();
-      }
-    };
-    
-    session.on('Page.eventFired', listener);
-    
-    if (timeout != null) {
-      timer = Timer(timeout, () {
-        session.off('Page.eventFired', listener!);
-        if (!completer.isCompleted) completer.completeError(TimeoutException('Timeout waiting for $targetName'));
-      });
-    }
-    
-    await completer.future;
-    
-    if (state == WaitUntilState.networkidle) {
-      await Future.delayed(const Duration(milliseconds: 500));
-    }
+  CoreFrame get mainFrame => frameManager.mainFrame!;
+
+  @override
+  List<CoreFrame> get frames => frameManager.frames;
+
+  @override
+  Future<void> waitForLoadState(
+      {WaitUntilState state = WaitUntilState.load, Duration? timeout}) async {
+    final frame = await frameManager.waitForMainFrame();
+    await frame.waitForLoadState(state, timeout: timeout);
   }
 
   @override
-  Future<void> waitForNavigation({WaitUntilState? waitUntil, Duration? timeout}) async {
-    await waitForLoadState(state: waitUntil ?? WaitUntilState.load, timeout: timeout);
+  Future<void> waitForNavigation(
+      {WaitUntilState? waitUntil, Duration? timeout}) async {
+    await mainFrame.waitForNavigation(waitUntil: waitUntil, timeout: timeout);
   }
 
   /// Navigate to a URL.
   @override
   Future<void> goto(String url, {WaitUntilState? waitUntil}) async {
-    final loaded = waitForLoadState(state: waitUntil ?? WaitUntilState.load, timeout: const Duration(seconds: 30));
-    await session.send('Page.navigate', {'url': url, 'frameId': _mainFrameId});
+    final frame = await frameManager.waitForMainFrame();
+    final loaded = frame.waitForNavigation(
+        waitUntil: waitUntil, timeout: const Duration(seconds: 30));
+    await session.send('Page.navigate', {'url': url, 'frameId': frame.id});
     await loaded;
   }
 
@@ -183,19 +192,22 @@ class FfPage extends EventEmitter
     final result = await session.send('Runtime.evaluate', {
       'expression': finalExpression,
       'returnByValue': true,
-      if (_executionContextId != null) 'executionContextId': _executionContextId,
+      if (_executionContextId != null)
+        'executionContextId': _executionContextId,
     });
 
     if (result['exceptionDetails'] != null) {
-      throw PlaywrightException('Evaluation failed: ${result["exceptionDetails"]}');
+      throw PlaywrightException(
+          'Evaluation failed: ${result["exceptionDetails"]}');
     }
-    
+
     return result['result']?['value'];
   }
 
   @override
   Future<CoreJSHandle> evaluateHandle(String expression) async {
-    throw UnsupportedError('evaluateHandle not fully implemented for FfPage yet');
+    throw UnsupportedError(
+        'evaluateHandle not fully implemented for FfPage yet');
   }
 
   /// Take a screenshot.
@@ -215,7 +227,7 @@ class FfPage extends EventEmitter
     });
     final data = result['data'] as String;
     final bytes = base64Decode(data);
-    
+
     if (path != null) {
       await File(path).writeAsBytes(bytes);
     }
@@ -229,16 +241,21 @@ class FfPage extends EventEmitter
     try {
       await session.send('Accessibility.getFullAXTree');
       // Similar parsing...
-      return AccessibilitySnapshot(title: 'Firefox A11y', root: AccessibilityNode(role: 'WebArea', name: '', ref: 'root'));
+      return AccessibilitySnapshot(
+          title: 'Firefox A11y',
+          root: AccessibilityNode(role: 'WebArea', name: '', ref: 'root'));
     } catch (_) {
-      return AccessibilitySnapshot(title: await title(), root: AccessibilityNode(role: 'WebArea', name: '', ref: 'root'));
+      return AccessibilitySnapshot(
+          title: await title(),
+          root: AccessibilityNode(role: 'WebArea', name: '', ref: 'root'));
     }
   }
 
-  final _routes = <String, Function(FfRoute)>{};
+  final _routes = <String, void Function(CoreRoute)>{};
 
-  /// Add a route interception handler.
-  Future<void> route(String urlPattern, Function(dynamic) handler) async {
+  @override
+  Future<void> route(
+      String urlPattern, void Function(CoreRoute) handler) async {
     if (_routes.isEmpty) {
       session.on('Network.requestWillBeSent', _onRequestWillBeSent);
       await session.send('Network.setRequestInterception', {'enabled': true});
@@ -251,7 +268,7 @@ class FfPage extends EventEmitter
     final requestId = params['requestId'] as String;
     final url = params['url'] as String;
 
-    Function(FfRoute)? matchedHandler;
+    void Function(CoreRoute)? matchedHandler;
     for (final pattern in _routes.keys) {
       final cleanPattern = pattern.replaceAll('**/', '');
       if (pattern == '**/*' || url.contains(cleanPattern)) {
@@ -261,10 +278,22 @@ class FfPage extends EventEmitter
     }
 
     if (matchedHandler != null) {
-      matchedHandler(FfRoute(session, requestId, url));
+      matchedHandler(FfRoute(
+        session,
+        requestId,
+        url,
+        method: params['method'] as String? ?? 'GET',
+        headers: _stringHeaders(params['headers']),
+      ));
     } else {
-      session.send('Network.resumeInterceptedRequest', {'requestId': requestId});
+      session
+          .send('Network.resumeInterceptedRequest', {'requestId': requestId});
     }
+  }
+
+  Map<String, String> _stringHeaders(dynamic headers) {
+    if (headers is! Map) return const <String, String>{};
+    return headers.map((key, value) => MapEntry('$key', '$value'));
   }
 
   /// Close the page.

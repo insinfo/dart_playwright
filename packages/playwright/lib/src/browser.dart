@@ -5,7 +5,16 @@ import 'browser_context.dart';
 abstract class Browser {
   /// Create a new browser context.
   Future<BrowserContext> newContext();
-  
+
+  /// Currently open browser contexts.
+  List<BrowserContext> contexts();
+
+  /// Whether the browser connection is still open.
+  bool isConnected();
+
+  /// Event emitted when the browser disconnects.
+  Stream<void> get onDisconnected;
+
   /// Close the browser.
   Future<void> close();
 
@@ -23,6 +32,17 @@ class BrowserImpl implements Browser {
     final coreContext = await _coreBrowser.createBrowserContext();
     return BrowserContextImpl(coreContext);
   }
+
+  @override
+  List<BrowserContext> contexts() => _coreBrowser.contexts
+      .map((context) => BrowserContextImpl(context))
+      .toList();
+
+  @override
+  bool isConnected() => _coreBrowser.isConnected;
+
+  @override
+  Stream<void> get onDisconnected => _coreBrowser.stream<void>('disconnected');
 
   @override
   Future<void> close() => _coreBrowser.close();

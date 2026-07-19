@@ -10,6 +10,12 @@ abstract class CoreBrowser extends EventEmitter {
   /// Returns the browser version.
   Future<String> version();
 
+  /// Currently open browser contexts.
+  List<CoreBrowserContext> get contexts;
+
+  /// Whether the browser connection is still open.
+  bool get isConnected;
+
   /// Creates an isolated browser context (cookies/storage separated).
   Future<CoreBrowserContext> createBrowserContext();
 
@@ -19,6 +25,12 @@ abstract class CoreBrowser extends EventEmitter {
 
 /// An isolated browser context owned by a [CoreBrowser].
 abstract class CoreBrowserContext {
+  /// Pages opened in this context.
+  List<CorePage> get pages;
+
+  /// Whether this context has been closed.
+  bool get isClosed;
+
   /// Creates a new page inside this context.
   Future<CorePage> newPage();
 
@@ -47,6 +59,8 @@ mixin BrowserContextStorage {
   /// Pages opened by this context, used to snapshot localStorage per origin.
   final List<CorePage> trackedPages = [];
 
+  List<CorePage> get pages => List.unmodifiable(trackedPages);
+
   Future<List<Map<String, dynamic>>> cookies([List<String>? urls]);
 
   Future<Map<String, dynamic>> collectStorageState() async {
@@ -70,8 +84,7 @@ mixin BrowserContextStorage {
         ''');
         if (result is Map && result['origin'] != null) {
           final origin = result['origin'] as String;
-          if (seen.add(origin) &&
-              (result['localStorage'] as List).isNotEmpty) {
+          if (seen.add(origin) && (result['localStorage'] as List).isNotEmpty) {
             origins.add({
               'origin': origin,
               'localStorage': result['localStorage'],
@@ -87,7 +100,8 @@ mixin BrowserContextStorage {
   }
 
   /// Transforms 'url' into 'domain', 'path', and 'secure' fields as required by the engines.
-  List<Map<String, dynamic>> rewriteCookies(List<Map<String, dynamic>> cookies) {
+  List<Map<String, dynamic>> rewriteCookies(
+      List<Map<String, dynamic>> cookies) {
     return cookies.map((c) {
       final copy = Map<String, dynamic>.from(c);
       if (copy['url'] != null) {

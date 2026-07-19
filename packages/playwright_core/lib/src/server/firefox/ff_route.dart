@@ -1,12 +1,23 @@
 import 'dart:convert';
+import '../core_route.dart';
+import '../core_request.dart';
 
 /// Implementation of network interception for Firefox (Juggler).
-class FfRoute {
+class FfRoute implements CoreRoute {
   final dynamic session;
   final String requestId;
   final String url;
+  final String method;
+  final Map<String, String> headers;
+  late final CoreRequest _request;
 
-  FfRoute(this.session, this.requestId, this.url);
+  FfRoute(this.session, this.requestId, this.url,
+      {this.method = 'GET', this.headers = const <String, String>{}}) {
+    _request = BasicCoreRequest(url: url, method: method, headers: headers);
+  }
+
+  @override
+  CoreRequest get request => _request;
 
   Future<void> continue_() async {
     await session.send('Network.resumeInterceptedRequest', {
@@ -14,7 +25,10 @@ class FfRoute {
     });
   }
 
-  Future<void> fulfill({int status = 200, Map<String, String>? headers, List<int>? bodyBytes}) async {
+  Future<void> fulfill(
+      {int status = 200,
+      Map<String, String>? headers,
+      List<int>? bodyBytes}) async {
     await session.send('Network.fulfillInterceptedRequest', {
       'requestId': requestId,
       'status': status,

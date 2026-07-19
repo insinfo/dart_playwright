@@ -1,7 +1,12 @@
 import 'dart:convert';
+import 'package:playwright_core/playwright_core.dart';
+import 'network.dart';
 
 /// Represents a route interception.
 abstract class Route {
+  /// The request being intercepted.
+  Request request();
+
   /// Continue the request.
   Future<void> continue_();
 
@@ -13,14 +18,18 @@ abstract class Route {
 }
 
 class RouteImpl implements Route {
-  /// Engine-specific route object (CrRoute, FfRoute or WkRoute); all expose
-  /// the same continue_/fulfill/abort shape.
-  final dynamic _route;
+  final CoreRoute _coreRoute;
+  late final Request _request;
 
-  RouteImpl(this._route);
+  RouteImpl(this._coreRoute) {
+    _request = RequestImpl(_coreRoute.request);
+  }
 
   @override
-  Future<void> continue_() => _route.continue_();
+  Request request() => _request;
+
+  @override
+  Future<void> continue_() => _coreRoute.continue_();
 
   @override
   Future<void> fulfill({int status = 200, Map<String, String>? headers, String? body, List<int>? bodyBytes}) {
@@ -28,9 +37,9 @@ class RouteImpl implements Route {
     if (body != null && finalBytes == null) {
       finalBytes = utf8.encode(body);
     }
-    return _route.fulfill(status: status, headers: headers, bodyBytes: finalBytes);
+    return _coreRoute.fulfill(status: status, headers: headers, bodyBytes: finalBytes);
   }
 
   @override
-  Future<void> abort([String errorCode = 'failed']) => _route.abort(errorCode);
+  Future<void> abort([String errorCode = 'failed']) => _coreRoute.abort(errorCode);
 }

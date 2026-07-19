@@ -5,6 +5,7 @@ import 'cr_execution_context.dart';
 import 'cr_input.dart';
 import 'cr_network_manager.dart';
 import 'cr_route.dart';
+import '../core_route.dart';
 import '../../accessibility.dart';
 import '../core_page.dart';
 import '../core_js_handle.dart';
@@ -18,15 +19,40 @@ class CrPage extends EventEmitter
   @override
   late final Keyboard keyboard;
   late final CrExecutionContext executionContext;
-  final _routes = <String, Function(CrRoute)>{};
+  final _routes = <String, void Function(CoreRoute)>{};
+  late final CoreFrameManager frameManager;
 
   bool _isClosed = false;
 
   CrPage._(this.session) : networkManager = CrNetworkManager(session) {
+    frameManager = CoreFrameManager(this);
     keyboard = Keyboard(CrRawKeyboard(session));
     executionContext = CrExecutionContext(session);
     session.on('closed', () => _onClosed());
     session.on('Page.javascriptDialogOpening', _onDialogOpening);
+
+    // Frame events
+    session.on('Page.frameAttached', (params) {
+      frameManager.frameAttached(
+          params['frameId'] as String, params['parentFrameId'] as String?);
+    });
+    session.on('Page.frameNavigated', (params) {
+      final frame = params['frame'] as Map<String, dynamic>;
+      frameManager.frameNavigated(
+        frame['id'] as String,
+        frame['url'] as String,
+        frame['name'] as String? ?? '',
+        frame['loaderId'] as String? ?? '',
+        parentId: frame['parentId'] as String?,
+      );
+    });
+    session.on('Page.frameDetached', (params) {
+      frameManager.frameDetached(params['frameId'] as String);
+    });
+    session.on('Page.lifecycleEvent', (params) {
+      frameManager.frameLifecycleEvent(
+          params['frameId'] as String, params['name'] as String);
+    });
   }
 
   void _onDialogOpening(Map<String, dynamic> params) {
@@ -54,6 +80,8 @@ class CrPage extends EventEmitter
     // Enable essential domains
     await Future.wait(<Future<dynamic>>[
       session.send('Page.enable') as Future<dynamic>,
+      session.send('Page.setLifecycleEventsEnabled', {'enabled': true})
+          as Future<dynamic>,
       session.send('Runtime.enable') as Future<dynamic>,
       session.send('Network.enable') as Future<dynamic>,
       session.send('Log.enable') as Future<dynamic>,
@@ -62,33 +90,29 @@ class CrPage extends EventEmitter
   }
 
   @override
-  Future<void> waitForLoadState({WaitUntilState state = WaitUntilState.load, Duration? timeout}) async {
-    String eventName;
-    if (state == WaitUntilState.load || state == WaitUntilState.networkidle) {
-      eventName = 'Page.loadEventFired';
-    } else {
-      eventName = 'Page.domContentEventFired';
-    }
-    
-    await session.waitForEvent(eventName, timeout: timeout);
-    
-    // For networkidle, add a small buffer for simplicity without full FrameManager
-    if (state == WaitUntilState.networkidle) {
-      await Future.delayed(const Duration(milliseconds: 500));
-    }
+  CoreFrame get mainFrame => frameManager.mainFrame!;
+
+  @override
+  List<CoreFrame> get frames => frameManager.frames;
+
+  @override
+  Future<void> waitForLoadState(
+      {WaitUntilState state = WaitUntilState.load, Duration? timeout}) async {
+    final frame = await frameManager.waitForMainFrame();
+    await frame.waitForLoadState(state, timeout: timeout);
   }
 
   @override
-  Future<void> waitForNavigation({WaitUntilState? waitUntil, Duration? timeout}) async {
-    // In Chromium, a navigation triggers frameNavigated and then lifecycle events.
-    // We wait for the load state.
-    await waitForLoadState(state: waitUntil ?? WaitUntilState.load, timeout: timeout);
+  Future<void> waitForNavigation(
+      {WaitUntilState? waitUntil, Duration? timeout}) async {
+    await mainFrame.waitForNavigation(waitUntil: waitUntil, timeout: timeout);
   }
 
-  /// Navigate to a URL.
   @override
   Future<void> goto(String url, {WaitUntilState? waitUntil}) async {
-    final loaded = waitForLoadState(state: waitUntil ?? WaitUntilState.load, timeout: const Duration(seconds: 30));
+    final frame = await frameManager.waitForMainFrame();
+    final loaded = frame.waitForNavigation(
+        waitUntil: waitUntil, timeout: const Duration(seconds: 30));
     final result = await session.send('Page.navigate', {'url': url});
     if (result['errorText'] != null) {
       throw PlaywrightException(
@@ -172,7 +196,7 @@ class CrPage extends EventEmitter
     });
     final data = result['data'] as String;
     final bytes = base64Decode(data);
-    
+
     if (path != null) {
       await File(path).writeAsBytes(bytes);
     }
@@ -183,14 +207,17 @@ class CrPage extends EventEmitter
   Future<AccessibilitySnapshot> accessibilitySnapshot() async {
     final result = await session.send('Accessibility.getFullAXTree');
     final nodes = result['nodes'] as List;
-    
+
     // Simplistic parser for V0.1
     if (nodes.isEmpty) {
-      return AccessibilitySnapshot(title: '', root: AccessibilityNode(role: 'WebArea', name: '', ref: 'root'));
+      return AccessibilitySnapshot(
+          title: '',
+          root: AccessibilityNode(role: 'WebArea', name: '', ref: 'root'));
     }
-    
-    final rootData = nodes.firstWhere((n) => n['role']?['value'] == 'WebArea', orElse: () => nodes.first);
-    
+
+    final rootData = nodes.firstWhere((n) => n['role']?['value'] == 'WebArea',
+        orElse: () => nodes.first);
+
     AccessibilityNode parseNode(Map<String, dynamic> data) {
       final role = data['role']?['value'] as String? ?? 'Unknown';
       final name = data['name']?['value'] as String? ?? '';
@@ -199,11 +226,15 @@ class CrPage extends EventEmitter
       final nodeId = data['nodeId'] as String? ?? '';
 
       final childIds = (data['childIds'] as List?)?.cast<String>() ?? [];
-      final children = childIds.map((id) {
-        final childData = nodes.firstWhere((n) => n['nodeId'] == id, orElse: () => null);
-        return childData != null ? parseNode(childData) : null;
-      }).whereType<AccessibilityNode>().toList();
-      
+      final children = childIds
+          .map((id) {
+            final childData =
+                nodes.firstWhere((n) => n['nodeId'] == id, orElse: () => null);
+            return childData != null ? parseNode(childData) : null;
+          })
+          .whereType<AccessibilityNode>()
+          .toList();
+
       return AccessibilityNode(
         role: role,
         name: name,
@@ -213,18 +244,22 @@ class CrPage extends EventEmitter
         ref: 'node_$nodeId',
       );
     }
-    
+
     final root = parseNode(rootData);
     final title = await this.title();
-    
+
     return AccessibilitySnapshot(title: title, root: root);
   }
 
   /// Add a route interception handler.
-  Future<void> route(String urlPattern, Function(CrRoute) handler) async {
+  @override
+  Future<void> route(
+      String urlPattern, void Function(CoreRoute) handler) async {
     if (_routes.isEmpty) {
       await session.send('Fetch.enable', {
-        'patterns': [{'requestStage': 'Request'}]
+        'patterns': [
+          {'requestStage': 'Request'}
+        ]
       });
       session.on('Fetch.requestPaused', _onRequestPaused);
     }
@@ -235,9 +270,9 @@ class CrPage extends EventEmitter
     final fetchRequestId = params['requestId'] as String;
     final request = params['request'] as Map<String, dynamic>;
     final url = request['url'] as String;
-    
+
     // Find matching route handler
-    Function(CrRoute)? matchedHandler;
+    void Function(CoreRoute)? matchedHandler;
     for (final pattern in _routes.keys) {
       final cleanPattern = pattern.replaceAll('**/', '');
       if (pattern == '**/*' || url.contains(cleanPattern)) {
@@ -245,13 +280,23 @@ class CrPage extends EventEmitter
         break;
       }
     }
-    
+
     if (matchedHandler != null) {
-      final crRoute = CrRoute(session, fetchRequestId, url);
-      matchedHandler(crRoute);
+      matchedHandler(CrRoute(
+        session,
+        fetchRequestId,
+        url,
+        method: request['method'] as String? ?? 'GET',
+        headers: _stringHeaders(request['headers']),
+      ));
     } else {
       session.send('Fetch.continueRequest', {'requestId': fetchRequestId});
     }
+  }
+
+  Map<String, String> _stringHeaders(dynamic headers) {
+    if (headers is! Map) return const <String, String>{};
+    return headers.map((key, value) => MapEntry('$key', '$value'));
   }
 
   /// Close the page.

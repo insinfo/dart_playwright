@@ -8,10 +8,12 @@ import 'ff_page.dart';
 class FfBrowser extends EventEmitter implements CoreBrowser {
   final FfConnection connection;
   late final FfSession session;
-  
+  final _contexts = <FfBrowserContext>[];
+  bool _isClosed = false;
+
   FfBrowser(this.connection) {
     session = connection.rootSession;
-    
+
     // In Juggler, new pages emit Browser.attachedToTarget
     session.on('Browser.attachedToTarget', (params) {
       final targetInfo = params['targetInfo'];
@@ -28,6 +30,7 @@ class FfBrowser extends EventEmitter implements CoreBrowser {
         }
       }
     });
+    connection.on('closed', () => _onClosed());
   }
 
   final _pendingPages = <String, Completer<FfPage>>{};
@@ -46,11 +49,20 @@ class FfBrowser extends EventEmitter implements CoreBrowser {
   }
 
   @override
+  List<CoreBrowserContext> get contexts => List.unmodifiable(_contexts);
+
+  @override
+  bool get isConnected => !_isClosed;
+
+  @override
   Future<CoreBrowserContext> createBrowserContext() async {
     final result = await session.send('Browser.createBrowserContext', {
       'removeOnDetach': true,
     });
-    return FfBrowserContext(this, result['browserContextId'] as String);
+    final context =
+        FfBrowserContext(this, result['browserContextId'] as String);
+    _contexts.add(context);
+    return context;
   }
 
   /// Waits for the page session attached to [targetId] (created via
@@ -80,11 +92,16 @@ class FfBrowser extends EventEmitter implements CoreBrowser {
     // Ask Firefox to shut down gracefully; fall back to killing the process
     // if it does not comply in time.
     try {
-      await session
-          .send('Browser.close')
-          .timeout(const Duration(seconds: 3));
+      await session.send('Browser.close').timeout(const Duration(seconds: 3));
     } catch (_) {}
     await connection.transport.close();
+  }
+
+  void _onClosed() {
+    if (_isClosed) return;
+    _isClosed = true;
+    _contexts.clear();
+    emit('disconnected');
   }
 }
 
@@ -97,6 +114,9 @@ class FfBrowserContext
   bool _closed = false;
 
   FfBrowserContext(this.browser, this.browserContextId);
+
+  @override
+  bool get isClosed => _closed;
 
   @override
   Future<CorePage> newPage() async {
@@ -144,5 +164,7 @@ class FfBrowserContext
     await browser.session.send('Browser.removeBrowserContext', {
       'browserContextId': browserContextId,
     });
+    trackedPages.clear();
+    browser._contexts.remove(this);
   }
 }

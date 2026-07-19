@@ -2,10 +2,12 @@ import 'package:playwright_core/src/server/core_page.dart' hide Dialog;
 import 'package:playwright_core/src/server/dialog.dart' as core;
 import 'package:playwright_core/src/server/core_element_handle.dart';
 import 'locator.dart';
+import 'frame.dart';
 import 'js_handle.dart';
 import 'element_handle.dart';
 import 'route.dart';
 import 'dialog.dart';
+import 'network.dart';
 import 'package:playwright_core/src/accessibility.dart';
 
 export 'package:playwright_core/src/server/core_page.dart' show WaitUntilState;
@@ -16,10 +18,12 @@ abstract class Page {
   Future<void> goto(String url, {WaitUntilState? waitUntil});
 
   /// Wait for the page to reach a specific load state.
-  Future<void> waitForLoadState({WaitUntilState state = WaitUntilState.load, Duration? timeout});
+  Future<void> waitForLoadState(
+      {WaitUntilState state = WaitUntilState.load, Duration? timeout});
 
   /// Wait for the page to navigate to a new URL.
-  Future<void> waitForNavigation({WaitUntilState? waitUntil, Duration? timeout});
+  Future<void> waitForNavigation(
+      {WaitUntilState? waitUntil, Duration? timeout});
 
   /// Get the page title.
   Future<String> title();
@@ -41,6 +45,12 @@ abstract class Page {
 
   /// Create a locator for an element.
   Locator locator(String selector);
+
+  /// The page's main frame.
+  Frame mainFrame();
+
+  /// All frames attached to the page.
+  List<Frame> frames();
 
   /// Click an element using trusted protocol-level input events.
   Future<void> click(String selector);
@@ -76,6 +86,44 @@ abstract class Page {
 
   /// Event emitted when the page closes.
   Stream<void> get onClose;
+
+  /// Event emitted when the main frame fires the load event.
+  Stream<void> get onLoad;
+
+  /// Event emitted when the main frame fires DOMContentLoaded.
+  Stream<void> get onDomContentLoaded;
+
+  /// Event emitted when a frame is attached.
+  Stream<Frame> get onFrameAttached;
+
+  /// Event emitted when a frame navigates.
+  Stream<Frame> get onFrameNavigated;
+
+  /// Event emitted when a frame is detached.
+  Stream<Frame> get onFrameDetached;
+
+  /// Event emitted when a request is issued by the page.
+  Stream<Request> get onRequest;
+
+  /// Event emitted when a response is received.
+  Stream<Response> get onResponse;
+
+  /// Event emitted when a request finishes successfully.
+  Stream<Request> get onRequestFinished;
+
+  /// Event emitted when a request fails.
+  Stream<Request> get onRequestFailed;
+
+  /// Wait for a request matching the [predicate].
+  Future<Request> waitForRequest(
+      {bool Function(Request)? predicate, Duration? timeout});
+
+  /// Wait for a response matching the [predicate].
+  Future<Response> waitForResponse(
+      {bool Function(Response)? predicate, Duration? timeout});
+
+  /// Wait for the next occurrence of a page event.
+  Future<T> waitForEvent<T>(String event, {Duration? timeout});
 }
 
 class PageImpl implements Page {
@@ -84,24 +132,29 @@ class PageImpl implements Page {
   PageImpl(this._corePage);
 
   @override
-  Future<void> goto(String url, {WaitUntilState? waitUntil}) => _corePage.goto(url, waitUntil: waitUntil);
+  Future<void> goto(String url, {WaitUntilState? waitUntil}) =>
+      _corePage.goto(url, waitUntil: waitUntil);
 
   @override
-  Future<void> waitForLoadState({WaitUntilState state = WaitUntilState.load, Duration? timeout}) =>
+  Future<void> waitForLoadState(
+          {WaitUntilState state = WaitUntilState.load, Duration? timeout}) =>
       _corePage.waitForLoadState(state: state, timeout: timeout);
 
   @override
-  Future<void> waitForNavigation({WaitUntilState? waitUntil, Duration? timeout}) =>
+  Future<void> waitForNavigation(
+          {WaitUntilState? waitUntil, Duration? timeout}) =>
       _corePage.waitForNavigation(waitUntil: waitUntil, timeout: timeout);
 
   @override
   Future<String> title() => _corePage.title();
 
   @override
-  Future<List<int>> screenshot({String? path}) => _corePage.screenshot(path: path);
+  Future<List<int>> screenshot({String? path}) =>
+      _corePage.screenshot(path: path);
 
   @override
-  Future<AccessibilitySnapshot> accessibilitySnapshot() => _corePage.accessibilitySnapshot();
+  Future<AccessibilitySnapshot> accessibilitySnapshot() =>
+      _corePage.accessibilitySnapshot();
 
   @override
   Future<void> route(String urlPattern, void Function(Route) handler) async {
@@ -148,6 +201,13 @@ class PageImpl implements Page {
   }
 
   @override
+  Frame mainFrame() => FrameImpl(_corePage.mainFrame, this);
+
+  @override
+  List<Frame> frames() =>
+      _corePage.frames.map((frame) => FrameImpl(frame, this)).toList();
+
+  @override
   Future<void> click(String selector) => _corePage.click(selector);
 
   @override
@@ -178,4 +238,58 @@ class PageImpl implements Page {
 
   @override
   Stream<void> get onClose => _corePage.stream<void>('close');
+
+  @override
+  Stream<void> get onLoad => _corePage.stream<void>('load');
+
+  @override
+  Stream<void> get onDomContentLoaded =>
+      _corePage.stream<void>('domcontentloaded');
+
+  @override
+  Stream<Frame> get onFrameAttached =>
+      _corePage.stream('frameAttached').map((frame) => FrameImpl(frame, this));
+
+  @override
+  Stream<Frame> get onFrameNavigated =>
+      _corePage.stream('frameNavigated').map((frame) => FrameImpl(frame, this));
+
+  @override
+  Stream<Frame> get onFrameDetached =>
+      _corePage.stream('frameDetached').map((frame) => FrameImpl(frame, this));
+
+  @override
+  Stream<Request> get onRequest =>
+      _corePage.stream('request').map((r) => RequestImpl(r));
+
+  @override
+  Stream<Response> get onResponse =>
+      _corePage.stream('response').map((r) => ResponseImpl(r));
+
+  @override
+  Stream<Request> get onRequestFinished =>
+      _corePage.stream('requestFinished').map((r) => RequestImpl(r));
+
+  @override
+  Stream<Request> get onRequestFailed =>
+      _corePage.stream('requestFailed').map((r) => RequestImpl(r));
+
+  @override
+  Future<Request> waitForRequest(
+      {bool Function(Request)? predicate, Duration? timeout}) async {
+    final stream = predicate == null ? onRequest : onRequest.where(predicate);
+    return timeout == null ? stream.first : stream.first.timeout(timeout);
+  }
+
+  @override
+  Future<Response> waitForResponse(
+      {bool Function(Response)? predicate, Duration? timeout}) async {
+    final stream = predicate == null ? onResponse : onResponse.where(predicate);
+    return timeout == null ? stream.first : stream.first.timeout(timeout);
+  }
+
+  @override
+  Future<T> waitForEvent<T>(String event, {Duration? timeout}) {
+    return _corePage.waitForEvent<T>(event, timeout: timeout);
+  }
 }

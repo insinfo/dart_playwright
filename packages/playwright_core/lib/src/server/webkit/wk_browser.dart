@@ -8,8 +8,12 @@ import 'wk_page.dart';
 class WkBrowser extends EventEmitter implements CoreBrowser {
   @override
   final WkConnection connection;
+  final _contexts = <WkBrowserContext>[];
+  bool _isClosed = false;
 
-  WkBrowser(this.connection);
+  WkBrowser(this.connection) {
+    connection.on('closed', () => _onClosed());
+  }
 
   Future<void> init() async {
     await connection.send('Playwright.enable', {});
@@ -21,8 +25,7 @@ class WkBrowser extends EventEmitter implements CoreBrowser {
     // if it does not comply in time.
     try {
       await connection
-          .send('Playwright.close', {})
-          .timeout(const Duration(seconds: 3));
+          .send('Playwright.close', {}).timeout(const Duration(seconds: 3));
     } catch (_) {}
     await connection.transport.close();
   }
@@ -35,9 +38,25 @@ class WkBrowser extends EventEmitter implements CoreBrowser {
   }
 
   @override
+  List<CoreBrowserContext> get contexts => List.unmodifiable(_contexts);
+
+  @override
+  bool get isConnected => !_isClosed;
+
+  @override
   Future<CoreBrowserContext> createBrowserContext() async {
     final result = await connection.send('Playwright.createContext', {});
-    return WkBrowserContext(this, result['browserContextId'] as String);
+    final context =
+        WkBrowserContext(this, result['browserContextId'] as String);
+    _contexts.add(context);
+    return context;
+  }
+
+  void _onClosed() {
+    if (_isClosed) return;
+    _isClosed = true;
+    _contexts.clear();
+    emit('disconnected');
   }
 }
 
@@ -50,6 +69,9 @@ class WkBrowserContext
   bool _closed = false;
 
   WkBrowserContext(this.browser, this.browserContextId);
+
+  @override
+  bool get isClosed => _closed;
 
   @override
   Future<CorePage> newPage() async {
@@ -88,16 +110,28 @@ class WkBrowserContext
 
   @override
   Future<void> addCookies(List<Map<String, dynamic>> cookies) async {
-    final cc = <Map<String, dynamic>>[];
-    for (final c in rewriteCookies(cookies)) {
-      final copy = Map<String, dynamic>.from(c);
-      if (copy.containsKey('expires') && copy['expires'] != -1) {
-        copy['expires'] = (copy['expires'] as num) * 1000;
-      } else {
-        copy['session'] = true;
+    // WebKit's Playwright.setCookies validator is strict: each cookie must
+    // carry only known fields with the right types, and optional fields must
+    // be omitted (not null/sentinel) when absent, or it rejects the payload.
+    // Mirrors wkBrowser.ts addCookies exactly.
+    final cc = rewriteCookies(cookies).map((c) {
+      final expires = c['expires'] as num?;
+      final cookie = <String, dynamic>{
+        'name': c['name'],
+        'value': c['value'],
+        'domain': c['domain'],
+        'path': c['path'] ?? '/',
+        'session': expires == null || expires == -1,
+      };
+      if (expires != null && expires != -1) {
+        cookie['expires'] = (expires * 1000).round();
       }
-      cc.add(copy);
-    }
+      if (c['httpOnly'] != null) cookie['httpOnly'] = c['httpOnly'];
+      if (c['secure'] != null) cookie['secure'] = c['secure'];
+      if (c['sameSite'] != null) cookie['sameSite'] = c['sameSite'];
+      return cookie;
+    }).toList();
+
     await browser.connection.send('Playwright.setCookies', {
       'browserContextId': browserContextId,
       'cookies': cc,
@@ -122,5 +156,7 @@ class WkBrowserContext
     await browser.connection.send('Playwright.deleteContext', {
       'browserContextId': browserContextId,
     });
+    trackedPages.clear();
+    browser._contexts.remove(this);
   }
 }

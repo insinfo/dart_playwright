@@ -12,7 +12,8 @@ class CrBrowser extends EventEmitter implements CoreBrowser {
   final CRConnection connection;
   final Process? process;
   final String? _tempUserDataDir;
-  
+  final _contexts = <CrBrowserContext>[];
+
   bool _isClosed = false;
 
   CrBrowser._(this.connection, this.process, this._tempUserDataDir) {
@@ -22,7 +23,8 @@ class CrBrowser extends EventEmitter implements CoreBrowser {
   }
 
   /// Connect to a Chromium instance.
-  static Future<CrBrowser> connect(CRConnection connection, Process? process, String? tempUserDataDir) async {
+  static Future<CrBrowser> connect(CRConnection connection, Process? process,
+      String? tempUserDataDir) async {
     final browser = CrBrowser._(connection, process, tempUserDataDir);
     await browser._initialize();
     return browser;
@@ -49,17 +51,26 @@ class CrBrowser extends EventEmitter implements CoreBrowser {
   }
 
   @override
+  List<CoreBrowserContext> get contexts => List.unmodifiable(_contexts);
+
+  @override
+  bool get isConnected => !_isClosed;
+
+  @override
   Future<CoreBrowserContext> createBrowserContext() async {
     final result = await connection.send('Target.createBrowserContext', {
       'disposeOnDetach': true,
     });
-    return CrBrowserContext(this, result['browserContextId'] as String);
+    final context =
+        CrBrowserContext(this, result['browserContextId'] as String);
+    _contexts.add(context);
+    return context;
   }
 
   /// Close the browser.
   Future<void> close() async {
     if (_isClosed) return;
-    
+
     try {
       await connection.send('Browser.close');
     } catch (e) {
@@ -75,6 +86,7 @@ class CrBrowser extends EventEmitter implements CoreBrowser {
   void _onClosed() {
     if (_isClosed) return;
     _isClosed = true;
+    _contexts.clear();
     emit('disconnected');
 
     // Cleanup temp profile if needed
@@ -95,6 +107,9 @@ class CrBrowserContext
   bool _closed = false;
 
   CrBrowserContext(this.browser, this.browserContextId);
+
+  @override
+  bool get isClosed => _closed;
 
   @override
   Future<CorePage> newPage() async {
@@ -152,5 +167,6 @@ class CrBrowserContext
       'browserContextId': browserContextId,
     });
     trackedPages.clear();
+    browser._contexts.remove(this);
   }
 }

@@ -6,6 +6,12 @@ abstract class BrowserContext {
   /// Create a new page in this context.
   Future<Page> newPage();
 
+  /// Pages opened in this context.
+  List<Page> pages();
+
+  /// Whether this context has been closed.
+  bool isClosed();
+
   /// Return all cookies in this context (optionally filtered by [urls]).
   Future<List<Map<String, dynamic>>> cookies([List<String>? urls]);
 
@@ -32,6 +38,13 @@ class BrowserContextImpl implements BrowserContext {
     final corePage = await _coreContext.newPage();
     return PageImpl(corePage);
   }
+
+  @override
+  List<Page> pages() =>
+      _coreContext.pages.map((page) => PageImpl(page)).toList();
+
+  @override
+  bool isClosed() => _coreContext.isClosed;
 
   @override
   Future<List<Map<String, dynamic>>> cookies([List<String>? urls]) =>

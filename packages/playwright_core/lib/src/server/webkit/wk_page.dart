@@ -1,8 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:async';
 import 'package:playwright_protocol/playwright_protocol.dart';
 import '../core_page.dart';
 import '../core_js_handle.dart';
+import '../core_route.dart';
 import 'wk_connection.dart';
 import 'wk_input.dart';
 import 'wk_route.dart';
@@ -20,12 +22,38 @@ class WkPage extends EventEmitter
   final String? browserContextId;
   @override
   late final Keyboard keyboard;
+  late final CoreFrameManager frameManager;
 
   bool _isClosed = false;
 
   WkPage(this.session, {this.browserContextId}) {
+    frameManager = CoreFrameManager(this);
     keyboard = Keyboard(WkRawKeyboard(session));
-    session.on('Dialog.javascriptDialogOpening', _onDialogOpening);
+    session.on('Page.javascriptDialogOpening', _onDialogOpening);
+    session.on('Page.frameNavigated', (params) {
+      final frame = params['frame'] as Map<String, dynamic>;
+      frameManager.frameNavigated(
+        frame['id'] as String,
+        frame['url'] as String,
+        frame['name'] as String? ?? '',
+        frame['loaderId'] as String? ?? frame['navigationId'] as String? ?? '',
+        parentId: frame['parentId'] as String?,
+      );
+    });
+    session.on('Page.frameDetached', (params) {
+      frameManager.frameDetached(params['frameId'] as String);
+    });
+    session.on('Page.loadEventFired', (_) {
+      if (frameManager.mainFrame != null) {
+        frameManager.frameLifecycleEvent(frameManager.mainFrame!.id, 'load');
+      }
+    });
+    session.on('Page.domContentEventFired', (_) {
+      if (frameManager.mainFrame != null) {
+        frameManager.frameLifecycleEvent(
+            frameManager.mainFrame!.id, 'DOMContentLoaded');
+      }
+    });
     session.on('closed', () => _onClosed());
   }
 
@@ -53,29 +81,29 @@ class WkPage extends EventEmitter
   }
 
   @override
-  Future<void> waitForLoadState({WaitUntilState state = WaitUntilState.load, Duration? timeout}) async {
-    String eventName;
-    if (state == WaitUntilState.load || state == WaitUntilState.networkidle) {
-      eventName = 'Page.loadEventFired';
-    } else {
-      eventName = 'Page.domContentEventFired';
-    }
-    
-    await session.waitForEvent(eventName, timeout: timeout);
-    
-    if (state == WaitUntilState.networkidle) {
-      await Future.delayed(const Duration(milliseconds: 500));
-    }
+  CoreFrame get mainFrame => frameManager.mainFrame!;
+
+  @override
+  List<CoreFrame> get frames => frameManager.frames;
+
+  @override
+  Future<void> waitForLoadState(
+      {WaitUntilState state = WaitUntilState.load, Duration? timeout}) async {
+    final frame = await frameManager.waitForMainFrame();
+    await frame.waitForLoadState(state, timeout: timeout);
   }
 
   @override
-  Future<void> waitForNavigation({WaitUntilState? waitUntil, Duration? timeout}) async {
-    await waitForLoadState(state: waitUntil ?? WaitUntilState.load, timeout: timeout);
+  Future<void> waitForNavigation(
+      {WaitUntilState? waitUntil, Duration? timeout}) async {
+    await mainFrame.waitForNavigation(waitUntil: waitUntil, timeout: timeout);
   }
 
   @override
   Future<void> goto(String url, {WaitUntilState? waitUntil}) async {
-    final loaded = waitForLoadState(state: waitUntil ?? WaitUntilState.load, timeout: const Duration(seconds: 30));
+    final frame = await frameManager.waitForMainFrame();
+    final loaded = frame.waitForNavigation(
+        waitUntil: waitUntil, timeout: const Duration(seconds: 30));
     // Navigation is a Playwright-domain command on the browser session,
     // scoped by pageProxyId (WebKit's Page domain has no Page.navigate).
     await session.connection.send('Playwright.navigate', {
@@ -171,7 +199,8 @@ class WkPage extends EventEmitter
 
   @override
   Future<CoreJSHandle> evaluateHandle(String expression) async {
-    throw UnsupportedError('evaluateHandle not fully implemented for WkPage yet');
+    throw UnsupportedError(
+        'evaluateHandle not fully implemented for WkPage yet');
   }
 
   Future<List<int>> screenshot({String? path}) async {
@@ -200,14 +229,16 @@ class WkPage extends EventEmitter
         root: AccessibilityNode(role: 'WebArea', name: '', ref: 'root'));
   }
 
-  final _routes = <String, Function(WkRoute)>{};
+  final _routes = <String, void Function(CoreRoute)>{};
 
-  Future<void> route(String urlPattern, Function(dynamic) handler) async {
+  @override
+  Future<void> route(
+      String urlPattern, void Function(CoreRoute) handler) async {
     if (_routes.isEmpty) {
       session.on('Network.requestIntercepted', _onRequestIntercepted);
       await session.sendToTarget('Network.enable');
-      await session.sendToTarget(
-          'Network.setInterceptionEnabled', {'enabled': true});
+      await session
+          .sendToTarget('Network.setInterceptionEnabled', {'enabled': true});
       await session.sendToTarget('Network.addInterception', {
         'url': '.*',
         'stage': 'request',
@@ -222,7 +253,7 @@ class WkPage extends EventEmitter
     final request = params['request'] as Map<String, dynamic>? ?? {};
     final url = request['url'] as String? ?? '';
 
-    Function(WkRoute)? matchedHandler;
+    void Function(CoreRoute)? matchedHandler;
     for (final pattern in _routes.keys) {
       final cleanPattern = pattern.replaceAll('**/', '');
       if (pattern == '**/*' || url.contains(cleanPattern)) {
@@ -232,13 +263,24 @@ class WkPage extends EventEmitter
     }
 
     if (matchedHandler != null) {
-      matchedHandler(WkRoute(session, requestId, url));
+      matchedHandler(WkRoute(
+        session,
+        requestId,
+        url,
+        method: request['method'] as String? ?? 'GET',
+        headers: _stringHeaders(request['headers']),
+      ));
     } else {
       session.sendToTarget('Network.interceptContinue', {
         'requestId': requestId,
         'stage': 'request',
       });
     }
+  }
+
+  Map<String, String> _stringHeaders(dynamic headers) {
+    if (headers is! Map) return const <String, String>{};
+    return headers.map((key, value) => MapEntry('$key', '$value'));
   }
 
   Future<void> close() async {

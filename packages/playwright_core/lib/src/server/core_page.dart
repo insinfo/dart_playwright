@@ -5,25 +5,35 @@ import '../accessibility.dart';
 import 'dialog.dart';
 import 'keyboard.dart';
 import 'core_js_handle.dart';
+import 'core_route.dart';
+import 'frames.dart';
 export 'dialog.dart' show Dialog;
 export 'keyboard.dart' show Keyboard;
+export 'frames.dart' show CoreFrame, CoreFrameManager;
 
 enum WaitUntilState {
   load,
   domcontentloaded,
   networkidle,
+  commit,
 }
 
 abstract class CorePage extends EventEmitter {
+  CoreFrame get mainFrame;
+  List<CoreFrame> get frames;
   Future<void> goto(String url, {WaitUntilState? waitUntil});
-  Future<void> waitForLoadState({WaitUntilState state = WaitUntilState.load, Duration? timeout});
-  Future<void> waitForNavigation({WaitUntilState? waitUntil, Duration? timeout});
+  Future<void> waitForLoadState(
+      {WaitUntilState state = WaitUntilState.load, Duration? timeout});
+  Future<void> waitForNavigation(
+      {WaitUntilState? waitUntil, Duration? timeout});
   Future<String> title();
   Future<dynamic> evaluate(String expression);
   Future<CoreJSHandle> evaluateHandle(String expression);
   Future<List<int>> screenshot({String? path});
   Future<AccessibilitySnapshot> accessibilitySnapshot();
-  Future<void> route(String urlPattern, Function(dynamic) handler);
+
+  /// Intercept network requests.
+  Future<void> route(String urlPattern, void Function(CoreRoute) handler);
 
   /// Click [selector] using trusted protocol-level input events.
   Future<void> click(String selector);
