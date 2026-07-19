@@ -32,7 +32,7 @@ void main() {
       final context = await browser.newContext();
       final page = await context.newPage();
       
-      final url = 'http://127.0.0.1:\${server.port}';
+      final url = 'http://127.0.0.1:${server.port}';
       await page.goto(url);
       
       final title = await page.title();
@@ -45,7 +45,7 @@ void main() {
       final context = await browser.newContext();
       final page = await context.newPage();
       
-      final url = 'http://127.0.0.1:\${server.port}';
+      final url = 'http://127.0.0.1:${server.port}';
       await page.goto(url);
       
       final locator = page.locator('#header');
@@ -59,7 +59,7 @@ void main() {
       final context = await browser.newContext();
       final page = await context.newPage();
       
-      final url = 'http://127.0.0.1:\${server.port}';
+      final url = 'http://127.0.0.1:${server.port}';
       await page.goto(url);
       
       // Avalia um JSHandle e interage com ele
