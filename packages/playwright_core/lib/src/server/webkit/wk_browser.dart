@@ -44,10 +44,11 @@ class WkBrowser extends EventEmitter implements CoreBrowser {
   bool get isConnected => !_isClosed;
 
   @override
-  Future<CoreBrowserContext> createBrowserContext() async {
+  Future<CoreBrowserContext> createBrowserContext(
+      {CoreContextOptions options = const CoreContextOptions()}) async {
     final result = await connection.send('Playwright.createContext', {});
     final context =
-        WkBrowserContext(this, result['browserContextId'] as String);
+        WkBrowserContext(this, result['browserContextId'] as String, options);
     _contexts.add(context);
     return context;
   }
@@ -66,9 +67,10 @@ class WkBrowserContext
     implements CoreBrowserContext {
   final WkBrowser browser;
   final String browserContextId;
+  final CoreContextOptions options;
   bool _closed = false;
 
-  WkBrowserContext(this.browser, this.browserContextId);
+  WkBrowserContext(this.browser, this.browserContextId, this.options);
 
   @override
   bool get isClosed => _closed;
@@ -90,6 +92,21 @@ class WkBrowserContext
 
     final page = WkPage(session, browserContextId: browserContextId);
     await page.initialize();
+    final viewport = options.viewport;
+    if (viewport != null) {
+      // Device metrics are a pageProxy-level command in WebKit.
+      await session.send('Emulation.setDeviceMetricsOverride', {
+        'width': viewport.width,
+        'height': viewport.height,
+        'fixedLayout': false,
+        'deviceScaleFactor': 1,
+      });
+    }
+    if (options.userAgent != null) {
+      await session.sendToTarget('Page.overrideUserAgent', {
+        'value': options.userAgent,
+      });
+    }
     trackedPages.add(page);
     return page;
   }

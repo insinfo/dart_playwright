@@ -4,7 +4,11 @@ import 'browser_context.dart';
 /// A browser instance.
 abstract class Browser {
   /// Create a new browser context.
-  Future<BrowserContext> newContext();
+  ///
+  /// [viewport] sets the page viewport size and [userAgent] overrides the
+  /// browser user agent for every page in the context.
+  Future<BrowserContext> newContext(
+      {({int width, int height})? viewport, String? userAgent});
 
   /// Currently open browser contexts.
   List<BrowserContext> contexts();
@@ -28,8 +32,11 @@ class BrowserImpl implements Browser {
   BrowserImpl(this._coreBrowser);
 
   @override
-  Future<BrowserContext> newContext() async {
-    final coreContext = await _coreBrowser.createBrowserContext();
+  Future<BrowserContext> newContext(
+      {({int width, int height})? viewport, String? userAgent}) async {
+    final coreContext = await _coreBrowser.createBrowserContext(
+        options:
+            CoreContextOptions(viewport: viewport, userAgent: userAgent));
     return BrowserContextImpl(coreContext);
   }
 

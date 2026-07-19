@@ -292,6 +292,21 @@ void main() {
           await context.clearCookies();
         });
 
+        test('Deve aplicar viewport e userAgent do contexto', () async {
+          final ctx = await browser.newContext(
+              viewport: (width: 640, height: 480),
+              userAgent: 'DartPlaywright/1.0');
+          final p = await ctx.newPage();
+          await p.goto(server.url('/hello'));
+
+          expect(await p.evaluate('() => window.innerWidth'), equals(640));
+          expect(await p.evaluate('() => window.innerHeight'), equals(480));
+          expect(await p.evaluate('() => navigator.userAgent'),
+              equals('DartPlaywright/1.0'));
+
+          await ctx.close();
+        });
+
         test('Deve isolar contextos e fechar contexto', () async {
           final ctx1 = await browser.newContext();
           final page1 = await ctx1.newPage();

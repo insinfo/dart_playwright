@@ -2,6 +2,14 @@ import 'dart:async';
 import 'package:playwright_protocol/playwright_protocol.dart';
 import 'core_page.dart';
 
+/// Options applied to every page of a browser context.
+class CoreContextOptions {
+  final ({int width, int height})? viewport;
+  final String? userAgent;
+
+  const CoreContextOptions({this.viewport, this.userAgent});
+}
+
 /// Base interface for internal browser implementations.
 abstract class CoreBrowser extends EventEmitter {
   /// Exposes the underlying connection for CDP/Juggler/WebKit operations.
@@ -17,7 +25,8 @@ abstract class CoreBrowser extends EventEmitter {
   bool get isConnected;
 
   /// Creates an isolated browser context (cookies/storage separated).
-  Future<CoreBrowserContext> createBrowserContext();
+  Future<CoreBrowserContext> createBrowserContext(
+      {CoreContextOptions options = const CoreContextOptions()});
 
   /// Closes the browser.
   Future<void> close();

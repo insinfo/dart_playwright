@@ -55,12 +55,33 @@ class FfBrowser extends EventEmitter implements CoreBrowser {
   bool get isConnected => !_isClosed;
 
   @override
-  Future<CoreBrowserContext> createBrowserContext() async {
+  Future<CoreBrowserContext> createBrowserContext(
+      {CoreContextOptions options = const CoreContextOptions()}) async {
     final result = await session.send('Browser.createBrowserContext', {
       'removeOnDetach': true,
     });
-    final context =
-        FfBrowserContext(this, result['browserContextId'] as String);
+    final browserContextId = result['browserContextId'] as String;
+    // Juggler applies these context-wide, before any page exists.
+    if (options.userAgent != null) {
+      await session.send('Browser.setUserAgentOverride', {
+        'browserContextId': browserContextId,
+        'userAgent': options.userAgent,
+      });
+    }
+    final viewport = options.viewport;
+    if (viewport != null) {
+      await session.send('Browser.setDefaultViewport', {
+        'browserContextId': browserContextId,
+        'viewport': {
+          'viewportSize': {
+            'width': viewport.width,
+            'height': viewport.height,
+          },
+          'deviceScaleFactor': 1,
+        },
+      });
+    }
+    final context = FfBrowserContext(this, browserContextId);
     _contexts.add(context);
     return context;
   }

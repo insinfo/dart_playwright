@@ -57,12 +57,13 @@ class CrBrowser extends EventEmitter implements CoreBrowser {
   bool get isConnected => !_isClosed;
 
   @override
-  Future<CoreBrowserContext> createBrowserContext() async {
+  Future<CoreBrowserContext> createBrowserContext(
+      {CoreContextOptions options = const CoreContextOptions()}) async {
     final result = await connection.send('Target.createBrowserContext', {
       'disposeOnDetach': true,
     });
     final context =
-        CrBrowserContext(this, result['browserContextId'] as String);
+        CrBrowserContext(this, result['browserContextId'] as String, options);
     _contexts.add(context);
     return context;
   }
@@ -104,9 +105,10 @@ class CrBrowserContext
     implements CoreBrowserContext {
   final CrBrowser browser;
   final String browserContextId;
+  final CoreContextOptions options;
   bool _closed = false;
 
-  CrBrowserContext(this.browser, this.browserContextId);
+  CrBrowserContext(this.browser, this.browserContextId, this.options);
 
   @override
   bool get isClosed => _closed;
@@ -126,8 +128,22 @@ class CrBrowserContext
       'flatten': true,
     }))['sessionId'];
 
-    final page =
-        await CrPage.create(connection.createSession(sessionId, 'page'));
+    final session = connection.createSession(sessionId, 'page');
+    final page = await CrPage.create(session);
+    final viewport = options.viewport;
+    if (viewport != null) {
+      await session.send('Emulation.setDeviceMetricsOverride', {
+        'width': viewport.width,
+        'height': viewport.height,
+        'deviceScaleFactor': 1,
+        'mobile': false,
+      });
+    }
+    if (options.userAgent != null) {
+      await session.send('Emulation.setUserAgentOverride', {
+        'userAgent': options.userAgent,
+      });
+    }
     trackedPages.add(page);
     return page;
   }
