@@ -21,6 +21,7 @@ void main() {
     for (final browserName in browsers) {
       group('[$browserName]', () {
         late Browser browser;
+        var browserLaunched = false;
         late BrowserContext context;
         late Page page;
 
@@ -32,6 +33,7 @@ void main() {
           } else if (browserName == 'webkit') {
             browser = await playwright.webkit.launch(headless: true);
           }
+          browserLaunched = true;
         });
 
         setUp(() async {
@@ -44,7 +46,8 @@ void main() {
         });
 
         tearDownAll(() async {
-          await browser.close();
+          // setUpAll may have failed before `browser` was assigned.
+          if (browserLaunched) await browser.close();
         });
 
         test('Deve navegar e extrair o título corretamente', () async {

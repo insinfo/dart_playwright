@@ -83,7 +83,12 @@ class FfConnection extends EventEmitter {
   void _onClose(String? reason) {
     if (_isClosed) return;
     _isClosed = true;
-    for (final completer in _callbacks.values) completer.completeError(PlaywrightException(reason ?? 'Closed'));
+    for (final completer in _callbacks.values) {
+      // ignore(): senders that already gave up must not surface this as an
+      // unhandled async error in whatever zone created the callback.
+      completer.future.ignore();
+      completer.completeError(PlaywrightException(reason ?? 'Closed'));
+    }
     _callbacks.clear();
     for (final session in _sessions.values) session._onClosed();
     emit('closed');

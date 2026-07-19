@@ -150,6 +150,7 @@ class CrPage extends EventEmitter with CorePageInputHelpers implements CorePage 
       final name = data['name']?['value'] as String? ?? '';
       final description = data['description']?['value'] as String?;
       final value = data['value']?['value']?.toString();
+      final nodeId = data['nodeId'] as String? ?? '';
 
       final childIds = (data['childIds'] as List?)?.cast<String>() ?? [];
       final children = childIds.map((id) {
@@ -163,7 +164,7 @@ class CrPage extends EventEmitter with CorePageInputHelpers implements CorePage 
         description: description,
         value: value,
         children: children,
-        ref: 'node_\$nodeId',
+        ref: 'node_$nodeId',
       );
     }
     

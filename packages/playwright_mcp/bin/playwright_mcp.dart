@@ -6,7 +6,7 @@ void main(List<String> args) async {
     final server = PlaywrightMcpServer();
     await server.start();
   } catch (e, st) {
-    stderr.writeln('Fatal error starting Playwright MCP Server: \$e');
+    stderr.writeln('Fatal error starting Playwright MCP Server: $e');
     stderr.writeln(st);
     exit(1);
   }

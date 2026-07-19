@@ -121,6 +121,8 @@ class CRConnection extends EventEmitter {
     _isClosed = true;
 
     for (final completer in _callbacks.values) {
+      // ignore(): avoid unhandled async errors for abandoned senders.
+      completer.future.ignore();
       completer.completeError(TargetClosedException(reason ?? 'Connection closed'));
     }
     _callbacks.clear();

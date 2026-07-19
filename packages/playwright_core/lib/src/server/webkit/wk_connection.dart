@@ -216,6 +216,8 @@ class WkConnection extends EventEmitter {
     _isClosed = true;
     for (final completer in _callbacks.values) {
       if (!completer.isCompleted) {
+        // ignore(): avoid unhandled async errors for abandoned senders.
+        completer.future.ignore();
         completer.completeError(PlaywrightException(reason ?? 'Closed'));
       }
     }

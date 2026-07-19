@@ -14,7 +14,6 @@ class FfBrowser extends EventEmitter implements CoreBrowser {
     
     // In Juggler, new pages emit Browser.attachedToTarget
     session.on('Browser.attachedToTarget', (params) {
-      print('FfBrowser caught Browser.attachedToTarget: \$params');
       final targetInfo = params['targetInfo'];
       if (targetInfo['type'] == 'page') {
         final sessionId = params['sessionId'] as String;

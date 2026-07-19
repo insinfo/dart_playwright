@@ -58,7 +58,7 @@ class PlaywrightMcpServer {
         stdout.writeln(jsonEncode({
           'jsonrpc': '2.0',
           'id': null,
-          'error': {'code': -32700, 'message': 'Parse error: \$e'}
+          'error': {'code': -32700, 'message': 'Parse error: $e'}
         }));
       }
     }
@@ -139,7 +139,7 @@ class PlaywrightMcpServer {
       return {
         'jsonrpc': '2.0',
         'id': id,
-        'error': {'code': -32601, 'message': 'Unknown tool: \$toolName'},
+        'error': {'code': -32601, 'message': 'Unknown tool: $toolName'},
       };
     }
     
@@ -158,7 +158,7 @@ class PlaywrightMcpServer {
         'jsonrpc': '2.0',
         'id': id,
         'result': {
-          'content': [{'type': 'text', 'text': 'Error: \$e'}],
+          'content': [{'type': 'text', 'text': 'Error: $e'}],
           'isError': true,
         },
       };

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
@@ -70,9 +71,22 @@ class PosixProcess {
         '3<${_shQuote(fifo3)} 4>${_shQuote(fifo4)}';
 
     final process = await Process.start('/bin/sh', ['-c', command]);
-    // Drain stdio so the child never blocks on full pipe buffers.
-    process.stdout.drain<void>().catchError((_) {});
-    process.stderr.drain<void>().catchError((_) {});
+    // Drain stdio so the child never blocks on full pipe buffers. With
+    // PLAYWRIGHT_DEBUG set, surface the browser's output for diagnosis.
+    final debug = Platform.environment['PLAYWRIGHT_DEBUG'] != null;
+    if (debug) {
+      process.stdout
+          .transform(const SystemEncoding().decoder)
+          .transform(const LineSplitter())
+          .listen((line) => print('[browser stdout] $line'));
+      process.stderr
+          .transform(const SystemEncoding().decoder)
+          .transform(const LineSplitter())
+          .listen((line) => print('[browser stderr] $line'));
+    } else {
+      process.stdout.drain<void>().catchError((_) {});
+      process.stderr.drain<void>().catchError((_) {});
+    }
 
     // Opening a FIFO blocks until the peer opens its end. The child opens
     // fifo3 (read) then fifo4 (write); we mirror that order. Each open runs
