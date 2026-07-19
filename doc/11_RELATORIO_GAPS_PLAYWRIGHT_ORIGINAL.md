@@ -1,12 +1,36 @@
 # Relatório de gaps para paridade com o Playwright original
 
 Data da análise: 2026-07-19
+Última atualização: 2026-07-19 (fim do dia) — ver "Progresso da rodada de 2026-07-19".
 
 Referências locais usadas:
 
 - `referencias/playwright-typescript` - Playwright upstream TypeScript, versão `1.62.0-next`.
 - `referencias/playwright-dotnet` - binding .NET, usado como referência auxiliar de API fortemente tipada.
 - `packages/playwright`, `packages/playwright_core`, `packages/playwright_protocol` e `packages/playwright_mcp` - port Dart atual.
+
+## Progresso da rodada de 2026-07-19
+
+Onze commits (`146c69a`..`11d0c7a`) levaram a suíte de paridade de "toda em timeout" para 90 testes verdes nos três engines (Chromium, Firefox, WebKit) cobrindo navegação completa com timeout, input com opções (botão/posição/delay), teclado com comandos macOS, rede de ponta a ponta (eventos, waiters, corpo, interceptação rica, unroute) e agora emulação básica de contexto (viewport/userAgent). Os CIs dos últimos commits rodam nos três SOs.
+
+### Correções estruturais
+
+- **Árvore de frames semeada na inicialização** (`146c69a`): Chromium (`Page.getFrameTree`) e WebKit (`Page.getResourceTree`) só reportam frames criados depois do `Page.enable`; sem o seed, `waitForMainFrame()` nunca completava e todo `goto` estourava timeout — causa raiz da quebra dos CIs #10–#13.
+- **Dialogs WebKit**: o evento é `Dialog.javascriptDialogOpening` no pageProxy, não `Page.javascriptDialogOpening`.
+- **`macEditingCommands` portado** (`51deb64`, `63f777f`): no macOS o WebKit aplica teclas de edição via seletores NSResponder; sem `macCommands` no `Input.dispatchKeyEvent`, Backspace/Delete não editavam e caíam em atalhos do app (voltar histórico) — era o flake do CI macOS. `fill('')` passou a usar `keyboard.press('Delete')`.
+- **Robustez de shutdown** (`63f777f`, `8b284a1`): continues de interceptação fire-and-forget com `catchError` tipado (sessão pode morrer durante o close); waiter de navegação com erro pré-tratado para `goto(timeout:)` não gerar unhandled async error.
+
+### API portada nesta rodada
+
+- **Navegação**: `reload`, `goBack`, `goForward` (histórico via `getNavigationHistory`/`navigateToHistoryEntry` no Chromium, `Page.goBack {frameId}` no Juggler, detecção de "Failed to go" no WebKit), `setContent`, `waitForFunction`, `waitForURL` (glob/regex/same-document), `goto(timeout:)`.
+- **Input**: `dblclick`, `hover`; opções de click `button`/`clickCount`/`delay`/`position` em `Page` e `Locator`, com mapeamento por protocolo.
+- **Locator**: `isHidden`, `isDisabled`, `isEditable`, `clear`, `focus`, `blur`; `focus` do core com verificação de `activeElement` e retry.
+- **Rede**: eventos de primeira classe (`onRequest`/`onResponse`/`onRequestFinished`/`onRequestFailed`) nos três engines via network managers novos para Firefox e WebKit; `waitForRequest`/`waitForResponse`; `Response.body/text/json` via `Network.getResponseBody` (Firefox devolve `base64body`; Chromium/WebKit `{body, base64Encoded}`); `Route.fulfill(json:, contentType:)`; `Request.postData` (base64-decodificado no Firefox/WebKit); `Page.unroute`/`unrouteAll` com desligamento da interceptação por engine.
+- **Contexto**: `newContext(viewport:, userAgent:)` (início do Milestone 4). A aplicação correta é feita por engine:
+  - **Chromium**: por página, `Emulation.setDeviceMetricsOverride` + `Emulation.setUserAgentOverride` logo após criar o target.
+  - **Firefox**: em nível de contexto no Juggler (`Browser.setDefaultViewport` com o shape `{viewport: {viewportSize: {...}}}` e `Browser.setUserAgentOverride`), aplicados antes de existir qualquer página — idêntico ao upstream (`ffBrowser.ts:191`).
+  - **WebKit**: `Emulation.setDeviceMetricsOverride` no pageProxy + `Page.overrideUserAgent` no target (`wkPage.ts:713`).
+  - *Teste de paridade*: cria um contexto 640×480 com UA customizado e verifica `window.innerWidth`/`innerHeight` e `navigator.userAgent` nos três engines — passou de primeira em todos.
 
 ## Resumo executivo
 
@@ -18,11 +42,13 @@ Em termos práticos:
 
 | Área | Status atual |
 | --- | --- |
-| Launch Chromium/Firefox/WebKit | Parcialmente implementado e testado |
-| Navegação, evaluate, screenshot, locator básico | Implementado |
-| Keyboard real, cookies, `storageState`, dialogs, route básico | Implementado |
-| API pública completa de `Page`, `Locator`, `Frame`, `BrowserContext` | Ainda muito incompleta |
-| Eventos Playwright completos | Quase todos ausentes na API pública |
+| Launch Chromium/Firefox/WebKit | Implementado e testado (CI 3 SOs) |
+| Navegação (goto/reload/histórico/setContent, timeout), evaluate, screenshot, locator | Implementado |
+| Keyboard real (com macCommands), mouse com opções, cookies, `storageState`, dialogs | Implementado |
+| Rede: eventos, waiters, corpo de resposta, interceptação com fulfill/unroute/postData | Implementado nos 3 engines |
+| Emulação de contexto: viewport, userAgent | Implementado; faltam locale, timezone, colorScheme etc. |
+| API pública completa de `Page`, `Locator`, `Frame`, `BrowserContext` | Parcial; `Frame` ainda mínimo |
+| Eventos Playwright completos | Rede e lifecycle expostos; faltam popup, download, console, worker |
 | Downloads, videos, tracing, HAR, WebSocket, workers | Ausentes ou não expostos |
 | APIRequest/APIResponse | Ausente na API pública |
 | Test runner `@playwright/test`, expect, reporters | Ausente; exige implementação Dart própria |
@@ -81,15 +107,17 @@ Já existe suporte para:
 
 - `Playwright.create()`.
 - `chromium.launch`, `firefox.launch`, `webkit.launch`.
-- `browser.newContext()`, `browser.close()`, `browser.version()`.
+- `browser.newContext(viewport:, userAgent:)`, `browser.close()`, `browser.version()`.
 - `context.newPage()`, cookies, `clearCookies()`, `storageState()`, `close()`.
-- `page.goto`, `title`, `content`, `url`, `evaluate`, `evaluateHandle`, `screenshot`.
-- `page.click`, `fill`, `press`, `type`, `waitForSelector`, `waitForLoadState`, `waitForNavigation`.
-- `page.route` com `Route.continue_`, `fulfill` e `abort`.
-- `Locator` básico para interação e inspeção.
-- Dialogs com `accept` e `dismiss`.
-- Keyboard real no core.
-- Teste de paridade E2E nos três motores.
+- `page.goto` (com `waitUntil` e `timeout`), `reload`, `goBack`, `goForward`, `setContent`, `title`, `content`, `url`, `evaluate`, `evaluateHandle`, `screenshot`.
+- `page.click`/`dblclick`/`hover` com `button`, `clickCount`, `delay`, `position`; `fill`, `press`, `type`.
+- Waiters: `waitForSelector`, `waitForLoadState`, `waitForNavigation`, `waitForURL`, `waitForFunction`, `waitForRequest`, `waitForResponse`, `waitForEvent`.
+- Eventos de página: close, load, domcontentloaded, frames, request/response/requestFinished/requestFailed.
+- `page.route`/`unroute`/`unrouteAll` com `Route.continue_`, `fulfill` (status, headers, body, `json`, `contentType`) e `abort`; `Request.postData`; `Response.body/text/json`.
+- `Locator` com ações, estados (`isVisible/isHidden/isEnabled/isDisabled/isChecked/isEditable`), `clear`, `focus`, `blur`, `count`, `getAttribute`, `inputValue`, `innerText`, `innerHTML`, `textContent`, `check`/`uncheck`, `selectOption`, `waitFor`.
+- Dialogs com `accept` e `dismiss` (evento correto por engine).
+- Keyboard real no core, incluindo `macEditingCommands` no WebKit macOS.
+- 90 testes de paridade E2E nos três motores, CI em Ubuntu, Windows e macOS.
 
 ## Gaps prioritários
 
@@ -111,30 +139,30 @@ Hoje `packages/playwright/lib/src/js_handle.dart` e `packages/playwright/lib/src
 
 3. Implementar eventos de primeira classe
 
-O Playwright original é fortemente orientado a eventos. Faltam streams/listeners públicos para:
+FEITO (2026-07-19): `Page.onClose/onLoad/onDomContentLoaded/onFrame*/onRequest/onResponse/onRequestFinished/onRequestFailed` funcionam nos três engines (network managers próprios para Firefox e WebKit).
 
-- `Page`: `close`, `console`, `crash`, `dialog`, `download`, `fileChooser`, `frameAttached`, `frameDetached`, `frameNavigated`, `load`, `DOMContentLoaded`, `pageError`, `popup`, `request`, `requestFailed`, `requestFinished`, `response`, `webSocket`, `worker`.
+Ainda faltam streams/listeners públicos para:
+
+- `Page`: `console`, `crash`, `dialog` (como stream), `download`, `fileChooser`, `pageError`, `popup`, `webSocket`, `worker`.
 - `BrowserContext`: `page`, `close`, `console`, `dialog`, `download`, `request`, `response`, `serviceWorker`, `webError` e demais eventos.
 - `Browser`: `disconnected`, `context`.
 - `WebSocket` e `Worker`: eventos próprios.
 
 4. Implementar `waitForEvent` e esperas especializadas
 
-Faltam APIs fundamentais para sincronização:
+FEITO (2026-07-19): `page.waitForRequest`, `page.waitForResponse`, `page.waitForURL`, `page.waitForFunction`, `page.waitForEvent` com timeout.
 
-- `page.waitForRequest`
-- `page.waitForResponse`
+Faltam:
+
 - `page.waitForDownload`
 - `page.waitForFileChooser`
 - `page.waitForPopup`
 - `page.waitForWebSocket`
 - `page.waitForWorker`
-- `page.waitForURL`
-- `page.waitForFunction`
 - `context.waitForPage`
 - `context.waitForConsoleMessage`
 - `worker.waitForEvent`
-- suporte a cancelamento/timeout consistente
+- cancelamento consistente entre todas as esperas
 
 ### P1 - API pública principal
 
@@ -194,9 +222,9 @@ Faltam:
 
 4. Completar `Page`
 
-Além do que já existe, faltam blocos grandes:
+FEITO (2026-07-19): navegação (`reload`, `goBack`, `goForward`, `setContent`, `waitForURL`), `dblclick`, `hover`, `unroute`/`unrouteAll`.
 
-- Navegação: `reload`, `goBack`, `goForward`, `setContent`, `waitForURL`.
+Além do que já existe, faltam blocos grandes:
 - Frames: `mainFrame`, `frames`, `frame`, `frameByUrl`, `frameLocator`, eventos de frame.
 - Seletores rápidos: `getByRole`, `getByText`, `getByLabel`, `getByPlaceholder`, `getByAltText`, `getByTitle`, `getByTestId`.
 - DOM antigo: `querySelector`, `querySelectorAll`, `evalOnSelector`, `evalOnSelectorAll`.
@@ -255,11 +283,13 @@ Faltam:
 
 1. Completar `Request`, `Response` e `Route`
 
+FEITO (2026-07-19): `Request.postData`, `Response.body/text/json`, `Route.request`, `fulfill` com `json`/`contentType`/status/headers/body.
+
 Faltam:
 
 - `Request.allHeaders`, `headersArray`, `headerValue`, `postDataBuffer`, `postDataJSON`, `response`, `sizes`, `timing`, `failure`, `resourceType`, `redirectedFrom`, `redirectedTo`, `serviceWorker`.
-- `Response.body`, `text`, `json`, `finished`, `allHeaders`, `headersArray`, `headerValue`, `headerValues`, `serverAddr`, `securityDetails`, `fromServiceWorker`.
-- `Route.request`, `fallback`, `fetch`, opções completas de `continue` e `fulfill`.
+- `Response.finished`, `allHeaders`, `headersArray`, `headerValue`, `headerValues`, `serverAddr`, `securityDetails`, `fromServiceWorker`.
+- `Route.fallback`, `fetch`, opções de `continue` (headers/method/postData overrides).
 
 2. Implementar download, upload e file chooser
 
@@ -348,14 +378,14 @@ Esses itens devem ficar depois da API de browser desktop estar madura.
 
 ## Lacunas de opções
 
-Mesmo quando um método existe no port Dart, normalmente ele aceita poucas opções. Exemplos importantes:
+Mesmo quando um método existe no port Dart, normalmente ele aceita poucas opções. Estado atual:
 
-- `page.goto` tem `waitUntil`, mas faltam `timeout`, `referer` e cancelamento.
-- `page.click` e `locator.click` não expõem `button`, `clickCount`, `delay`, `force`, `modifiers`, `position`, `trial`, `timeout`, `strict`.
+- `page.goto`: tem `waitUntil` e `timeout` (FEITO); faltam `referer` e cancelamento.
+- `page.click`/`locator.click`: têm `button`, `clickCount`, `delay`, `position` (FEITO); faltam `force`, `modifiers`, `trial`, `timeout`, `strict`.
 - `page.fill` e `locator.fill` não expõem `force`, `timeout`, `strict`.
 - `page.screenshot` basicamente aceita `path`; faltam as opções completas.
-- `browser.newContext` não recebe o grande conjunto de opções de contexto.
-- `route.fulfill` é mínimo; faltam `json`, `path`, `contentType`, `response`, status text e headers avançados.
+- `browser.newContext`: tem `viewport` e `userAgent` (FEITO); faltam locale, timezone, geolocation, permissions, color scheme, device scale factor, proxy, credentials, videos, downloads, storage state etc.
+- `route.fulfill`: tem `json` e `contentType` (FEITO); faltam `path`, `response`, status text customizado.
 
 Completar opções é menos visível que adicionar métodos, mas é essencial para compatibilidade real com exemplos do Playwright.
 
@@ -403,6 +433,15 @@ Faltam recursos completos de serialização entre Dart e runtime da página:
 
 ## Plano recomendado
 
+### Próximos passos imediatos (fila para a próxima rodada)
+
+1. `page.waitForPopup` e `context.waitForPage` — exige rastrear novos targets/pageProxies por engine e emitir o evento `page` no contexto (P0.4 restante).
+2. `Frame` público completo — exige execution context por frame em cada engine (`goto`, `content`, `title`, `evaluate` e interações por frame).
+3. Mais opções de contexto: `locale`, `timezoneId`, `colorScheme`, `deviceScaleFactor`, `geolocation`, `permissions`.
+4. `Route.continue_` com overrides (headers/method/postData) e `Route.fallback`.
+5. Eventos `console`/`pageError` e `context.waitForConsoleMessage`.
+6. `page.setViewportSize` e `page.setExtraHTTPHeaders`.
+
 ### Milestone 1 - API pública consistente e multi-engine
 
 - Criar interfaces core neutras para `JSHandle`, `ElementHandle`, `Request`, `Response`, `Route`.
@@ -430,7 +469,7 @@ Faltam recursos completos de serialização entre Dart e runtime da página:
 
 ### Milestone 4 - Paridade de contexto e configuração
 
-- Completar opções de `Browser.newContext`.
+- Completar opções de `Browser.newContext` (iniciado: `viewport` e `userAgent` suportados).
 - Implementar permissions, geolocation, offline, headers, credentials, proxy e emulação.
 - Implementar `devices`.
 - Implementar `Selectors`.
