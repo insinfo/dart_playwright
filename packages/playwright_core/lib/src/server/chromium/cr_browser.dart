@@ -23,10 +23,16 @@ class CrBrowser extends EventEmitter implements CoreBrowser {
   }
 
   /// Connect to a Chromium instance.
-  static Future<CrBrowser> connect(CRConnection connection, Process? process,
-      String? tempUserDataDir) async {
+  static Future<CrBrowser> connect(
+      CRConnection connection, Process? process, String? tempUserDataDir,
+      {bool persistentContext = false}) async {
     final browser = CrBrowser._(connection, process, tempUserDataDir);
     await browser._initialize();
+    if (persistentContext) {
+      browser._contexts.add(
+        CrBrowserContext(browser, null, const CoreContextOptions()),
+      );
+    }
     return browser;
   }
 
@@ -104,7 +110,7 @@ class CrBrowserContext
     with BrowserContextStorage
     implements CoreBrowserContext {
   final CrBrowser browser;
-  final String browserContextId;
+  final String? browserContextId;
   final CoreContextOptions options;
   bool _closed = false;
 
@@ -120,7 +126,7 @@ class CrBrowserContext
 
     final targetId = (await connection.send('Target.createTarget', {
       'url': 'about:blank',
-      'browserContextId': browserContextId,
+      if (browserContextId != null) 'browserContextId': browserContextId,
     }))['targetId'];
 
     final sessionId = (await connection.send('Target.attachToTarget', {
@@ -151,7 +157,7 @@ class CrBrowserContext
   @override
   Future<List<Map<String, dynamic>>> cookies([List<String>? urls]) async {
     final result = await browser.connection.send('Storage.getCookies', {
-      'browserContextId': browserContextId,
+      if (browserContextId != null) 'browserContextId': browserContextId,
     });
     return (result['cookies'] as List).cast<Map<String, dynamic>>();
   }
@@ -159,7 +165,7 @@ class CrBrowserContext
   @override
   Future<void> addCookies(List<Map<String, dynamic>> cookies) async {
     await browser.connection.send('Storage.setCookies', {
-      'browserContextId': browserContextId,
+      if (browserContextId != null) 'browserContextId': browserContextId,
       'cookies': rewriteCookies(cookies),
     });
   }
@@ -167,7 +173,7 @@ class CrBrowserContext
   @override
   Future<void> clearCookies() async {
     await browser.connection.send('Storage.clearCookies', {
-      'browserContextId': browserContextId,
+      if (browserContextId != null) 'browserContextId': browserContextId,
     });
   }
 
@@ -178,10 +184,16 @@ class CrBrowserContext
   Future<void> close() async {
     if (_closed) return;
     _closed = true;
-    // Disposing the context closes every target that belongs to it.
-    await browser.connection.send('Target.disposeBrowserContext', {
-      'browserContextId': browserContextId,
-    });
+    if (browserContextId != null) {
+      // Disposing the context closes every target that belongs to it.
+      await browser.connection.send('Target.disposeBrowserContext', {
+        'browserContextId': browserContextId,
+      });
+    } else {
+      for (final page in trackedPages.toList()) {
+        await page.close();
+      }
+    }
     trackedPages.clear();
     browser._contexts.remove(this);
   }

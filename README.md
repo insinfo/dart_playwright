@@ -64,6 +64,16 @@ dart analyze packages
 dart test packages/playwright/test/integration/browser_parity_test.dart
 ```
 
+Test an unpacked Chromium extension:
+
+```bash
+dart run examples/extension_smoke.dart path/to/extension
+```
+
+The Chromium launcher exposes `ignoreDefaultArgs`, `executablePath`, and
+`userDataDir`; extension tests normally remove `--disable-extensions` and pass
+`--disable-extensions-except` plus `--load-extension`.
+
 ## Quick Example
 
 ```dart

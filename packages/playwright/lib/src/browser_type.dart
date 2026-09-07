@@ -13,6 +13,9 @@ abstract class BrowserType {
   Future<Browser> launch({
     bool headless = true,
     List<String> args = const [],
+    List<String> ignoreDefaultArgs = const [],
+    String? executablePath,
+    String? userDataDir,
   });
 }
 
@@ -27,6 +30,9 @@ class BrowserTypeImpl implements BrowserType {
   Future<Browser> launch({
     bool headless = true,
     List<String> args = const [],
+    List<String> ignoreDefaultArgs = const [],
+    String? executablePath,
+    String? userDataDir,
   }) async {
     if (name == 'chromium') {
       final crType = ChromiumBrowserType(_registry);
@@ -34,15 +40,32 @@ class BrowserTypeImpl implements BrowserType {
         options: ChromiumLaunchOptions(
           headless: headless,
           args: args,
+          ignoreDefaultArgs: ignoreDefaultArgs,
+          executablePath: executablePath,
+          userDataDir: userDataDir,
         ),
       );
       return BrowserImpl(crBrowser);
     } else if (name == 'firefox') {
       final ffType = FirefoxBrowserType(_registry);
+      if (ignoreDefaultArgs.isNotEmpty ||
+          executablePath != null ||
+          userDataDir != null) {
+        throw ArgumentError(
+          'ignoreDefaultArgs, executablePath and userDataDir are Chromium-only',
+        );
+      }
       final ffBrowser = await ffType.launch(headless: headless, args: args);
       return BrowserImpl(ffBrowser);
     } else if (name == 'webkit') {
       final wkType = WebKitBrowserType(_registry);
+      if (ignoreDefaultArgs.isNotEmpty ||
+          executablePath != null ||
+          userDataDir != null) {
+        throw ArgumentError(
+          'ignoreDefaultArgs, executablePath and userDataDir are Chromium-only',
+        );
+      }
       final wkBrowser = await wkType.launch(headless: headless, args: args);
       return BrowserImpl(wkBrowser);
     }

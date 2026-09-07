@@ -50,7 +50,8 @@ class ChromiumBrowserType {
   }
 
   /// Launch a local Chromium browser instance.
-  Future<CrBrowser> launch({ChromiumLaunchOptions options = const ChromiumLaunchOptions()}) async {
+  Future<CrBrowser> launch(
+      {ChromiumLaunchOptions options = const ChromiumLaunchOptions()}) async {
     final execPath = _executablePath(options);
 
     final chromeArgs = <String>[];
@@ -76,18 +77,25 @@ class ChromiumBrowserType {
 
     String? tempUserDataDir;
     if (options.userDataDir == null) {
-      final tempDir = Directory.systemTemp.createTempSync('playwright_chromium_');
+      final tempDir =
+          Directory.systemTemp.createTempSync('playwright_chromium_');
       tempUserDataDir = tempDir.path;
       chromeArgs.add('--user-data-dir=$tempUserDataDir');
     } else {
       chromeArgs.add('--user-data-dir=${options.userDataDir}');
     }
 
-    final transport = await launchBrowserWithInspectorPipe(execPath, chromeArgs);
+    final transport =
+        await launchBrowserWithInspectorPipe(execPath, chromeArgs);
 
     try {
       final connection = CRConnection(transport);
-      final browser = await CrBrowser.connect(connection, null, tempUserDataDir);
+      final browser = await CrBrowser.connect(
+        connection,
+        null,
+        tempUserDataDir,
+        persistentContext: options.userDataDir != null,
+      );
       return browser;
     } catch (e) {
       await transport.close();
