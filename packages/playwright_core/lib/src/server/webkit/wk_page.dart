@@ -236,7 +236,9 @@ class WkPage extends EventEmitter
   }
 
   Future<void> _mousePressRelease(({double x, double y}) point,
-      {String button = 'left', required int clickCount, Duration? delay}) async {
+      {String button = 'left',
+      required int clickCount,
+      Duration? delay}) async {
     await session.send('Input.dispatchMouseEvent', {
       'type': 'down',
       'button': button,
@@ -273,8 +275,11 @@ class WkPage extends EventEmitter
 
   @override
   Future<dynamic> evaluate(String expression) async {
-    final isFunction =
-        expression.trim().startsWith('function') || expression.contains('=>');
+    final trimmed = expression.trim();
+    final isFunction = trimmed.startsWith('function') ||
+        trimmed.startsWith('async function') ||
+        RegExp(r'^(?:async\s+)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>')
+            .hasMatch(trimmed);
     final finalExpression = isFunction ? '($expression)()' : expression;
 
     final result = await session.sendToTarget('Runtime.evaluate', {

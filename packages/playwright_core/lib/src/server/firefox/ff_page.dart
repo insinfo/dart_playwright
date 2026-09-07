@@ -207,7 +207,9 @@ class FfPage extends EventEmitter
   }
 
   Future<void> _mousePressRelease(({double x, double y}) point,
-      {String button = 'left', required int clickCount, Duration? delay}) async {
+      {String button = 'left',
+      required int clickCount,
+      Duration? delay}) async {
     final x = point.x.floor();
     final y = point.y.floor();
     await session.send('Page.dispatchMouseEvent', {
@@ -245,8 +247,11 @@ class FfPage extends EventEmitter
   /// Evaluate JavaScript in the page.
   @override
   Future<dynamic> evaluate(String expression) async {
-    final isFunction =
-        expression.trim().startsWith('function') || expression.contains('=>');
+    final trimmed = expression.trim();
+    final isFunction = trimmed.startsWith('function') ||
+        trimmed.startsWith('async function') ||
+        RegExp(r'^(?:async\s+)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>')
+            .hasMatch(trimmed);
     final finalExpression = isFunction ? '($expression)()' : expression;
 
     final result = await session.send('Runtime.evaluate', {
@@ -362,9 +367,8 @@ class FfPage extends EventEmitter
     } else {
       // Fire-and-forget: the page may be closing and the session already
       // gone; that must not surface as an unhandled async error.
-      session
-          .send('Network.resumeInterceptedRequest', {'requestId': requestId})
-          .catchError((_) => <String, dynamic>{});
+      session.send('Network.resumeInterceptedRequest',
+          {'requestId': requestId}).catchError((_) => <String, dynamic>{});
     }
   }
 

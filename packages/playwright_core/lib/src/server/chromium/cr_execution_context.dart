@@ -10,7 +10,8 @@ class CrExecutionContext {
 
   CrExecutionContext(this.session) {
     session.on('Runtime.executionContextCreated', _onExecutionContextCreated);
-    session.on('Runtime.executionContextDestroyed', _onExecutionContextDestroyed);
+    session.on(
+        'Runtime.executionContextDestroyed', _onExecutionContextDestroyed);
     session.on('Runtime.executionContextsCleared', _onExecutionContextsCleared);
   }
 
@@ -34,7 +35,11 @@ class CrExecutionContext {
 
   /// Evaluate a JS expression and return the raw primitive value.
   Future<dynamic> evaluate(String expression) async {
-    bool isFunction = expression.trim().startsWith('function') || expression.contains('=>');
+    final trimmed = expression.trim();
+    final isFunction = trimmed.startsWith('function') ||
+        trimmed.startsWith('async function') ||
+        RegExp(r'^(?:async\s+)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>')
+            .hasMatch(trimmed);
     String finalExpression = expression;
     if (isFunction) {
       finalExpression = '($expression)()';
@@ -51,7 +56,7 @@ class CrExecutionContext {
     }
 
     final result = await session.send('Runtime.evaluate', params);
-    
+
     if (result['exceptionDetails'] != null) {
       final exception = result['exceptionDetails'];
       throw PlaywrightException('JavaScript evaluation failed: $exception');
@@ -73,7 +78,7 @@ class CrExecutionContext {
     }
 
     final result = await session.send('Runtime.evaluate', params);
-    
+
     if (result['exceptionDetails'] != null) {
       final exception = result['exceptionDetails'];
       throw PlaywrightException('JavaScript evaluation failed: $exception');
@@ -89,7 +94,8 @@ class CrExecutionContext {
   }
 
   /// Evaluate a function by passing arguments to it via Runtime.callFunctionOn
-  Future<dynamic> evaluateWithArguments(String functionDeclaration, List<Map<String, dynamic>> arguments) async {
+  Future<dynamic> evaluateWithArguments(
+      String functionDeclaration, List<Map<String, dynamic>> arguments) async {
     final params = <String, dynamic>{
       'functionDeclaration': functionDeclaration,
       'arguments': arguments,

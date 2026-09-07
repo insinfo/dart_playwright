@@ -44,7 +44,8 @@ Future<void> main(List<String> arguments) async {
     try {
       await page.waitForFunction(
         "typeof window.dartUiIcpBrasil === 'object' && "
-        "typeof window.dartUiIcpBrasil.signPdfHash === 'function'",
+        "typeof window.dartUiIcpBrasil.signPdfHash === 'function' && "
+        "document.querySelector('meta[name=\"dart-ui-icp-brasil\"]') !== null",
         timeout: const Duration(seconds: 15),
       );
     } on TimeoutException {
@@ -54,7 +55,21 @@ Future<void> main(List<String> arguments) async {
           "})");
       throw StateError('extensão não injetada: $diagnostics');
     }
-    stdout.writeln('OK: extensão carregada e API ICP-Brasil injetada');
+    await page.evaluate("window.__dartUiBridge = 'pending'");
+    await page.evaluate(
+      "window.dartUiIcpBrasil.status({}).then("
+      "() => window.__dartUiBridge = 'connected',"
+      "() => window.__dartUiBridge = 'native-host-unregistered')",
+    );
+    await page.waitForFunction(
+      "window.__dartUiBridge !== 'pending'",
+      timeout: const Duration(seconds: 10),
+    );
+    final bridge = await page.evaluate('window.__dartUiBridge');
+    final extensionId = await page.evaluate(
+      "document.querySelector('meta[name=\"dart-ui-icp-brasil\"]').content",
+    );
+    stdout.writeln('OK: extensão $extensionId carregada; ponte: $bridge');
   } finally {
     await browser.close();
     await server.close(force: true);
