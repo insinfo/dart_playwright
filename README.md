@@ -68,6 +68,7 @@ Test an unpacked Chromium extension:
 
 ```bash
 dart run examples/extension_smoke.dart path/to/extension
+dart run examples/web_canvas_smoke.dart http://localhost:8787 captura.png
 ```
 
 The Chromium launcher exposes `ignoreDefaultArgs`, `executablePath`,

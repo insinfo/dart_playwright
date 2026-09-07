@@ -4,9 +4,9 @@ import 'dart:io';
 import 'package:playwright/playwright.dart';
 
 Future<void> main(List<String> arguments) async {
-  if (arguments.isEmpty || arguments.length > 2) {
+  if (arguments.isEmpty || arguments.length > 3) {
     stderr.writeln('uso: dart run examples/extension_smoke.dart '
-        '<diretorio-da-extensao> [executavel-chromium]');
+        '<diretorio-da-extensao> [executavel-chromium] [captura-popup.png]');
     exitCode = 64;
     return;
   }
@@ -28,7 +28,8 @@ Future<void> main(List<String> arguments) async {
   final playwright = await Playwright.create();
   final browser = await playwright.chromium.launch(
     headless: false,
-    executablePath: arguments.length == 2 ? arguments[1] : null,
+    executablePath:
+        arguments.length >= 2 && arguments[1] != '-' ? arguments[1] : null,
     userDataDir: profile.path,
     extensionPaths: <String>[extension.path],
   );
@@ -67,17 +68,30 @@ Future<void> main(List<String> arguments) async {
     final popup = await context.newPage();
     await popup.goto('chrome-extension://$extensionId/popup.html');
     await popup.waitForFunction(
-      "document.querySelector('#status').textContent !== "
-      "'Verificando assinador…'",
-      timeout: const Duration(seconds: 10),
+      "document.querySelector('canvas') !== null && "
+      "document.querySelector('canvas').width > 0",
+      timeout: const Duration(seconds: 20),
     );
-    final heading = await popup.locator('h1').textContent();
-    final popupStatus = await popup.locator('#status').textContent();
-    if (heading != 'Assinatura digital segura') {
-      throw StateError('texto UTF-8 do popup inválido: $heading');
+    await Future<void>.delayed(const Duration(seconds: 2));
+    final popupError = await popup.evaluate(
+      "document.documentElement.getAttribute('data-dart-ui-error')",
+    );
+    if (popupError != null) {
+      throw StateError('popup dart_ui apresentou erro: $popupError');
+    }
+    final surface = await popup.evaluate("({"
+        "width: document.querySelector('canvas').getBoundingClientRect().width,"
+        "height: document.querySelector('canvas').getBoundingClientRect().height,"
+        "charset: document.characterSet"
+        "})");
+    if (surface is! Map || surface['charset'] != 'UTF-8') {
+      throw StateError('superfície dart_ui/UTF-8 inválida: $surface');
+    }
+    if (arguments.length == 3) {
+      await popup.screenshot(path: File(arguments[2]).absolute.path);
     }
     stdout.writeln('OK: extensão $extensionId carregada; ponte: $bridge; '
-        'popup: $popupStatus');
+        'popup dart_ui: $surface');
   } finally {
     await browser.close();
     await server.close(force: true);
