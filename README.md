@@ -70,7 +70,10 @@ Test an unpacked Chromium extension:
 dart run examples/extension_smoke.dart path/to/extension
 ```
 
-The Chromium launcher exposes `ignoreDefaultArgs`, `executablePath`, and
+The Chromium launcher exposes `ignoreDefaultArgs`, `executablePath`,
+`userDataDir`, and `extensionPaths`. Firefox requires a signed add-on for
+permanent installation; use `about:debugging` or Mozilla's `web-ext` for a
+temporary development install.
 `userDataDir`; extension tests normally remove `--disable-extensions` and pass
 `--disable-extensions-except` plus `--load-extension`.
 

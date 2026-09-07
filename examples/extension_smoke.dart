@@ -30,12 +30,7 @@ Future<void> main(List<String> arguments) async {
     headless: false,
     executablePath: arguments.length == 2 ? arguments[1] : null,
     userDataDir: profile.path,
-    ignoreDefaultArgs: const <String>['--disable-extensions'],
-    args: <String>[
-      '--enable-extensions',
-      '--disable-extensions-except=${extension.path}',
-      '--load-extension=${extension.path}',
-    ],
+    extensionPaths: <String>[extension.path],
   );
   try {
     final context = browser.contexts().first;
@@ -69,7 +64,20 @@ Future<void> main(List<String> arguments) async {
     final extensionId = await page.evaluate(
       "document.querySelector('meta[name=\"dart-ui-icp-brasil\"]').content",
     );
-    stdout.writeln('OK: extensão $extensionId carregada; ponte: $bridge');
+    final popup = await context.newPage();
+    await popup.goto('chrome-extension://$extensionId/popup.html');
+    await popup.waitForFunction(
+      "document.querySelector('#status').textContent !== "
+      "'Verificando assinador…'",
+      timeout: const Duration(seconds: 10),
+    );
+    final heading = await popup.locator('h1').textContent();
+    final popupStatus = await popup.locator('#status').textContent();
+    if (heading != 'Assinatura digital segura') {
+      throw StateError('texto UTF-8 do popup inválido: $heading');
+    }
+    stdout.writeln('OK: extensão $extensionId carregada; ponte: $bridge; '
+        'popup: $popupStatus');
   } finally {
     await browser.close();
     await server.close(force: true);

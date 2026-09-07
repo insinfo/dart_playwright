@@ -16,6 +16,7 @@ abstract class BrowserType {
     List<String> ignoreDefaultArgs = const [],
     String? executablePath,
     String? userDataDir,
+    List<String> extensionPaths = const [],
   });
 }
 
@@ -33,14 +34,27 @@ class BrowserTypeImpl implements BrowserType {
     List<String> ignoreDefaultArgs = const [],
     String? executablePath,
     String? userDataDir,
+    List<String> extensionPaths = const [],
   }) async {
     if (name == 'chromium') {
+      if (extensionPaths.isNotEmpty && userDataDir == null) {
+        throw ArgumentError('Chromium extensions require userDataDir');
+      }
+      final chromiumArgs = <String>[...args];
+      final ignored = <String>[...ignoreDefaultArgs];
+      if (extensionPaths.isNotEmpty) {
+        ignored.add('--disable-extensions');
+        chromiumArgs.add('--enable-extensions');
+        chromiumArgs
+            .add('--disable-extensions-except=${extensionPaths.join(',')}');
+        chromiumArgs.add('--load-extension=${extensionPaths.join(',')}');
+      }
       final crType = ChromiumBrowserType(_registry);
       final crBrowser = await crType.launch(
         options: ChromiumLaunchOptions(
           headless: headless,
-          args: args,
-          ignoreDefaultArgs: ignoreDefaultArgs,
+          args: chromiumArgs,
+          ignoreDefaultArgs: ignored,
           executablePath: executablePath,
           userDataDir: userDataDir,
         ),
@@ -50,9 +64,11 @@ class BrowserTypeImpl implements BrowserType {
       final ffType = FirefoxBrowserType(_registry);
       if (ignoreDefaultArgs.isNotEmpty ||
           executablePath != null ||
-          userDataDir != null) {
+          userDataDir != null ||
+          extensionPaths.isNotEmpty) {
         throw ArgumentError(
-          'ignoreDefaultArgs, executablePath and userDataDir are Chromium-only',
+          'ignoreDefaultArgs, executablePath, userDataDir and extensionPaths '
+          'are Chromium-only',
         );
       }
       final ffBrowser = await ffType.launch(headless: headless, args: args);
@@ -61,9 +77,11 @@ class BrowserTypeImpl implements BrowserType {
       final wkType = WebKitBrowserType(_registry);
       if (ignoreDefaultArgs.isNotEmpty ||
           executablePath != null ||
-          userDataDir != null) {
+          userDataDir != null ||
+          extensionPaths.isNotEmpty) {
         throw ArgumentError(
-          'ignoreDefaultArgs, executablePath and userDataDir are Chromium-only',
+          'ignoreDefaultArgs, executablePath, userDataDir and extensionPaths '
+          'are Chromium-only',
         );
       }
       final wkBrowser = await wkType.launch(headless: headless, args: args);

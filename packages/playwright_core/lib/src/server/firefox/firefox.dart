@@ -17,7 +17,7 @@ class FirefoxBrowserType {
     if (executablePath == null) {
       throw PlaywrightException('$name executable not found.');
     }
-    
+
     final launchArgs = <String>[
       '-no-remote',
       '-wait-for-browser',
@@ -25,15 +25,15 @@ class FirefoxBrowserType {
       if (Platform.isMacOS) '-foreground',
       '-juggler-pipe',
     ];
-    
+
     if (headless) {
       launchArgs.add('-headless');
     }
-    
+
     if (args != null) {
       launchArgs.addAll(args);
     }
-    
+
     final tempDir = Directory.systemTemp.createTempSync('playwright_firefox_');
     if (!launchArgs.contains('-profile') && !launchArgs.contains('--profile')) {
       launchArgs.addAll(['-profile', tempDir.path]);
