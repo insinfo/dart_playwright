@@ -1,7 +1,18 @@
 name: playwright
-description: Playwright for Dart — complete browser automation for Chromium, Firefox, and WebKit.
+description: >-
+  Browser automation for Chromium, Firefox and WebKit, implemented natively in
+  Dart. A port of Playwright that drives the browsers directly, with no Node.js
+  runtime in the loop.
 version: 0.1.0
-publish_to: none
+repository: https://github.com/insinfo/dart_playwright
+issue_tracker: https://github.com/insinfo/dart_playwright/issues
+
+topics:
+  - playwright
+  - browser
+  - automation
+  - testing
+  - e2e
 
 environment:
   sdk: ^3.6.2
@@ -9,10 +20,8 @@ environment:
 resolution: workspace
 
 dependencies:
-  playwright_core:
-    path: ../playwright_core
-  playwright_protocol:
-    path: ../playwright_protocol
+  playwright_core: ^0.1.0
+  playwright_protocol: ^0.1.0
   args: ^2.5.0
   path: ^1.9.0
   meta: ^1.9.0

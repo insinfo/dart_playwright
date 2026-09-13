@@ -1,7 +1,15 @@
 name: playwright_protocol
-description: Protocol definitions, types, and serialization for Playwright Dart.
+description: >-
+  Protocol types, transport envelopes, errors and the event emitter shared by
+  the Playwright for Dart packages. Not useful on its own.
 version: 0.1.0
-publish_to: none
+repository: https://github.com/insinfo/dart_playwright
+issue_tracker: https://github.com/insinfo/dart_playwright/issues
+
+topics:
+  - playwright
+  - browser
+  - automation
 
 environment:
   sdk: ^3.6.2

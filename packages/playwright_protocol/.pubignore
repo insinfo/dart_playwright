@@ -1,0 +1,6 @@
+# Everything outside lib/ that is repository plumbing rather than package
+# content. `doc/`, `scratch/`, `referencias/` and `.github/` live at the
+# repository root, outside this package, so pub never sees them.
+.dart_tool/
+doc/api/
+test/

@@ -1,0 +1,12 @@
+# Repository plumbing that must not travel in the published archive.
+# `doc/`, `scratch/`, `referencias/` (126 MB of the upstream TypeScript tree)
+# and `.github/` live at the repository root, outside this package, so pub
+# never walks into them; they are listed here only so the intent is explicit
+# if this package is ever moved.
+.dart_tool/
+doc/
+doc/api/
+scratch/
+referencias/
+.github/
+test/

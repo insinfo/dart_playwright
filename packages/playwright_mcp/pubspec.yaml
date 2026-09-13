@@ -1,6 +1,11 @@
 name: playwright_mcp
 description: Model Context Protocol (MCP) server for Playwright Dart.
 version: 0.1.0
+
+# Deliberately not published. This package has no public library at all -
+# everything lives under lib/src/, reachable only through bin/ - it has no
+# tests of its own, and its tools sit on an API that is still moving. Use it
+# from a git dependency or a checkout.
 publish_to: none
 
 environment:

@@ -55,7 +55,7 @@ class EventEmitter {
         (_onceListeners[event]?.length ?? 0);
   }
 
-  /// Emit an [event] with optional [args].
+  /// Emit an [event] with up to three optional arguments.
   /// Returns true if there were any listeners.
   bool emit(String event, [dynamic arg1, dynamic arg2, dynamic arg3]) {
     final hasListeners =

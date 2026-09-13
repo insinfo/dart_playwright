@@ -1,7 +1,18 @@
 name: playwright_core
-description: Core implementation of Playwright Dart — browser engine drivers, transport, and registry.
+description: >-
+  Engine layer of Playwright for Dart: browser registry and download, process
+  transport, and the Chromium (CDP), Firefox (Juggler) and WebKit protocol
+  drivers. Use the `playwright` package instead.
 version: 0.1.0
-publish_to: none
+repository: https://github.com/insinfo/dart_playwright
+issue_tracker: https://github.com/insinfo/dart_playwright/issues
+
+topics:
+  - playwright
+  - browser
+  - automation
+  - chromium
+  - webkit
 
 environment:
   sdk: ^3.6.2
@@ -9,8 +20,7 @@ environment:
 resolution: workspace
 
 dependencies:
-  playwright_protocol:
-    path: ../playwright_protocol
+  playwright_protocol: ^0.1.0
   web_socket_channel: ^3.0.0
   archive: ^4.0.0
   http: ^1.2.0
@@ -23,6 +33,10 @@ dependencies:
   # POSIX (Linux/macOS) FFI bindings used by posix_process.dart to create the
   # fd3/fd4 FIFO pair handed to browser processes. Not loaded on Windows.
   stdlibc: ^0.1.4
+  # Windows named-pipe transport (win32_process.dart, pipe_transport.dart).
+  # Not loaded on POSIX.
+  ffi: ^2.1.0
+  win32: ^5.10.1
 
 dev_dependencies:
   test: ^1.25.0

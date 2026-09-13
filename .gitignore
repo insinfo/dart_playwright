@@ -4,6 +4,10 @@
 build/
 pubspec.lock
 
+# Generated API documentation
+.dart_doc/
+doc/api/
+
 # IDEs
 .idea/
 .vscode/
