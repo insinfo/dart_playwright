@@ -1,5 +1,13 @@
+// Derived from Playwright (https://github.com/microsoft/playwright),
+// Copyright (c) Microsoft Corporation, licensed under the Apache License,
+// Version 2.0. Ported to Dart and modified; the modifications are summarized
+// in the NOTICE file of this package.
+//
+// Upstream source: packages/playwright-core/browsers.json
+
 const browsersJsonString = '''
 {
+  "comment": "Browser versions compatible with Playwright Dart. Synced from microsoft/playwright.",
   "browsers": [
     {
       "name": "chromium",

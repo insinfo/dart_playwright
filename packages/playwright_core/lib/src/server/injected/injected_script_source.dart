@@ -1,3 +1,11 @@
+// Derived from Playwright (https://github.com/microsoft/playwright),
+// Copyright (c) Microsoft Corporation, licensed under the Apache License,
+// Version 2.0. Ported to Dart and modified; the modifications are summarized
+// in the NOTICE file of this package.
+//
+// Upstream source: packages/injected/src/{domUtils,selectorUtils,roleUtils,roleSelectorEngine,injectedScript}.ts and
+// packages/isomorphic/stringUtils.ts
+
 // The in-page selector engine.
 //
 // This is a hand port of the pieces of upstream Playwright's injected script

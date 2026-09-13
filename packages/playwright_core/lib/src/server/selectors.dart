@@ -1,3 +1,11 @@
+// Derived from Playwright (https://github.com/microsoft/playwright),
+// Copyright (c) Microsoft Corporation, licensed under the Apache License,
+// Version 2.0. Ported to Dart and modified; the modifications are summarized
+// in the NOTICE file of this package.
+//
+// Upstream source: packages/isomorphic/stringUtils.ts and
+// packages/playwright-core/src/utils/isomorphic/locatorUtils.ts
+
 import 'dart:convert';
 
 /// How a piece of text is matched: a literal string (exact or a

@@ -1,0 +1,61 @@
+Playwright for Dart
+Copyright (c) 2025 Isaque Neves
+
+This product is a derivative work of Playwright
+(https://github.com/microsoft/playwright), Copyright (c) Microsoft
+Corporation, licensed under the Apache License, Version 2.0.
+
+Playwright itself contains code derived from the Puppeteer project
+(https://github.com/puppeteer/puppeteer), Copyright 2017 Google Inc.,
+available under the Apache License, Version 2.0
+(https://github.com/puppeteer/puppeteer/blob/master/LICENSE).
+
+--------------------------------------------------------------------------
+Modifications and derived material
+--------------------------------------------------------------------------
+
+This is an independent reimplementation of Playwright in Dart. It is not
+produced, endorsed, or supported by Microsoft Corporation. The following
+files carry material derived from the upstream TypeScript sources and have
+been modified:
+
+  packages/playwright_core/lib/src/server/injected/
+      injected_script_source.dart
+      Hand port of the in-page selector engine: packages/injected/src/
+      domUtils.ts, selectorUtils.ts, roleUtils.ts, roleSelectorEngine.ts,
+      the `internal:*` engines of injectedScript.ts, and
+      packages/isomorphic/stringUtils.ts#normalizeWhiteSpace. The ARIA role
+      and attribute tables are reproduced closely; the selector parser and
+      the CSS tokenizer are not ported, and stability sampling differs.
+
+  packages/playwright_core/lib/src/server/us_keyboard_layout.dart
+      Port of packages/playwright-core/src/server/usKeyboardLayout.ts.
+
+  packages/playwright_core/lib/src/server/mac_editing_commands.dart
+      Port of packages/playwright-core/src/server/macEditingCommands.ts.
+
+  packages/playwright_core/lib/src/server/chromium/chromium_switches.dart
+      Port of packages/playwright-core/src/server/chromium/
+      chromiumSwitches.ts.
+
+  packages/playwright_core/lib/src/registry/browsers_json.dart
+      The browser revision table from packages/playwright-core/
+      browsers.json, embedded as a Dart string.
+
+  packages/playwright_core/lib/src/registry/registry.dart
+      Executable and download path mappings, and the CDN mirror list, taken
+      from packages/playwright-core/src/server/registry/index.ts.
+
+  packages/playwright_core/lib/src/server/selectors.dart
+      Selector-building behaviour mirrored from packages/isomorphic/
+      stringUtils.ts and packages/playwright-core/src/utils/
+      isomorphic/locatorUtils.ts.
+
+Other files across packages/playwright and packages/playwright_core are
+independent Dart implementations whose behaviour is aligned with named
+upstream sources; those alignments are documented in the comments of each
+file.
+
+"Playwright" is a trademark of Microsoft Corporation. The Apache License,
+Version 2.0 does not grant permission to use it; this project uses the name
+only to describe what it is compatible with.
