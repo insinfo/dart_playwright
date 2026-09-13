@@ -44,6 +44,17 @@ class ContextRegistry {
 
   CoreExecutionContext? contextFor(String frameId) => _byFrame[frameId];
 
+  /// The frame that owns [contextId], or null.
+  ///
+  /// Juggler identifies the file chooser's element only by its execution
+  /// context, so the frame has to be found the other way round.
+  String? frameIdFor(Object contextId) {
+    for (final entry in _byFrame.entries) {
+      if (entry.value.contextId == contextId) return entry.key;
+    }
+    return null;
+  }
+
   /// Waits for [frameId]'s context.
   ///
   /// When [fallback] is given, a timeout resolves to it instead of throwing.

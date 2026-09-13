@@ -1,9 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+
+import 'package:path/path.dart' as p;
 import 'package:playwright_protocol/playwright_protocol.dart';
 import '../accessibility.dart';
 import 'core_browser.dart';
 import 'core_events.dart';
+import 'core_file_chooser.dart';
+import 'core_screenshot.dart';
 import 'dialog.dart';
 import 'keyboard.dart';
 import 'core_js_handle.dart';
@@ -11,6 +16,10 @@ import 'core_route.dart';
 import 'frames.dart';
 import 'mouse.dart';
 import 'injected/injected_script_source.dart';
+export 'core_download.dart' show CoreDownload;
+export 'core_file_chooser.dart' show CoreFileChooser;
+export 'core_screenshot.dart'
+    show CoreRect, CoreScreenshotOptions;
 export 'core_events.dart'
     show CoreConsoleMessage, CorePageError, CoreSourceLocation;
 export 'dialog.dart' show Dialog;
@@ -80,11 +89,40 @@ abstract class CorePage extends EventEmitter {
   Future<String> title();
   Future<dynamic> evaluate(String expression);
   Future<CoreJSHandle> evaluateHandle(String expression);
-  Future<List<int>> screenshot({String? path});
+  Future<List<int>> screenshot(
+      {String? path,
+      CoreScreenshotOptions options = const CoreScreenshotOptions()});
+
+  /// Captures exactly [rect], given in document coordinates.
+  ///
+  /// Document coordinates are the one system all three engines accept:
+  /// Chromium's `clip` and Firefox's `clip` are always document-relative, and
+  /// WebKit takes `coordinateSystem: 'Page'` for the same thing.
+  Future<List<int>> screenshotRect(CoreRect rect, CoreScreenshotOptions options,
+      {bool fitsViewport = true});
+
+  /// Renders the page to PDF.
+  ///
+  /// Chromium only; Firefox and WebKit have no print-to-PDF command in their
+  /// protocols, so they throw.
+  Future<List<int>> pdf({String? path, CorePdfOptions options});
   Future<AccessibilitySnapshot> accessibilitySnapshot();
 
   /// Resizes the page viewport, overriding whatever the context set.
   Future<void> setViewportSize(int width, int height);
+
+  /// Points the `<input type=file>` behind [handle] at [paths].
+  ///
+  /// The engines take file paths, not contents, so the files must exist on
+  /// the machine running the browser.
+  Future<void> setInputFilePaths(
+      CoreFrame frame, CoreJSHandle handle, List<String> paths);
+
+  /// Turns file chooser interception on or off.
+  ///
+  /// While on, the page never shows the native dialog and a `filechooser`
+  /// event carrying a [CoreFileChooser] is emitted instead.
+  Future<void> setInterceptFileChooser(bool enabled);
 
   /// Sets headers sent with every request this page makes.
   ///
@@ -184,6 +222,11 @@ abstract class CorePage extends EventEmitter {
   /// The page's mouse, dispatching trusted mouse events via the protocol.
   Mouse get mouse;
 
+  /// The rectangle of the element [resolverJs] resolves to inside [frame],
+  /// in the top document's coordinates, which is what the screenshot
+  /// commands of all three engines speak.
+  Future<CoreRect> documentRectForTarget(CoreFrame frame, String resolverJs);
+
   /// The top-level viewport point to aim at for the element [resolverJs]
   /// resolves to inside [frame].
   Future<({double x, double y})> clickPointForTarget(
@@ -264,6 +307,279 @@ mixin CorePageDialogs on EventEmitter {
     // safe: the first decision wins and the rest are no-ops.
     if (watchedByPage) emit('dialog', dialog);
     if (watchedByContext) context.emit('dialog', dialog);
+  }
+}
+
+/// Screenshot geometry shared by the engine pages.
+///
+/// The engines differ in what they accept, but all three take a rectangle in
+/// document coordinates, so the rectangle is computed once here and each
+/// driver only has to translate the options.
+mixin CorePageScreenshot {
+  Future<dynamic> evaluate(String expression);
+
+  Future<List<int>> screenshotRect(CoreRect rect, CoreScreenshotOptions options,
+      {bool fitsViewport = true});
+
+  /// The document rectangle a screenshot with [options] should capture, plus
+  /// whether it fits in the viewport (which is what tells Chromium to capture
+  /// beyond it).
+  Future<({CoreRect rect, bool fitsViewport})> screenshotRectFor(
+      CoreScreenshotOptions options) async {
+    final metrics = await evaluate('''
+      () => ({
+        scrollX: window.scrollX,
+        scrollY: window.scrollY,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+        documentWidth: Math.max(
+            document.body ? document.body.scrollWidth : 0,
+            document.documentElement.scrollWidth,
+            document.body ? document.body.offsetWidth : 0,
+            document.documentElement.offsetWidth,
+            document.body ? document.body.clientWidth : 0,
+            document.documentElement.clientWidth),
+        documentHeight: Math.max(
+            document.body ? document.body.scrollHeight : 0,
+            document.documentElement.scrollHeight,
+            document.body ? document.body.offsetHeight : 0,
+            document.documentElement.offsetHeight,
+            document.body ? document.body.clientHeight : 0,
+            document.documentElement.clientHeight),
+      })
+    ''') as Map;
+
+    double number(String key) => (metrics[key] as num).toDouble();
+    final viewportWidth = number('viewportWidth');
+    final viewportHeight = number('viewportHeight');
+
+    if (options.fullPage) {
+      final full = CoreRect(
+          x: 0,
+          y: 0,
+          width: number('documentWidth'),
+          height: number('documentHeight'));
+      final rect = options.clip == null
+          ? full
+          : _intersect(options.clip!, full);
+      return (
+        rect: rect.enclosingIntRect,
+        fitsViewport: full.width <= viewportWidth &&
+            full.height <= viewportHeight,
+      );
+    }
+
+    // Without fullPage the capture is the viewport, expressed in document
+    // coordinates by adding the current scroll offset.
+    final viewport = CoreRect(
+        x: number('scrollX'),
+        y: number('scrollY'),
+        width: viewportWidth,
+        height: viewportHeight);
+    final clip = options.clip;
+    final rect = clip == null
+        ? viewport
+        : _intersect(
+            CoreRect(
+                x: clip.x + viewport.x,
+                y: clip.y + viewport.y,
+                width: clip.width,
+                height: clip.height),
+            viewport);
+    return (rect: rect.enclosingIntRect, fitsViewport: true);
+  }
+
+  static CoreRect _intersect(CoreRect rect, CoreRect bounds) {
+    final left = rect.x < bounds.x ? bounds.x : rect.x;
+    final top = rect.y < bounds.y ? bounds.y : rect.y;
+    final rightLimit = bounds.x + bounds.width;
+    final bottomLimit = bounds.y + bounds.height;
+    var right = rect.x + rect.width;
+    var bottom = rect.y + rect.height;
+    if (right > rightLimit) right = rightLimit;
+    if (bottom > bottomLimit) bottom = bottomLimit;
+    if (right <= left || bottom <= top) {
+      throw ArgumentError(
+          'Clipped area is either empty or outside the resulting image');
+    }
+    return CoreRect(x: left, y: top, width: right - left, height: bottom - top);
+  }
+
+  /// Captures the page with [options], writing to [path] when given.
+  Future<List<int>> screenshotWith(
+      CoreScreenshotOptions options, String? path) async {
+    options.validate();
+    final target = await screenshotRectFor(options);
+    final bytes = await screenshotRect(target.rect, options,
+        fitsViewport: target.fitsViewport);
+    if (path != null) await File(path).writeAsBytes(bytes);
+    return bytes;
+  }
+}
+
+/// Options for `page.pdf`, which only Chromium can answer.
+///
+/// Sizes are in inches, matching what `Page.printToPDF` takes; `format` picks
+/// one of the named paper sizes instead.
+class CorePdfOptions {
+  final bool landscape;
+  final bool displayHeaderFooter;
+  final String headerTemplate;
+  final String footerTemplate;
+  final bool printBackground;
+  final double scale;
+  final String? format;
+  final double? width;
+  final double? height;
+  final double marginTop;
+  final double marginBottom;
+  final double marginLeft;
+  final double marginRight;
+  final String pageRanges;
+  final bool preferCSSPageSize;
+  final bool tagged;
+  final bool outline;
+
+  const CorePdfOptions({
+    this.landscape = false,
+    this.displayHeaderFooter = false,
+    this.headerTemplate = '',
+    this.footerTemplate = '',
+    this.printBackground = false,
+    this.scale = 1,
+    this.format,
+    this.width,
+    this.height,
+    this.marginTop = 0,
+    this.marginBottom = 0,
+    this.marginLeft = 0,
+    this.marginRight = 0,
+    this.pageRanges = '',
+    this.preferCSSPageSize = false,
+    this.tagged = false,
+    this.outline = false,
+  });
+
+  /// The named paper sizes upstream ships, in inches.
+  static const paperFormats = <String, ({double width, double height})>{
+    'letter': (width: 8.5, height: 11),
+    'legal': (width: 8.5, height: 14),
+    'tabloid': (width: 11, height: 17),
+    'ledger': (width: 17, height: 11),
+    'a0': (width: 33.1, height: 46.8),
+    'a1': (width: 23.4, height: 33.1),
+    'a2': (width: 16.54, height: 23.4),
+    'a3': (width: 11.7, height: 16.54),
+    'a4': (width: 8.27, height: 11.7),
+    'a5': (width: 5.83, height: 8.27),
+    'a6': (width: 4.13, height: 5.83),
+  };
+
+  /// The paper size in inches: the named format, the explicit size, or the
+  /// letter default.
+  ({double width, double height}) get paperSize {
+    if (format != null) {
+      final known = paperFormats[format!.toLowerCase()];
+      if (known == null) {
+        throw ArgumentError.value(format, 'format',
+            'Unknown paper format. Expected one of: '
+                '${paperFormats.keys.join(', ')}');
+      }
+      return known;
+    }
+    return (width: width ?? 8.5, height: height ?? 11);
+  }
+}
+
+/// Makes file paths absolute and native before they reach an engine.
+///
+/// Firefox builds an nsIFile from each path and rejects a Windows path that
+/// contains forward slashes, which is exactly what joining with `/` produces.
+/// Chromium and WebKit tolerate it, so normalizing here is what makes the
+/// three agree.
+List<String> normalizeInputFilePaths(List<String> paths) => [
+      for (final path in paths) p.normalize(File(path).absolute.path),
+    ];
+
+/// File chooser emission shared by the engine pages.
+///
+/// Only Chromium reports whether the input takes several files; asking the
+/// element itself gives the same answer on every engine, and also catches
+/// `webkitdirectory`, which upstream treats as multiple too.
+mixin CorePageFileChooser on EventEmitter {
+  void emitFileChooser(CoreJSHandle element) {
+    element
+        .evaluate('(el) => !!(el.multiple || el.webkitdirectory)')
+        .then((multiple) {
+      emit('filechooser',
+          CoreFileChooser(element: element, isMultiple: multiple == true));
+    }).catchError((Object _) {
+      emit('filechooser',
+          CoreFileChooser(element: element, isMultiple: false));
+    });
+  }
+}
+
+/// The route handler chain shared by the engine pages.
+///
+/// Handlers are kept in registration order and run newest first, which is
+/// what upstream does; a handler that calls `fallback()` passes the route to
+/// the next one, and when the last one declines the request continues
+/// untouched.
+mixin CorePageRoutes {
+  final routeEntries = <({String pattern, void Function(CoreRoute) handler})>[];
+
+  /// Whether any handler is installed, which is what decides if interception
+  /// has to be enabled on the engine.
+  bool get hasRoutes => routeEntries.isNotEmpty;
+
+  void addRouteEntry(String pattern, void Function(CoreRoute) handler) {
+    routeEntries.add((pattern: pattern, handler: handler));
+  }
+
+  void removeRouteEntry(String pattern) {
+    routeEntries.removeWhere((entry) => entry.pattern == pattern);
+  }
+
+  /// Whether [pattern] matches [url].
+  ///
+  /// A deliberately small glob: `**/*` matches everything and anything else
+  /// is a substring test after dropping `**/`. The full URL-pattern syntax is
+  /// not ported yet.
+  static bool matchesPattern(String pattern, String url) {
+    if (pattern == '**/*') return true;
+    return url.contains(pattern.replaceAll('**/', ''));
+  }
+
+  /// Whether any handler would claim [url]; the engines use it to decide
+  /// between running the chain and continuing the request straight away.
+  bool hasHandlerFor(String url) =>
+      routeEntries.any((entry) => matchesPattern(entry.pattern, url));
+
+  /// Runs the matching handlers for [route], newest first.
+  void dispatchRoute(CoreRoute route) {
+    final handlers = routeEntries
+        .where((entry) => matchesPattern(entry.pattern, route.request.url))
+        .map((entry) => entry.handler)
+        .toList()
+        .reversed
+        .toList();
+
+    var index = 0;
+    void runNext() {
+      if (index >= handlers.length) {
+        route.onFallback = null;
+        // Nobody claimed it. Fire-and-forget: the page may be closing and the
+        // session already gone, which must not surface as an unhandled error.
+        route.continue_().catchError((Object _) {});
+        return;
+      }
+      final handler = handlers[index++];
+      route.onFallback = runNext;
+      handler(route);
+    }
+
+    runNext();
   }
 }
 
@@ -645,6 +961,56 @@ mixin CorePageInputHelpers {
       x: (map['x'] as num).toDouble(),
       y: (map['y'] as num).toDouble(),
     );
+  }
+
+  /// The rectangle of the element [resolverJs] resolves to inside [frame],
+  /// in the *top document's* coordinates.
+  ///
+  /// Same walk as [clickPointForTarget]: the element's own box is shifted by
+  /// each owning iframe's border box up the chain, and then by the top
+  /// document's scroll offset, because that is the coordinate system every
+  /// engine's screenshot command speaks.
+  Future<CoreRect> documentRectForTarget(
+      CoreFrame frame, String resolverJs) async {
+    final result = await evaluateInjected(frame, '''
+      () => {
+        const el = $resolverJs;
+        if (!el) throw new Error('Element not found');
+        el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+        const rect = el.getBoundingClientRect();
+        let x = rect.x, y = rect.y;
+        let win = el.ownerDocument.defaultView;
+        while (win && win !== win.parent) {
+          let owner = null;
+          try { owner = win.frameElement; } catch (e) { break; }
+          if (!owner) break;
+          const ownerRect = owner.getBoundingClientRect();
+          const style = owner.ownerDocument.defaultView.getComputedStyle(owner);
+          x += ownerRect.x + (parseFloat(style.borderLeftWidth) || 0) + (parseFloat(style.paddingLeft) || 0);
+          y += ownerRect.y + (parseFloat(style.borderTopWidth) || 0) + (parseFloat(style.paddingTop) || 0);
+          win = win.parent;
+        }
+        const top = win || window;
+        return {
+          x: x + top.scrollX,
+          y: y + top.scrollY,
+          width: rect.width,
+          height: rect.height,
+        };
+      }
+    ''');
+    final map = result as Map;
+    final rect = CoreRect(
+      x: (map['x'] as num).toDouble(),
+      y: (map['y'] as num).toDouble(),
+      width: (map['width'] as num).toDouble(),
+      height: (map['height'] as num).toDouble(),
+    );
+    if (rect.width <= 0 || rect.height <= 0) {
+      throw PlaywrightException(
+          'Element is not visible: it has zero width or height');
+    }
+    return rect.enclosingIntRect;
   }
 
   /// Focuses [selector] and selects its current contents, so that inserted

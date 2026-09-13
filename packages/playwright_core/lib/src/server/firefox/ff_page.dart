@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'package:playwright_protocol/playwright_protocol.dart';
 import 'ff_connection.dart';
 import 'ff_execution_context.dart';
@@ -18,6 +17,9 @@ import '../core_js_handle.dart';
 class FfPage extends EventEmitter
     with
         CorePageOwnership,
+        CorePageRoutes,
+        CorePageFileChooser,
+        CorePageScreenshot,
         CorePageFrameEvaluation,
         CorePageInputHelpers,
         CorePageDialogs,
@@ -41,6 +43,7 @@ class FfPage extends EventEmitter
     networkManager = FfNetworkManager(session);
     forwardNetworkEvents(networkManager, this);
     session.on('Page.dialogOpened', _onDialogOpened);
+    session.on('Page.fileChooserOpened', _onFileChooserOpened);
     session.on('Runtime.console', _onConsole);
     session.on('Page.uncaughtError', _onUncaughtError);
     session.on('Page.crashed', (_) => emit('crash', true));
@@ -297,27 +300,37 @@ class FfPage extends EventEmitter
   }
 
   /// Take a screenshot.
-  Future<List<int>> screenshot({String? path}) async {
-    // Juggler requires an explicit clip rect.
-    final width = await evaluate('window.innerWidth');
-    final height = await evaluate('window.innerHeight');
+  @override
+  Future<List<int>> screenshot(
+          {String? path,
+          CoreScreenshotOptions options = const CoreScreenshotOptions()}) =>
+      screenshotWith(options, path);
 
+  @override
+  Future<List<int>> screenshotRect(CoreRect rect, CoreScreenshotOptions options,
+      {bool fitsViewport = true}) async {
+    // Juggler takes a document rectangle and a mime type, and expresses
+    // scale: 'css' as a flag rather than a factor.
     final result = await session.send('Page.screenshot', {
-      'mimeType': 'image/png',
+      'mimeType': 'image/${options.type}',
       'clip': {
-        'x': 0,
-        'y': 0,
-        'width': width ?? 1280,
-        'height': height ?? 720,
+        'x': rect.x,
+        'y': rect.y,
+        'width': rect.width,
+        'height': rect.height,
       },
+      if (options.effectiveQuality != null) 'quality': options.effectiveQuality,
+      'omitDeviceScaleFactor': options.scale == 'css',
     });
-    final data = result['data'] as String;
-    final bytes = base64Decode(data);
+    return base64Decode(result['data'] as String);
+  }
 
-    if (path != null) {
-      await File(path).writeAsBytes(bytes);
-    }
-    return bytes;
+  @override
+  Future<List<int>> pdf(
+      {String? path, CorePdfOptions options = const CorePdfOptions()}) {
+    throw UnsupportedError(
+        'page.pdf() is Chromium-only: the Juggler protocol has no '
+        'print-to-PDF command, and upstream Playwright has the same limit.');
   }
 
   /// Get Accessibility Snapshot
@@ -337,8 +350,6 @@ class FfPage extends EventEmitter
     }
   }
 
-  final _routes = <String, void Function(CoreRoute)>{};
-
   bool _routeListenerInstalled = false;
 
   @override
@@ -348,16 +359,16 @@ class FfPage extends EventEmitter
       _routeListenerInstalled = true;
       session.on('Network.requestWillBeSent', _onRequestWillBeSent);
     }
-    if (_routes.isEmpty) {
+    if (!hasRoutes) {
       await session.send('Network.setRequestInterception', {'enabled': true});
     }
-    _routes[urlPattern] = handler;
+    addRouteEntry(urlPattern, handler);
   }
 
   @override
   Future<void> unroute(String urlPattern) async {
-    _routes.remove(urlPattern);
-    if (_routes.isEmpty) {
+    removeRouteEntry(urlPattern);
+    if (!hasRoutes) {
       await session.send('Network.setRequestInterception', {'enabled': false});
     }
   }
@@ -367,30 +378,25 @@ class FfPage extends EventEmitter
     final requestId = params['requestId'] as String;
     final url = params['url'] as String;
 
-    void Function(CoreRoute)? matchedHandler;
-    for (final pattern in _routes.keys) {
-      final cleanPattern = pattern.replaceAll('**/', '');
-      if (pattern == '**/*' || url.contains(cleanPattern)) {
-        matchedHandler = _routes[pattern];
-        break;
-      }
-    }
-
-    if (matchedHandler != null) {
-      matchedHandler(FfRoute(
-        session,
-        requestId,
-        url,
-        method: params['method'] as String? ?? 'GET',
-        headers: _stringHeaders(params['headers']),
-        postData: _decodePostData(params['postData'] as String?),
-      ));
-    } else {
+    if (!hasHandlerFor(url)) {
       // Fire-and-forget: the page may be closing and the session already
       // gone; that must not surface as an unhandled async error.
       session.send('Network.resumeInterceptedRequest',
           {'requestId': requestId}).catchError((_) => <String, dynamic>{});
+      return;
     }
+
+    dispatchRoute(FfRoute(
+      session,
+      requestId,
+      url,
+      method: params['method'] as String? ?? 'GET',
+      headers: _stringHeaders(params['headers']),
+      postData: _decodePostData(params['postData'] as String?),
+      resourceType: FfRequest(params).resourceType,
+      isNavigationRequest: params['cause'] == 'TYPE_DOCUMENT',
+      frame: params['frameId'],
+    ));
   }
 
   /// Juggler reports request bodies base64-encoded (upstream decodes with
@@ -413,6 +419,37 @@ class FfPage extends EventEmitter
   Future<void> close() async {
     if (_isClosed) return;
     await session.send('Page.close');
+  }
+
+  @override
+  Future<void> setInputFilePaths(
+      CoreFrame frame, CoreJSHandle handle, List<String> paths) async {
+    // Juggler is the one engine that also wants the frame.
+    await session.send('Page.setFileInputFiles', {
+      'frameId': frame.id,
+      'objectId': handle.objectId,
+      'files': normalizeInputFilePaths(paths),
+    });
+  }
+
+  @override
+  Future<void> setInterceptFileChooser(bool enabled) async {
+    await session
+        .send('Page.setInterceptFileChooserDialog', {'enabled': enabled});
+  }
+
+  void _onFileChooserOpened(Map<String, dynamic> params) {
+    // Juggler identifies the element only by its execution context, so the
+    // frame has to be found the other way round.
+    final contextId = params['executionContextId'];
+    final element = params['element'];
+    if (contextId == null || element is! Map) return;
+    final frameId = _contexts.frameIdFor(contextId);
+    final context = frameId == null ? null : _contexts.contextFor(frameId);
+    if (context is! FfExecutionContext) return;
+    final handle =
+        context.createHandle(Map<String, dynamic>.from(element));
+    emitFileChooser(handle);
   }
 
   @override

@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'dart:io';
+
+import 'package:path/path.dart' as p;
 import 'package:playwright_protocol/playwright_protocol.dart';
 import '../core_browser.dart';
 import '../core_page.dart';
@@ -23,6 +26,8 @@ class FfBrowser extends EventEmitter implements CoreBrowser {
       final sessionId = params['sessionId'] as String?;
       if (sessionId != null) connection.closeSession(sessionId);
     });
+    session.on('Browser.downloadCreated', _onDownloadCreated);
+    session.on('Browser.downloadFinished', _onDownloadFinished);
     connection.on('closed', () => _onClosed());
   }
 
@@ -54,6 +59,49 @@ class FfBrowser extends EventEmitter implements CoreBrowser {
     }
     final completer = _pendingPages.remove(targetId);
     if (completer != null && !completer.isCompleted) completer.complete(page);
+  }
+
+  void _onDownloadCreated(Map<String, dynamic> params) {
+    final uuid = params['uuid'] as String?;
+    if (uuid == null) return;
+    final context = _contextFor(params['browserContextId'] as String?);
+    if (context == null) return;
+    final page = _pagesByTarget[params['pageTargetId'] as String?];
+    context.registerDownload(
+      CoreDownload(
+        uuid: uuid,
+        url: params['url'] as String? ?? '',
+        downloadPath: p.join(context.downloadsDirectory, uuid),
+        // Juggler is the only engine that names the file up front.
+        suggestedFilename: params['suggestedFileName'] as String?,
+        cancel: () async {
+          await session.send('Browser.cancelDownload', {'uuid': uuid});
+        },
+      ),
+      page: page,
+    );
+  }
+
+  void _onDownloadFinished(Map<String, dynamic> params) {
+    final uuid = params['uuid'] as String?;
+    if (uuid == null) return;
+    for (final context in _contexts) {
+      final download = context.downloads[uuid];
+      if (download == null) continue;
+      download.markFinished(params['canceled'] == true
+          ? 'canceled'
+          : params['error'] as String?);
+      return;
+    }
+  }
+
+  String? _downloadsDirectory;
+
+  /// A temporary directory for this browser's downloads.
+  String defaultDownloadsDirectory() {
+    return _downloadsDirectory ??= Directory.systemTemp
+        .createTempSync('playwright-dart-downloads')
+        .path;
   }
 
   FfBrowserContext? _contextFor(String? browserContextId) {
@@ -108,8 +156,16 @@ class FfBrowser extends EventEmitter implements CoreBrowser {
         },
       });
     }
-    final context = FfBrowserContext(this, browserContextId);
+    final context = FfBrowserContext(this, browserContextId, options);
     _contexts.add(context);
+    await session.send('Browser.setDownloadOptions', {
+      'browserContextId': browserContextId,
+      'downloadOptions': {
+        'behavior': options.acceptDownloads ? 'saveToDisk' : 'cancel',
+        if (options.acceptDownloads)
+          'downloadsDir': context.downloadsDirectory,
+      },
+    });
     return context;
   }
 
@@ -138,6 +194,12 @@ class FfBrowser extends EventEmitter implements CoreBrowser {
   void _onClosed() {
     if (_isClosed) return;
     _isClosed = true;
+    final downloads = _downloadsDirectory;
+    if (downloads != null) {
+      try {
+        Directory(downloads).deleteSync(recursive: true);
+      } catch (_) {}
+    }
     for (final context in _contexts.toList()) {
       context.notifyClosed();
     }
@@ -153,9 +215,14 @@ class FfBrowserContext extends EventEmitter
     implements CoreBrowserContext {
   final FfBrowser browser;
   final String browserContextId;
+  final CoreContextOptions options;
   bool _closed = false;
 
-  FfBrowserContext(this.browser, this.browserContextId);
+  FfBrowserContext(this.browser, this.browserContextId, this.options);
+
+  /// Where this context's downloads land.
+  late final String downloadsDirectory =
+      options.downloadsPath ?? browser.defaultDownloadsDirectory();
 
   @override
   bool get isClosed => _closed;

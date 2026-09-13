@@ -3,8 +3,41 @@ import 'package:playwright_protocol/playwright_protocol.dart';
 import '../core_request.dart';
 import '../core_response.dart';
 
+/// Maps Juggler's nsIContentPolicy cause strings onto the upstream resource
+/// vocabulary. Ported from `ffNetworkManager.ts:185`; Firefox is the one
+/// engine with no `type` field on the request event.
+const _causeToResourceType = <String, String>{
+  'TYPE_INVALID': 'other',
+  'TYPE_OTHER': 'other',
+  'TYPE_SCRIPT': 'script',
+  'TYPE_IMAGE': 'image',
+  'TYPE_STYLESHEET': 'stylesheet',
+  'TYPE_OBJECT': 'other',
+  'TYPE_DOCUMENT': 'document',
+  'TYPE_SUBDOCUMENT': 'document',
+  'TYPE_REFRESH': 'document',
+  'TYPE_XBL': 'other',
+  'TYPE_PING': 'ping',
+  'TYPE_XMLHTTPREQUEST': 'xhr',
+  'TYPE_OBJECT_SUBREQUEST': 'other',
+  'TYPE_DTD': 'other',
+  'TYPE_FONT': 'font',
+  'TYPE_MEDIA': 'media',
+  'TYPE_WEBSOCKET': 'websocket',
+  'TYPE_CSP_REPORT': 'cspreport',
+  'TYPE_XSLT': 'other',
+  'TYPE_BEACON': 'beacon',
+  'TYPE_FETCH': 'fetch',
+  'TYPE_IMAGESET': 'image',
+  'TYPE_WEB_MANIFEST': 'manifest',
+};
+
+const _internalCauseToResourceType = <String, String>{
+  'TYPE_INTERNAL_EVENTSOURCE': 'eventsource',
+};
+
 /// A network request reported by Juggler.
-class FfRequest implements CoreRequest {
+class FfRequest with CoreRequestState implements CoreRequest {
   final Map<String, dynamic> params;
   FfRequest(this.params);
 
@@ -26,22 +59,45 @@ class FfRequest implements CoreRequest {
 
   @override
   String? get postData {
+    final bytes = postDataBuffer;
+    if (bytes == null) return null;
+    try {
+      return utf8.decode(bytes);
+    } catch (_) {
+      return params['postData'] as String?;
+    }
+  }
+
+  @override
+  List<int>? get postDataBuffer {
     final body = params['postData'] as String?;
     if (body == null) return null;
     // Juggler reports request bodies base64-encoded.
     try {
-      return utf8.decode(base64Decode(body));
+      return base64Decode(body);
     } catch (_) {
-      return body;
+      return utf8.encode(body);
     }
   }
+
+  @override
+  String get resourceType {
+    final internal = params['internalCause'] as String?;
+    final mapped = _internalCauseToResourceType[internal] ??
+        _causeToResourceType[params['cause'] as String?];
+    return normalizeResourceType(mapped);
+  }
+
+  @override
+  bool get isNavigationRequest =>
+      resourceType == 'document' && params['frameId'] != null;
 
   @override
   dynamic get frame => params['frameId'];
 }
 
 /// A network response reported by Juggler.
-class FfResponse implements CoreResponse {
+class FfResponse with CoreResponseState implements CoreResponse {
   final dynamic session;
   final Map<String, dynamic> params;
   final FfRequest _request;
@@ -59,6 +115,9 @@ class FfResponse implements CoreResponse {
   }
 
   @override
+  Future<String?> finished() => _request.finished();
+
+  @override
   String get url => _request.url;
 
   @override
@@ -69,12 +128,28 @@ class FfResponse implements CoreResponse {
 
   @override
   bool get ok => status >= 200 && status < 300;
+
+  @override
+  Map<String, String> get headers {
+    final list = params['headers'];
+    if (list is! List) return const <String, String>{};
+    return {
+      for (final entry in list.cast<Map>())
+        '${entry['name']}': '${entry['value']}',
+    };
+  }
 }
 
 /// Tracks network requests and responses in Firefox (Juggler).
 class FfNetworkManager extends EventEmitter {
   final dynamic session;
   final _requests = <String, FfRequest>{};
+
+  /// Ids of requests that already finished, oldest first. Juggler can report
+  /// a redirect's new hop *after* finishing the old one, so a finished
+  /// request has to stay reachable long enough to be linked; this bounds how
+  /// long.
+  final _completed = <String>[];
 
   FfNetworkManager(this.session) {
     session.on('Network.requestWillBeSent', _onRequestWillBeSent);
@@ -85,34 +160,95 @@ class FfNetworkManager extends EventEmitter {
 
   void _onRequestWillBeSent(Map<String, dynamic> params) {
     final req = FfRequest(params);
-    final requestId = params['requestId'] as String?;
-    if (requestId != null) {
-      _requests[requestId] = req;
+    // Juggler names the previous hop explicitly, under a different requestId.
+    final redirectedFrom = params['redirectedFrom'] as String?;
+    if (redirectedFrom != null) {
+      final previous = _requests.remove(redirectedFrom);
+      if (previous != null) req.linkRedirect(previous);
     }
+    final requestId = params['requestId'] as String?;
+    if (requestId != null) _requests[requestId] = req;
     emit('request', req);
   }
 
   void _onResponseReceived(Map<String, dynamic> params) {
     final requestId = params['requestId'] as String?;
     final req = requestId != null ? _requests[requestId] : null;
-    if (req != null) {
-      emit('response', FfResponse(session, params, req));
+    if (req == null) return;
+    final res = FfResponse(session, params, req);
+
+    final ip = params['remoteIPAddress'];
+    final port = params['remotePort'];
+    if (ip is String && port is num) {
+      res.remoteAddr = CoreRemoteAddr(ipAddress: ip, port: port.toInt());
+    }
+    final security = params['securityDetails'];
+    if (security is Map) {
+      res.securityDetails = CoreSecurityDetails(
+        protocol: security['protocol'] as String?,
+        subjectName: security['subjectName'] as String?,
+        issuer: security['issuer'] as String?,
+        validFrom: (security['validFrom'] as num?)?.toDouble(),
+        validTo: (security['validTo'] as num?)?.toDouble(),
+      );
+    }
+
+    req.timing = _timingFrom(params['timing']);
+    req.response = res;
+    emit('response', res);
+  }
+
+  /// Juggler reports absolute microseconds; upstream converts to milliseconds
+  /// and makes every phase relative to the start (`ffNetworkManager.ts:102`).
+  CoreResourceTiming _timingFrom(dynamic timing) {
+    if (timing is! Map) return const CoreResourceTiming();
+    final start = (timing['startTime'] as num?)?.toDouble() ?? 0;
+    double relative(String name) {
+      final value = (timing[name] as num?)?.toDouble();
+      if (value == null || value == 0) return -1;
+      return (value - start) / 1000;
+    }
+
+    return CoreResourceTiming(
+      startTime: start / 1000,
+      domainLookupStart: relative('domainLookupStart'),
+      domainLookupEnd: relative('domainLookupEnd'),
+      connectStart: relative('connectStart'),
+      secureConnectionStart: relative('secureConnectionStart'),
+      connectEnd: relative('connectEnd'),
+      requestStart: relative('requestStart'),
+      responseStart: relative('responseStart'),
+    );
+  }
+
+  void _retire(String requestId) {
+    _completed.add(requestId);
+    while (_completed.length > 100) {
+      _requests.remove(_completed.removeAt(0));
     }
   }
 
   void _onRequestFinished(Map<String, dynamic> params) {
     final requestId = params['requestId'] as String?;
     final req = requestId != null ? _requests[requestId] : null;
-    if (req != null) {
-      emit('requestFinished', req);
-    }
+    if (requestId != null) _retire(requestId);
+    if (req == null) return;
+    req.sizes = CoreResourceSizes(
+      requestBodySize: req.postDataBuffer?.length ?? 0,
+      responseBodySize: (params['encodedBodySize'] as num?)?.toInt() ?? -1,
+      transferSize: (params['transferSize'] as num?)?.toInt() ?? -1,
+      // Firefox reports no header sizes at all.
+    );
+    req.markFinished();
+    emit('requestFinished', req);
   }
 
   void _onRequestFailed(Map<String, dynamic> params) {
     final requestId = params['requestId'] as String?;
     final req = requestId != null ? _requests[requestId] : null;
-    if (req != null) {
-      emit('requestFailed', req);
-    }
+    if (requestId != null) _retire(requestId);
+    if (req == null) return;
+    req.markFinished(params['errorCode'] as String? ?? 'NS_ERROR_FAILURE');
+    emit('requestFailed', req);
   }
 }

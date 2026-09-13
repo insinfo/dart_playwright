@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 import 'dart:async';
 import 'package:playwright_protocol/playwright_protocol.dart';
 import '../context_registry.dart';
@@ -21,6 +20,9 @@ import '../../accessibility.dart';
 class WkPage extends EventEmitter
     with
         CorePageOwnership,
+        CorePageRoutes,
+        CorePageFileChooser,
+        CorePageScreenshot,
         CorePageFrameEvaluation,
         CorePageInputHelpers,
         CorePageDialogs,
@@ -46,6 +48,7 @@ class WkPage extends EventEmitter
     forwardNetworkEvents(networkManager, this);
     // WebKit reports dialogs via the Dialog domain on the pageProxy session.
     session.on('Dialog.javascriptDialogOpening', _onDialogOpening);
+    session.on('Page.fileChooserOpened', _onFileChooserOpened);
     session.on('Console.messageAdded', _onConsoleMessageAdded);
     // WebKit has no crash event: the target simply goes away with a flag.
     session.on('Target.targetDestroyed', (params) {
@@ -337,24 +340,37 @@ class WkPage extends EventEmitter
     return evaluateHandleInFrame(frame, expression);
   }
 
-  Future<List<int>> screenshot({String? path}) async {
-    final width = await evaluate('window.innerWidth');
-    final height = await evaluate('window.innerHeight');
+  @override
+  Future<List<int>> screenshot(
+          {String? path,
+          CoreScreenshotOptions options = const CoreScreenshotOptions()}) =>
+      screenshotWith(options, path);
 
+  @override
+  Future<List<int>> screenshotRect(CoreRect rect, CoreScreenshotOptions options,
+      {bool fitsViewport = true}) async {
+    // WebKit takes the rectangle as plain fields plus the coordinate system
+    // it is expressed in, and answers with a data URL rather than raw base64.
     final result = await session.sendToTarget('Page.snapshotRect', {
-      'x': 0,
-      'y': 0,
-      'width': width ?? 800,
-      'height': height ?? 600,
-      'coordinateSystem': 'Viewport',
+      'x': rect.x,
+      'y': rect.y,
+      'width': rect.width,
+      'height': rect.height,
+      'coordinateSystem': 'Page',
+      'omitDeviceScaleFactor': options.scale == 'css',
+      'format': options.type,
+      if (options.effectiveQuality != null) 'quality': options.effectiveQuality,
     });
-    final data = result['dataURL'] as String;
-    final bytes = base64Decode(data.split(',').last);
+    final dataUrl = result['dataURL'] as String;
+    return base64Decode(dataUrl.substring(dataUrl.indexOf(',') + 1));
+  }
 
-    if (path != null) {
-      await File(path).writeAsBytes(bytes);
-    }
-    return bytes;
+  @override
+  Future<List<int>> pdf(
+      {String? path, CorePdfOptions options = const CorePdfOptions()}) {
+    throw UnsupportedError(
+        'page.pdf() is Chromium-only: the WebKit inspector protocol has no '
+        'print-to-PDF command, and upstream Playwright has the same limit.');
   }
 
   Future<AccessibilitySnapshot> accessibilitySnapshot() async {
@@ -362,8 +378,6 @@ class WkPage extends EventEmitter
         title: await title(),
         root: AccessibilityNode(role: 'WebArea', name: '', ref: 'root'));
   }
-
-  final _routes = <String, void Function(CoreRoute)>{};
 
   bool _routeListenerInstalled = false;
 
@@ -374,7 +388,7 @@ class WkPage extends EventEmitter
       _routeListenerInstalled = true;
       session.on('Network.requestIntercepted', _onRequestIntercepted);
     }
-    if (_routes.isEmpty) {
+    if (!hasRoutes) {
       await session.sendToTarget('Network.enable');
       await session
           .sendToTarget('Network.setInterceptionEnabled', {'enabled': true});
@@ -384,13 +398,13 @@ class WkPage extends EventEmitter
         'isRegex': true,
       });
     }
-    _routes[urlPattern] = handler;
+    addRouteEntry(urlPattern, handler);
   }
 
   @override
   Future<void> unroute(String urlPattern) async {
-    _routes.remove(urlPattern);
-    if (_routes.isEmpty) {
+    removeRouteEntry(urlPattern);
+    if (!hasRoutes) {
       await session.sendToTarget('Network.removeInterception', {
         'url': '.*',
         'stage': 'request',
@@ -406,32 +420,27 @@ class WkPage extends EventEmitter
     final request = params['request'] as Map<String, dynamic>? ?? {};
     final url = request['url'] as String? ?? '';
 
-    void Function(CoreRoute)? matchedHandler;
-    for (final pattern in _routes.keys) {
-      final cleanPattern = pattern.replaceAll('**/', '');
-      if (pattern == '**/*' || url.contains(cleanPattern)) {
-        matchedHandler = _routes[pattern];
-        break;
-      }
-    }
-
-    if (matchedHandler != null) {
-      matchedHandler(WkRoute(
-        session,
-        requestId,
-        url,
-        method: request['method'] as String? ?? 'GET',
-        headers: _stringHeaders(request['headers']),
-        postData: _decodePostData(request['postData'] as String?),
-      ));
-    } else {
+    if (!hasHandlerFor(url)) {
       // Fire-and-forget: the page may be closing and the session already
       // gone; that must not surface as an unhandled async error.
       session.sendToTarget('Network.interceptContinue', {
         'requestId': requestId,
         'stage': 'request',
       }).catchError((_) => <String, dynamic>{});
+      return;
     }
+
+    dispatchRoute(WkRoute(
+      session,
+      requestId,
+      url,
+      method: request['method'] as String? ?? 'GET',
+      headers: _stringHeaders(request['headers']),
+      postData: _decodePostData(request['postData'] as String?),
+      resourceType: WkRequest(params).resourceType,
+      isNavigationRequest: params['type'] == 'Document',
+      frame: params['frameId'],
+    ));
   }
 
   /// WebKit reports intercepted request bodies base64-encoded.
@@ -453,6 +462,42 @@ class WkPage extends EventEmitter
     if (_isClosed) return;
     await session.connection
         .send('Playwright.closePage', {'pageProxyId': session.pageProxyId});
+  }
+
+  @override
+  Future<void> setInputFilePaths(
+      CoreFrame frame, CoreJSHandle handle, List<String> paths) async {
+    // WebKit sandboxes file reads, so the browser process has to be told
+    // about the paths before the page may touch them. The two commands go to
+    // different layers and can run together.
+    final resolved = normalizeInputFilePaths(paths);
+    await Future.wait([
+      session.connection.send('Playwright.grantFileReadAccess', {
+        'pageProxyId': session.pageProxyId,
+        'paths': resolved,
+      }),
+      // Note the field is `paths` here, not `files`.
+      session.sendToTarget('DOM.setInputFiles', {
+        'objectId': handle.objectId,
+        'paths': resolved,
+      }),
+    ]);
+  }
+
+  @override
+  Future<void> setInterceptFileChooser(bool enabled) async {
+    await session
+        .sendToTarget('Page.setInterceptFileChooserDialog', {'enabled': enabled});
+  }
+
+  void _onFileChooserOpened(Map<String, dynamic> params) {
+    final frameId = params['frameId'] as String?;
+    final element = params['element'];
+    if (frameId == null || element is! Map) return;
+    final context = _contexts.contextFor(frameId);
+    if (context is! WkExecutionContext) return;
+    emitFileChooser(
+        context.createHandle(Map<String, dynamic>.from(element)));
   }
 
   @override

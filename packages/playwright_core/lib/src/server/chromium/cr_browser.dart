@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:io';
+
+import 'package:path/path.dart' as p;
 import 'package:playwright_protocol/playwright_protocol.dart';
 import '../core_browser.dart';
 import '../core_page.dart';
@@ -28,6 +30,8 @@ class CrBrowser extends EventEmitter implements CoreBrowser {
     connection.on('Target.targetCreated', _onTargetCreated);
     connection.on('Target.targetDestroyed', _onTargetDestroyed);
     connection.on('Target.attachedToTarget', _onAttachedToTarget);
+    connection.on('Browser.downloadWillBegin', _onDownloadWillBegin);
+    connection.on('Browser.downloadProgress', _onDownloadProgress);
     connection.on('Target.detachedFromTarget', _onDetachedFromTarget);
   }
 
@@ -101,6 +105,48 @@ class CrBrowser extends EventEmitter implements CoreBrowser {
     if (targetId != null) _pagesByTarget.remove(targetId);
   }
 
+  void _onDownloadWillBegin(Map<String, dynamic> params) {
+    final guid = params['guid'] as String?;
+    final frameId = params['frameId'] as String?;
+    if (guid == null) return;
+    // The frame id is also the target id of the page that owns it, which is
+    // how the download finds its page and therefore its context.
+    final page = frameId == null ? null : _pagesByTarget[frameId];
+    final context = page?.browserContext as CrBrowserContext? ??
+        (_contexts.length == 1 ? _contexts.first : null);
+    if (context == null) return;
+    context.registerDownload(
+      CoreDownload(
+        uuid: guid,
+        url: params['url'] as String? ?? '',
+        // `allowAndName` makes Chromium write the file under the download
+        // directory named by the guid.
+        downloadPath: p.join(context.downloadsDirectory, guid),
+        suggestedFilename: params['suggestedFilename'] as String?,
+        cancel: () async {
+          await connection.send('Browser.cancelDownload', {
+            'guid': guid,
+            if (context.browserContextId != null)
+              'browserContextId': context.browserContextId,
+          });
+        },
+      ),
+      page: page,
+    );
+  }
+
+  void _onDownloadProgress(Map<String, dynamic> params) {
+    final guid = params['guid'] as String?;
+    final state = params['state'] as String?;
+    if (guid == null || state == 'inProgress') return;
+    for (final context in _contexts) {
+      final download = context.downloads[guid];
+      if (download == null) continue;
+      download.markFinished(state == 'canceled' ? 'canceled' : null);
+      return;
+    }
+  }
+
   CrBrowserContext? _contextFor(String? browserContextId) {
     for (final context in _contexts) {
       if (context.browserContextId == browserContextId) return context;
@@ -156,6 +202,7 @@ class CrBrowser extends EventEmitter implements CoreBrowser {
     final context =
         CrBrowserContext(this, result['browserContextId'] as String, options);
     _contexts.add(context);
+    await context.applyDownloadBehavior();
     return context;
   }
 
@@ -175,9 +222,25 @@ class CrBrowser extends EventEmitter implements CoreBrowser {
     await connection.close();
   }
 
+  String? _downloadsDirectory;
+
+  /// A temporary directory for this browser's downloads, created on demand
+  /// and removed when the browser closes.
+  String _defaultDownloadsDirectory() {
+    return _downloadsDirectory ??= Directory.systemTemp
+        .createTempSync('playwright-dart-downloads')
+        .path;
+  }
+
   void _onClosed() {
     if (_isClosed) return;
     _isClosed = true;
+    final downloads = _downloadsDirectory;
+    if (downloads != null) {
+      try {
+        Directory(downloads).deleteSync(recursive: true);
+      } catch (_) {}
+    }
     for (final context in _contexts.toList()) {
       context.notifyClosed();
     }
@@ -218,6 +281,24 @@ class CrBrowserContext extends EventEmitter
     // The page itself is built by the auto-attach handler; see
     // CrBrowser.pageForTarget.
     return browser.pageForTarget(targetId);
+  }
+
+  /// Where this context's downloads land.
+  late final String downloadsDirectory =
+      options.downloadsPath ?? browser._defaultDownloadsDirectory();
+
+  /// Tells Chromium what to do with downloads, and where to put them.
+  ///
+  /// `allowAndName` is what upstream uses: the file is stored under the
+  /// download directory named by its guid, so two downloads called
+  /// `report.pdf` cannot collide.
+  Future<void> applyDownloadBehavior() async {
+    await browser.connection.send('Browser.setDownloadBehavior', {
+      'behavior': options.acceptDownloads ? 'allowAndName' : 'deny',
+      if (browserContextId != null) 'browserContextId': browserContextId,
+      if (options.acceptDownloads) 'downloadPath': downloadsDirectory,
+      'eventsEnabled': true,
+    });
   }
 
   /// Applies the context's emulation to a freshly attached page session.

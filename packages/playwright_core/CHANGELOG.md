@@ -19,6 +19,20 @@ First release, extracted as the engine layer under `playwright`.
   ARIA role resolution and accessible-name computation, entering open shadow
   roots.
 - US keyboard layout and macOS editing commands.
+- Complete network model per engine: resource types, failure text, redirect
+  chains, timings, sizes, remote address and TLS details, normalized across
+  the three protocols.
+- Route interception gained request overrides, a handler chain with
+  `fallback`, and the per-engine error-code tables for `abort`.
+- File input support (`DOM.setFileInputFiles`, `Page.setFileInputFiles`,
+  `DOM.setInputFiles` plus WebKit's `grantFileReadAccess`) and file chooser
+  interception.
+- Downloads per engine, with a shared `CoreDownload` covering the three very
+  different event shapes.
+- Screenshot geometry computed once in document coordinates and translated
+  per engine; `Page.printToPDF` on Chromium, read back over the `IO` stream.
+- Hit-target testing in the injected script.
+
 
 The API of this package is internal and will change without a major version
 bump while the port matures.

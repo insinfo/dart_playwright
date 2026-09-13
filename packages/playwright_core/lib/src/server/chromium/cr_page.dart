@@ -7,6 +7,7 @@ import 'cr_input.dart';
 import 'cr_network_manager.dart';
 import 'cr_route.dart';
 import '../context_registry.dart';
+import '../core_request.dart';
 import '../core_route.dart';
 import '../../accessibility.dart';
 import '../core_page.dart';
@@ -16,6 +17,9 @@ import '../core_js_handle.dart';
 class CrPage extends EventEmitter
     with
         CorePageOwnership,
+        CorePageRoutes,
+        CorePageFileChooser,
+        CorePageScreenshot,
         CorePageFrameEvaluation,
         CorePageInputHelpers,
         CorePageDialogs,
@@ -30,7 +34,6 @@ class CrPage extends EventEmitter
   late final Keyboard keyboard;
   @override
   late final Mouse mouse;
-  final _routes = <String, void Function(CoreRoute)>{};
   late final CoreFrameManager frameManager;
   final ContextRegistry _contexts = ContextRegistry();
 
@@ -60,6 +63,7 @@ class CrPage extends EventEmitter
     session.on('Runtime.executionContextsCleared', (_) => _contexts.clear());
     session.on('closed', () => _onClosed());
     session.on('Page.javascriptDialogOpening', _onDialogOpening);
+    session.on('Page.fileChooserOpened', _onFileChooserOpened);
     session.on('Runtime.consoleAPICalled', _onConsoleAPICalled);
     session.on('Log.entryAdded', _onLogEntryAdded);
     session.on('Runtime.exceptionThrown', _onExceptionThrown);
@@ -368,17 +372,87 @@ class CrPage extends EventEmitter
   }
 
   /// Take a screenshot.
-  Future<List<int>> screenshot({String? path}) async {
-    final result = await session.send('Page.captureScreenshot', {
-      'format': 'png',
-    });
-    final data = result['data'] as String;
-    final bytes = base64Decode(data);
+  @override
+  Future<List<int>> screenshot(
+          {String? path,
+          CoreScreenshotOptions options = const CoreScreenshotOptions()}) =>
+      screenshotWith(options, path);
 
-    if (path != null) {
-      await File(path).writeAsBytes(bytes);
+  @override
+  Future<List<int>> screenshotRect(CoreRect rect, CoreScreenshotOptions options,
+      {bool fitsViewport = true}) async {
+    var clipScale = 1.0;
+    if (options.scale == 'css') {
+      // A HiDPI screen would otherwise give an image larger than the CSS box.
+      final ratio = await evaluate('() => window.devicePixelRatio') as num?;
+      if (ratio != null && ratio > 0) clipScale = 1 / ratio.toDouble();
     }
+    final result = await session.send('Page.captureScreenshot', {
+      'format': options.type,
+      if (options.effectiveQuality != null) 'quality': options.effectiveQuality,
+      'clip': {
+        'x': rect.x,
+        'y': rect.y,
+        'width': rect.width,
+        'height': rect.height,
+        'scale': clipScale,
+      },
+      // This is how a full-page shot works without resizing the window.
+      'captureBeyondViewport': !fitsViewport,
+    });
+    return base64Decode(result['data'] as String);
+  }
+
+  @override
+  Future<List<int>> pdf(
+      {String? path,
+      CorePdfOptions options = const CorePdfOptions()}) async {
+    final paper = options.paperSize;
+    final result = await session.send('Page.printToPDF', {
+      // Asking for a stream keeps a large document out of a single protocol
+      // message, which is what upstream does too.
+      'transferMode': 'ReturnAsStream',
+      'landscape': options.landscape,
+      'displayHeaderFooter': options.displayHeaderFooter,
+      'headerTemplate': options.headerTemplate,
+      'footerTemplate': options.footerTemplate,
+      'printBackground': options.printBackground,
+      'scale': options.scale,
+      'paperWidth': paper.width,
+      'paperHeight': paper.height,
+      'marginTop': options.marginTop,
+      'marginBottom': options.marginBottom,
+      'marginLeft': options.marginLeft,
+      'marginRight': options.marginRight,
+      'pageRanges': options.pageRanges,
+      'preferCSSPageSize': options.preferCSSPageSize,
+      'generateTaggedPDF': options.tagged,
+      'generateDocumentOutline': options.outline,
+    });
+
+    final handle = result['stream'] as String?;
+    final bytes = handle == null
+        ? base64Decode(result['data'] as String? ?? '')
+        : await _readProtocolStream(handle);
+    if (path != null) await File(path).writeAsBytes(bytes);
     return bytes;
+  }
+
+  /// Drains an `IO` stream handle. The browser decides the chunk size; the
+  /// loop ends on `eof` and the handle is closed afterwards.
+  Future<List<int>> _readProtocolStream(String handle) async {
+    final chunks = <int>[];
+    var eof = false;
+    while (!eof) {
+      final response = await session.send('IO.read', {'handle': handle});
+      final data = response['data'] as String? ?? '';
+      chunks.addAll(response['base64Encoded'] == true
+          ? base64Decode(data)
+          : utf8.encode(data));
+      eof = response['eof'] == true;
+    }
+    await session.send('IO.close', {'handle': handle});
+    return chunks;
   }
 
   /// Get Accessibility Snapshot
@@ -439,20 +513,20 @@ class CrPage extends EventEmitter
       _routeListenerInstalled = true;
       session.on('Fetch.requestPaused', _onRequestPaused);
     }
-    if (_routes.isEmpty) {
+    if (!hasRoutes) {
       await session.send('Fetch.enable', {
         'patterns': [
           {'requestStage': 'Request'}
         ]
       });
     }
-    _routes[urlPattern] = handler;
+    addRouteEntry(urlPattern, handler);
   }
 
   @override
   Future<void> unroute(String urlPattern) async {
-    _routes.remove(urlPattern);
-    if (_routes.isEmpty) {
+    removeRouteEntry(urlPattern);
+    if (!hasRoutes) {
       await session.send('Fetch.disable');
     }
   }
@@ -462,37 +536,76 @@ class CrPage extends EventEmitter
     final request = params['request'] as Map<String, dynamic>;
     final url = request['url'] as String;
 
-    // Find matching route handler
-    void Function(CoreRoute)? matchedHandler;
-    for (final pattern in _routes.keys) {
-      final cleanPattern = pattern.replaceAll('**/', '');
-      if (pattern == '**/*' || url.contains(cleanPattern)) {
-        matchedHandler = _routes[pattern];
-        break;
-      }
-    }
-
-    if (matchedHandler != null) {
-      matchedHandler(CrRoute(
-        session,
-        fetchRequestId,
-        url,
-        method: request['method'] as String? ?? 'GET',
-        headers: _stringHeaders(request['headers']),
-        postData: request['postData'] as String?,
-      ));
-    } else {
+    if (!hasHandlerFor(url)) {
       // Fire-and-forget: the page may be closing and the session already
       // gone; that must not surface as an unhandled async error.
       (session.send('Fetch.continueRequest', {'requestId': fetchRequestId})
               as Future<Map<String, dynamic>>)
           .catchError((_) => <String, dynamic>{});
+      return;
     }
+
+    dispatchRoute(CrRoute(
+      session,
+      fetchRequestId,
+      url,
+      method: request['method'] as String? ?? 'GET',
+      headers: _stringHeaders(request['headers']),
+      postData: request['postData'] as String?,
+      resourceType: normalizeResourceType(params['resourceType'] as String?),
+      isNavigationRequest: params['resourceType'] == 'Document',
+      frame: params['frameId'],
+    ));
   }
 
   Map<String, String> _stringHeaders(dynamic headers) {
     if (headers is! Map) return const <String, String>{};
     return headers.map((key, value) => MapEntry('$key', '$value'));
+  }
+
+  @override
+  Future<void> setInputFilePaths(
+      CoreFrame frame, CoreJSHandle handle, List<String> paths) async {
+    await session.send('DOM.setFileInputFiles', {
+      'objectId': handle.objectId,
+      'files': normalizeInputFilePaths(paths),
+    });
+  }
+
+  @override
+  Future<void> setInterceptFileChooser(bool enabled) async {
+    await session
+        .send('Page.setInterceptFileChooserDialog', {'enabled': enabled});
+  }
+
+  void _onFileChooserOpened(Map<String, dynamic> params) {
+    // CDP hands over a backendNodeId, not an object id, so the node has to be
+    // resolved into the frame's context before it can be used.
+    final backendNodeId = params['backendNodeId'];
+    final frameId = params['frameId'] as String?;
+    if (backendNodeId == null || frameId == null) return;
+    _resolveFileChooser(backendNodeId, frameId, params['mode'] as String?)
+        .catchError((Object _) {});
+  }
+
+  Future<void> _resolveFileChooser(
+      Object backendNodeId, String frameId, String? mode) async {
+    final frame = frameManager.frame(frameId);
+    if (frame == null) return;
+    final context = await executionContextFor(frame) as CrExecutionContext;
+    final resolved = await session.send('DOM.resolveNode', {
+      'backendNodeId': backendNodeId,
+      if (context.executionContextId != null)
+        'executionContextId': context.executionContextId,
+    });
+    final objectId = (resolved['object'] as Map?)?['objectId'] as String?;
+    if (objectId == null) return;
+    emit(
+        'filechooser',
+        CoreFileChooser(
+          element: CrJSHandle(context, objectId),
+          isMultiple: mode == 'selectMultiple',
+        ));
   }
 
   @override

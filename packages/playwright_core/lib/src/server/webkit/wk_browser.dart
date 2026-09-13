@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'dart:io';
+
+import 'package:path/path.dart' as p;
 import 'package:playwright_protocol/playwright_protocol.dart';
 import '../core_browser.dart';
 import '../core_page.dart';
@@ -23,6 +26,16 @@ class WkBrowser extends EventEmitter implements CoreBrowser {
     // Every page - requested or opened by the page itself - is announced here
     // before its session carries any traffic.
     connection.on('Playwright.pageProxyCreated', _onPageProxyCreated);
+    connection.on('Playwright.downloadCreated', _onDownloadCreated);
+    connection.on('Playwright.downloadFilenameSuggested', (params) {
+      final uuid = params['uuid'] as String?;
+      final filename = params['suggestedFilename'] as String?;
+      if (uuid == null || filename == null) return;
+      for (final context in _contexts) {
+        context.downloads[uuid]?.filenameSuggested(filename);
+      }
+    });
+    connection.on('Playwright.downloadFinished', _onDownloadFinished);
     connection.on('Playwright.pageProxyDestroyed', (params) {
       _pagesByProxy.remove(params['pageProxyId'] as String?);
     });
@@ -56,6 +69,52 @@ class WkBrowser extends EventEmitter implements CoreBrowser {
 
     final completer = _pageCompleters.remove(pageProxyId);
     if (completer != null && !completer.isCompleted) completer.complete(page);
+  }
+
+  void _onDownloadCreated(Map<String, dynamic> params) {
+    final uuid = params['uuid'] as String?;
+    if (uuid == null) return;
+    // Unlike Chromium and Firefox, WebKit does not name the context here;
+    // only the pageProxy that started the download, so the context has to
+    // come from the page.
+    final page = _pagesByProxy[params['pageProxyId'] as String?];
+    final context = page?.browserContext as WkBrowserContext? ??
+        (_contexts.length == 1 ? _contexts.first : null);
+    if (context == null) return;
+    // WebKit is the one engine that does not know the filename yet; it
+    // arrives later as Playwright.downloadFilenameSuggested.
+    context.registerDownload(
+      CoreDownload(
+        uuid: uuid,
+        url: params['url'] as String? ?? '',
+        downloadPath: p.join(context.downloadsDirectory, uuid),
+        cancel: () async {
+          await connection.send('Playwright.cancelDownload', {'uuid': uuid});
+        },
+      ),
+      page: page,
+    );
+  }
+
+  void _onDownloadFinished(Map<String, dynamic> params) {
+    final uuid = params['uuid'] as String?;
+    if (uuid == null) return;
+    for (final context in _contexts) {
+      final download = context.downloads[uuid];
+      if (download == null) continue;
+      final error = params['error'] as String?;
+      download.markFinished(error != null && error.isNotEmpty ? error : null);
+      return;
+    }
+  }
+
+  String? _downloadsDirectory;
+
+  /// A temporary directory for this browser's downloads.
+  String defaultDownloadsDirectory() {
+    return _downloadsDirectory ??= Directory.systemTemp
+        .createTempSync('playwright-dart-downloads')
+        .path;
   }
 
   WkBrowserContext? _contextFor(String? browserContextId) {
@@ -114,12 +173,23 @@ class WkBrowser extends EventEmitter implements CoreBrowser {
     final context =
         WkBrowserContext(this, result['browserContextId'] as String, options);
     _contexts.add(context);
+    await connection.send('Playwright.setDownloadBehavior', {
+      'behavior': options.acceptDownloads ? 'allow' : 'deny',
+      'browserContextId': context.browserContextId,
+      if (options.acceptDownloads) 'downloadPath': context.downloadsDirectory,
+    });
     return context;
   }
 
   void _onClosed() {
     if (_isClosed) return;
     _isClosed = true;
+    final downloads = _downloadsDirectory;
+    if (downloads != null) {
+      try {
+        Directory(downloads).deleteSync(recursive: true);
+      } catch (_) {}
+    }
     for (final context in _contexts.toList()) {
       context.notifyClosed();
     }
@@ -139,6 +209,10 @@ class WkBrowserContext extends EventEmitter
   bool _closed = false;
 
   WkBrowserContext(this.browser, this.browserContextId, this.options);
+
+  /// Where this context's downloads land.
+  late final String downloadsDirectory =
+      options.downloadsPath ?? browser.defaultDownloadsDirectory();
 
   @override
   bool get isClosed => _closed;

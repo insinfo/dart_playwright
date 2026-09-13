@@ -7,7 +7,20 @@ class CoreContextOptions {
   final ({int width, int height})? viewport;
   final String? userAgent;
 
-  const CoreContextOptions({this.viewport, this.userAgent});
+  /// Whether downloads are written to disk. With this off the engines refuse
+  /// them outright, which is upstream's `acceptDownloads: false`.
+  final bool acceptDownloads;
+
+  /// Where downloads land. Null means a temporary directory created for the
+  /// browser, which is deleted when it closes.
+  final String? downloadsPath;
+
+  const CoreContextOptions({
+    this.viewport,
+    this.userAgent,
+    this.acceptDownloads = true,
+    this.downloadsPath,
+  });
 }
 
 /// Base interface for internal browser implementations.
@@ -108,6 +121,20 @@ mixin BrowserContextStorage on EventEmitter {
     // before the context's `page` event listeners run.
     if (opener != null) opener.emit('popup', page);
     emit('page', page);
+  }
+
+  /// Downloads in flight or finished, by engine id.
+  final downloads = <String, CoreDownload>{};
+
+  /// Announces a download, on the page that started it and on the context.
+  ///
+  /// A download the engine reports without a page (a `target=_blank` that
+  /// turns out to be a file, for instance) still reaches the context, which
+  /// is where upstream puts it too.
+  void registerDownload(CoreDownload download, {CorePage? page}) {
+    downloads[download.uuid] = download;
+    page?.emit('download', download);
+    emit('download', download);
   }
 
   /// Announces the context's own closure and releases its streams.
