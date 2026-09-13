@@ -205,6 +205,35 @@ class TestServer {
             ''');
           break;
 
+        case '/drag':
+          // Pointer-based drag (mousedown/mousemove/mouseup), which is what
+          // modern drag libraries listen to. Native HTML5 drag-and-drop needs
+          // protocol-level drag interception and is not covered here.
+          request.response
+            ..statusCode = 200
+            ..headers.contentType = ContentType.html
+            ..write("""
+              <html><body style="margin:0">
+                <div id="source" style="position:fixed;left:10px;top:10px;width:50px;height:50px;background:#c00"></div>
+                <div id="target" style="position:fixed;left:200px;top:200px;width:80px;height:80px;background:#0c0"></div>
+                <div id="tall" style="height:3000px"></div>
+                <script>
+                  window.__moves = 0;
+                  window.__downTrusted = false;
+                  window.__overTarget = false;
+                  window.__dropped = false;
+                  document.getElementById('source').addEventListener('mousedown', (e) => {
+                    window.__downTrusted = e.isTrusted;
+                  });
+                  document.addEventListener('mousemove', () => { window.__moves++; });
+                  const t = document.getElementById('target');
+                  t.addEventListener('mousemove', () => { window.__overTarget = true; });
+                  t.addEventListener('mouseup', (e) => { window.__dropped = e.isTrusted; });
+                </script>
+              </body></html>
+            """);
+          break;
+
         case '/semantics':
           // Exercises the getBy* engines: roles, accessible names from
           // labels, whitespace that needs normalising, and the attribute

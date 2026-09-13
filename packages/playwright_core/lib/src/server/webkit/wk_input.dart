@@ -1,3 +1,4 @@
+import '../mouse.dart';
 import '../keyboard.dart';
 import '../mac_editing_commands.dart';
 import '../us_keyboard_layout.dart';
@@ -60,5 +61,69 @@ class WkRawKeyboard implements RawKeyboard {
   @override
   Future<void> sendText(String text) async {
     await session.sendToTarget('Page.insertText', {'text': text});
+  }
+}
+
+/// WebKit mouse events. `Input.dispatchMouseEvent` is a pageProxy-level
+/// command, not a page-target one.
+class WkRawMouse implements RawMouse {
+  final WkPageProxySession session;
+
+  WkRawMouse(this.session);
+
+  @override
+  Future<void> move(double x, double y,
+      {required String button, required int buttons}) async {
+    await session.send('Input.dispatchMouseEvent', {
+      'type': 'move',
+      'button': button,
+      'buttons': buttons,
+      'x': x,
+      'y': y,
+      'modifiers': 0,
+    });
+  }
+
+  @override
+  Future<void> down(double x, double y,
+      {required String button,
+      required int buttons,
+      required int clickCount}) async {
+    await session.send('Input.dispatchMouseEvent', {
+      'type': 'down',
+      'button': button,
+      'buttons': buttons,
+      'x': x,
+      'y': y,
+      'modifiers': 0,
+      'clickCount': clickCount,
+    });
+  }
+
+  @override
+  Future<void> up(double x, double y,
+      {required String button,
+      required int buttons,
+      required int clickCount}) async {
+    await session.send('Input.dispatchMouseEvent', {
+      'type': 'up',
+      'button': button,
+      'buttons': buttons,
+      'x': x,
+      'y': y,
+      'modifiers': 0,
+      'clickCount': clickCount,
+    });
+  }
+
+  @override
+  Future<void> wheel(double x, double y, double deltaX, double deltaY) async {
+    await session.send('Input.dispatchWheelEvent', {
+      'x': x,
+      'y': y,
+      'deltaX': deltaX,
+      'deltaY': deltaY,
+      'modifiers': 0,
+    });
   }
 }

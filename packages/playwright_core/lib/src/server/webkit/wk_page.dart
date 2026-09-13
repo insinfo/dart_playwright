@@ -29,6 +29,8 @@ class WkPage extends EventEmitter
   final String? browserContextId;
   @override
   late final Keyboard keyboard;
+  @override
+  late final Mouse mouse;
   late final CoreFrameManager frameManager;
   late final WkNetworkManager networkManager;
   final ContextRegistry _contexts = ContextRegistry();
@@ -38,6 +40,7 @@ class WkPage extends EventEmitter
   WkPage(this.session, {this.browserContextId}) {
     frameManager = CoreFrameManager(this);
     keyboard = Keyboard(WkRawKeyboard(session));
+    mouse = Mouse(WkRawMouse(session));
     networkManager = WkNetworkManager(session);
     forwardNetworkEvents(networkManager, this);
     // WebKit reports dialogs via the Dialog domain on the pageProxy session.
@@ -243,104 +246,6 @@ class WkPage extends EventEmitter
   Future<String> title() async {
     final result = await evaluate('document.title');
     return result.toString();
-  }
-
-  @override
-  Future<void> clickTarget(CoreFrame frame, String resolverJs,
-      {String button = 'left',
-      int clickCount = 1,
-      Duration? delay,
-      ({double x, double y})? position}) async {
-    final point =
-        await clickPointForTarget(frame, resolverJs, position: position);
-    await _mouseMove(point);
-    for (var count = 1; count <= clickCount; count++) {
-      await _mousePressRelease(point,
-          button: button, clickCount: count, delay: delay);
-    }
-  }
-
-  @override
-  Future<void> dblclickTarget(CoreFrame frame, String resolverJs,
-          {String button = 'left',
-          Duration? delay,
-          ({double x, double y})? position}) =>
-      clickTarget(frame, resolverJs,
-          button: button, clickCount: 2, delay: delay, position: position);
-
-  @override
-  Future<void> hoverTarget(CoreFrame frame, String resolverJs,
-      {({double x, double y})? position}) async {
-    final point =
-        await clickPointForTarget(frame, resolverJs, position: position);
-    await _mouseMove(point);
-  }
-
-  /// Click an element using trusted WebKit input events.
-  ///
-  /// Mouse events are a pageProxy-level command (`Input.dispatchMouseEvent`),
-  /// not a page-target command.
-  @override
-  Future<void> click(String selector,
-          {String button = 'left',
-          int clickCount = 1,
-          Duration? delay,
-          ({double x, double y})? position}) =>
-      clickTarget(mainFrame, CorePageInputHelpers.resolverForSelector(selector),
-          button: button,
-          clickCount: clickCount,
-          delay: delay,
-          position: position);
-
-  @override
-  Future<void> dblclick(String selector,
-          {String button = 'left',
-          Duration? delay,
-          ({double x, double y})? position}) =>
-      click(selector,
-          button: button, clickCount: 2, delay: delay, position: position);
-
-  @override
-  Future<void> hover(String selector, {({double x, double y})? position}) =>
-      hoverTarget(mainFrame, CorePageInputHelpers.resolverForSelector(selector),
-          position: position);
-
-  static const _buttonsMask = {'left': 1, 'right': 2, 'middle': 4};
-
-  Future<void> _mouseMove(({double x, double y}) point) async {
-    await session.send('Input.dispatchMouseEvent', {
-      'type': 'move',
-      'button': 'none',
-      'buttons': 0,
-      'x': point.x,
-      'y': point.y,
-      'modifiers': 0,
-    });
-  }
-
-  Future<void> _mousePressRelease(({double x, double y}) point,
-      {String button = 'left',
-      required int clickCount,
-      Duration? delay}) async {
-    await session.send('Input.dispatchMouseEvent', {
-      'type': 'down',
-      'button': button,
-      'buttons': _buttonsMask[button] ?? 1,
-      'x': point.x,
-      'y': point.y,
-      'modifiers': 0,
-      'clickCount': clickCount,
-    });
-    if (delay != null) await Future.delayed(delay);
-    await session.send('Input.dispatchMouseEvent', {
-      'type': 'up',
-      'button': button,
-      'buttons': 0,
-      'x': point.x,
-      'y': point.y,
-      'modifiers': 0,
-      'clickCount': clickCount,
-    });
   }
 
   /// Fill an element using trusted WebKit input events.

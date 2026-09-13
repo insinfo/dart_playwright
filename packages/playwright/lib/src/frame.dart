@@ -47,6 +47,12 @@ abstract class Frame with LocatorFactory {
   /// The frame document's title.
   Future<String> title();
 
+  /// The `iframe`/`frame` element that owns this frame, in its parent.
+  ///
+  /// Null for the main frame, and for a frame whose owner lives in a
+  /// cross-origin document, which the page cannot reach.
+  Future<ElementHandle?> frameElement();
+
   // ------------------------------------------------------------ evaluation
 
   /// Evaluate a JavaScript expression in this frame's context.
@@ -54,6 +60,22 @@ abstract class Frame with LocatorFactory {
 
   /// Evaluate a JavaScript expression in this frame, returning a handle.
   Future<JSHandle> evaluateHandle(String expression);
+
+  /// The first element matching [selector], or null.
+  Future<ElementHandle?> querySelector(String selector);
+
+  /// Every element matching [selector].
+  Future<List<ElementHandle>> querySelectorAll(String selector);
+
+  /// Evaluate [expression] with the first element matching [selector].
+  Future<dynamic> evalOnSelector(String selector, String expression);
+
+  /// Evaluate [expression] with the array of elements matching [selector].
+  Future<dynamic> evalOnSelectorAll(String selector, String expression);
+
+  /// Dispatch a DOM event on the element matching [selector].
+  Future<void> dispatchEvent(String selector, String type,
+      {Map<String, dynamic>? eventInit, Duration? timeout, bool strict = false});
 
   // --------------------------------------------------------------- waiting
 
@@ -220,10 +242,56 @@ class FrameImpl extends Frame {
   @override
   Future<String> title() => _coreFrame.title();
 
+  @override
+  Future<ElementHandle?> frameElement() async {
+    final parent = _coreFrame.parentFrame;
+    if (parent == null) return null;
+    // window.frameElement resolves the owner from inside the child document.
+    // It is null across origins, which is exactly when the page cannot reach
+    // the owner anyway.
+    final hasOwner = await _coreFrame.evaluate('''
+      () => {
+        try { return !!window.frameElement; } catch (e) { return false; }
+      }
+    ''');
+    if (hasOwner != true) return null;
+    final handle =
+        await _coreFrame.evaluateHandleInjected('() => window.frameElement');
+    final wrapped = FrameImpl(parent, _page).wrapHandle(handle);
+    return wrapped is ElementHandle ? wrapped : null;
+  }
+
   // ------------------------------------------------------------ evaluation
 
   @override
   Future<dynamic> evaluate(String expression) => _coreFrame.evaluate(expression);
+
+  @override
+  Future<ElementHandle?> querySelector(String selector) async {
+    final target = locator(selector);
+    if (await target.count() == 0) return null;
+    return target.first.elementHandle();
+  }
+
+  @override
+  Future<List<ElementHandle>> querySelectorAll(String selector) =>
+      locator(selector).elementHandles();
+
+  @override
+  Future<dynamic> evalOnSelector(String selector, String expression) =>
+      locator(selector).evaluate(expression, strict: false);
+
+  @override
+  Future<dynamic> evalOnSelectorAll(String selector, String expression) =>
+      locator(selector).evaluateAll(expression);
+
+  @override
+  Future<void> dispatchEvent(String selector, String type,
+          {Map<String, dynamic>? eventInit,
+          Duration? timeout,
+          bool strict = false}) =>
+      locator(selector).dispatchEvent(type,
+          eventInit: eventInit, timeout: timeout, strict: strict);
 
   @override
   Future<JSHandle> evaluateHandle(String expression) async {

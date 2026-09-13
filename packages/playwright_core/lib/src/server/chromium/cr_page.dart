@@ -24,6 +24,8 @@ class CrPage extends EventEmitter
   final CrNetworkManager networkManager;
   @override
   late final Keyboard keyboard;
+  @override
+  late final Mouse mouse;
   final _routes = <String, void Function(CoreRoute)>{};
   late final CoreFrameManager frameManager;
   final ContextRegistry _contexts = ContextRegistry();
@@ -33,6 +35,7 @@ class CrPage extends EventEmitter
   CrPage._(this.session) : networkManager = CrNetworkManager(session) {
     frameManager = CoreFrameManager(this);
     keyboard = Keyboard(CrRawKeyboard(session));
+    mouse = Mouse(CrRawMouse(session));
     forwardNetworkEvents(networkManager, this);
 
     session.on('Runtime.executionContextCreated', (params) {
@@ -271,96 +274,6 @@ class CrPage extends EventEmitter
   Future<dynamic> evaluate(String expression) async {
     final frame = await frameManager.waitForMainFrame();
     return evaluateInFrame(frame, expression);
-  }
-
-  /// Click an element using trusted CDP input events.
-  @override
-  Future<void> click(String selector,
-          {String button = 'left',
-          int clickCount = 1,
-          Duration? delay,
-          ({double x, double y})? position}) =>
-      clickTarget(mainFrame, CorePageInputHelpers.resolverForSelector(selector),
-          button: button,
-          clickCount: clickCount,
-          delay: delay,
-          position: position);
-
-  @override
-  Future<void> dblclick(String selector,
-          {String button = 'left',
-          Duration? delay,
-          ({double x, double y})? position}) =>
-      click(selector,
-          button: button, clickCount: 2, delay: delay, position: position);
-
-  @override
-  Future<void> hover(String selector, {({double x, double y})? position}) =>
-      hoverTarget(mainFrame, CorePageInputHelpers.resolverForSelector(selector),
-          position: position);
-
-  @override
-  Future<void> clickTarget(CoreFrame frame, String resolverJs,
-      {String button = 'left',
-      int clickCount = 1,
-      Duration? delay,
-      ({double x, double y})? position}) async {
-    final point =
-        await clickPointForTarget(frame, resolverJs, position: position);
-    await _mouseMove(point);
-    for (var count = 1; count <= clickCount; count++) {
-      await _mousePressRelease(point,
-          button: button, clickCount: count, delay: delay);
-    }
-  }
-
-  @override
-  Future<void> dblclickTarget(CoreFrame frame, String resolverJs,
-          {String button = 'left',
-          Duration? delay,
-          ({double x, double y})? position}) =>
-      clickTarget(frame, resolverJs,
-          button: button, clickCount: 2, delay: delay, position: position);
-
-  @override
-  Future<void> hoverTarget(CoreFrame frame, String resolverJs,
-      {({double x, double y})? position}) async {
-    final point =
-        await clickPointForTarget(frame, resolverJs, position: position);
-    await _mouseMove(point);
-  }
-
-  static const _buttonsMask = {'left': 1, 'right': 2, 'middle': 4};
-
-  Future<void> _mouseMove(({double x, double y}) point) async {
-    await session.send('Input.dispatchMouseEvent', {
-      'type': 'mouseMoved',
-      'x': point.x,
-      'y': point.y,
-      'button': 'none',
-      'buttons': 0,
-    });
-  }
-
-  Future<void> _mousePressRelease(({double x, double y}) point,
-      {String button = 'left', required int clickCount, Duration? delay}) async {
-    await session.send('Input.dispatchMouseEvent', {
-      'type': 'mousePressed',
-      'x': point.x,
-      'y': point.y,
-      'button': button,
-      'buttons': _buttonsMask[button] ?? 1,
-      'clickCount': clickCount,
-    });
-    if (delay != null) await Future.delayed(delay);
-    await session.send('Input.dispatchMouseEvent', {
-      'type': 'mouseReleased',
-      'x': point.x,
-      'y': point.y,
-      'button': button,
-      'buttons': 0,
-      'clickCount': clickCount,
-    });
   }
 
   /// Fill an element using trusted CDP input events.

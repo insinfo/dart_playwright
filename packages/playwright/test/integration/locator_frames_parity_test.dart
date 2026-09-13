@@ -558,6 +558,81 @@ void main() {
           expect(await page.locator('#close').count(), equals(0));
         });
 
+        test('Deve arrastar com dragTo usando o mouse do protocolo', () async {
+          await page.goto(server.url('/drag'));
+
+          await page.locator('#source').dragTo(page.locator('#target'));
+
+          expect(await page.evaluate('() => window.__downTrusted'), isTrue);
+          expect(await page.evaluate('() => window.__overTarget'), isTrue);
+          expect(await page.evaluate('() => window.__dropped'), isTrue);
+          // A movimentacao passou por varios passos intermediarios, nao um
+          // salto unico.
+          expect(await page.evaluate('() => window.__moves') as num,
+              greaterThan(3));
+        });
+
+        test('Deve expor o mouse da pagina com move, down e up', () async {
+          await page.goto(server.url('/drag'));
+          final mouse = page.mouse;
+
+          await mouse.move(35, 35);
+          await mouse.down();
+          await mouse.move(240, 240, steps: 4);
+          await mouse.up();
+
+          expect(await page.evaluate('() => window.__downTrusted'), isTrue);
+          expect(await page.evaluate('() => window.__dropped'), isTrue);
+          expect(mouse.x, closeTo(240, 0.01));
+          expect(mouse.y, closeTo(240, 0.01));
+        });
+
+        test('Deve rolar a pagina com mouse.wheel', () async {
+          await page.goto(server.url('/drag'));
+          await page.mouse.move(150, 150);
+          await page.mouse.wheel(0, 400);
+          await page.waitForFunction('() => window.scrollY > 0',
+              timeout: const Duration(seconds: 5));
+          expect(await page.evaluate('() => window.scrollY') as num,
+              greaterThan(0));
+        });
+
+        test('Deve expor o iframe dono com Frame.frameElement', () async {
+          await gotoFramesPage();
+
+          expect(await page.mainFrame().frameElement(), isNull);
+
+          final one = page.frames()
+              .firstWhere((f) => f.url().endsWith('/frame-one'));
+          final owner = await one.frameElement();
+          expect(owner, isNotNull);
+          expect(await owner!.getAttribute('id'), equals('one'));
+        });
+
+        test('Deve expor os atalhos de DOM antigo do Frame', () async {
+          await page.goto(server.url('/semantics'));
+          final main = page.mainFrame();
+
+          final save = await main.querySelector('#save');
+          expect(save, isNotNull);
+          expect(await save!.textContent(), equals('Save'));
+          expect(await main.querySelector('#nao-existe'), isNull);
+
+          expect((await main.querySelectorAll('.row')).length, equals(3));
+          expect(await main.evalOnSelector('#save', '(el) => el.id'),
+              equals('save'));
+          expect(
+              await main.evalOnSelectorAll(
+                  '.row', '(els) => els.map(e => e.textContent).join(",")'),
+              equals('Alpha,Beta,Gamma'));
+
+          await main.evaluate(
+              '() => { window.__custom = false; document.getElementById("save")'
+              '.addEventListener("custom", () => { window.__custom = true; }); }');
+          await main.dispatchEvent('#save', 'custom');
+          expect(await main.evaluate('() => window.__custom'), isTrue);
+        });
+
         test('Deve aceitar seletores encadeados com >> e prefixos', () async {
           await page.goto(server.url('/semantics'));
 

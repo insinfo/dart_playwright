@@ -7,9 +7,11 @@ import 'keyboard.dart';
 import 'core_js_handle.dart';
 import 'core_route.dart';
 import 'frames.dart';
+import 'mouse.dart';
 import 'injected/injected_script_source.dart';
 export 'dialog.dart' show Dialog;
 export 'keyboard.dart' show Keyboard;
+export 'mouse.dart' show Mouse, RawMouse;
 export 'frames.dart' show CoreFrame, CoreFrameManager;
 
 enum WaitUntilState {
@@ -151,6 +153,15 @@ abstract class CorePage extends EventEmitter {
 
   /// The page's keyboard, dispatching trusted key events via the protocol.
   Keyboard get keyboard;
+
+  /// The page's mouse, dispatching trusted mouse events via the protocol.
+  Mouse get mouse;
+
+  /// The top-level viewport point to aim at for the element [resolverJs]
+  /// resolves to inside [frame].
+  Future<({double x, double y})> clickPointForTarget(
+      CoreFrame frame, String resolverJs,
+      {({double x, double y})? position});
 
   /// Focuses [selector] then presses [key] (or a chord like 'Control+A').
   Future<void> press(String selector, String key);
@@ -352,6 +363,61 @@ mixin CorePageInputHelpers {
 
   /// The page keyboard; classes using this mixin must provide it.
   Keyboard get keyboard;
+
+  /// The page mouse; classes using this mixin must provide it.
+  Mouse get mouse;
+
+  /// Clicks the element [resolverJs] resolves to inside [frame].
+  Future<void> clickTarget(CoreFrame frame, String resolverJs,
+      {String button = 'left',
+      int clickCount = 1,
+      Duration? delay,
+      ({double x, double y})? position}) async {
+    final point =
+        await clickPointForTarget(frame, resolverJs, position: position);
+    await mouse.click(point.x, point.y,
+        button: button, clickCount: clickCount, delay: delay);
+  }
+
+  /// Double-clicks the element [resolverJs] resolves to inside [frame].
+  Future<void> dblclickTarget(CoreFrame frame, String resolverJs,
+          {String button = 'left',
+          Duration? delay,
+          ({double x, double y})? position}) =>
+      clickTarget(frame, resolverJs,
+          button: button, clickCount: 2, delay: delay, position: position);
+
+  /// Hovers the element [resolverJs] resolves to inside [frame].
+  Future<void> hoverTarget(CoreFrame frame, String resolverJs,
+      {({double x, double y})? position}) async {
+    final point =
+        await clickPointForTarget(frame, resolverJs, position: position);
+    await mouse.move(point.x, point.y);
+  }
+
+  /// Clicks [selector] in the main frame.
+  Future<void> click(String selector,
+          {String button = 'left',
+          int clickCount = 1,
+          Duration? delay,
+          ({double x, double y})? position}) =>
+      clickTarget(mainFrame, resolverForSelector(selector),
+          button: button,
+          clickCount: clickCount,
+          delay: delay,
+          position: position);
+
+  /// Double-clicks [selector] in the main frame.
+  Future<void> dblclick(String selector,
+          {String button = 'left',
+          Duration? delay,
+          ({double x, double y})? position}) =>
+      click(selector,
+          button: button, clickCount: 2, delay: delay, position: position);
+
+  /// Hovers [selector] in the main frame.
+  Future<void> hover(String selector, {({double x, double y})? position}) =>
+      hoverTarget(mainFrame, resolverForSelector(selector), position: position);
 
   /// A JS expression resolving [selector] in the main document, for the
   /// page-level `click`/`fill`/`press` API.

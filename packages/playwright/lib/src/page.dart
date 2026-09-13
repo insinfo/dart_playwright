@@ -157,6 +157,9 @@ abstract class Page {
   /// The page keyboard, dispatching trusted key events via the protocol.
   Keyboard get keyboard;
 
+  /// The page mouse, dispatching trusted mouse events via the protocol.
+  Mouse get mouse;
+
   /// Focus [selector] then press [key] (or a chord like 'Control+A').
   Future<void> press(String selector, String key);
 
@@ -314,6 +317,9 @@ class PageImpl implements Page {
 
   @override
   Keyboard get keyboard => _corePage.keyboard;
+
+  @override
+  Mouse get mouse => _corePage.mouse;
 
   @override
   Future<void> press(String selector, String key) =>

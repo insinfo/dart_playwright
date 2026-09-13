@@ -238,6 +238,17 @@ abstract class Locator with LocatorFactory {
   Future<List<String>> selectOption(dynamic value,
       {Duration? timeout, bool strict = true, bool force = false});
 
+  /// Drag this element onto [target].
+  ///
+  /// Performs a real press-move-release with the protocol mouse, so pages
+  /// relying on HTML5 drag events or on pointer tracking see a genuine drag.
+  Future<void> dragTo(Locator target,
+      {({double x, double y})? sourcePosition,
+      ({double x, double y})? targetPosition,
+      Duration? timeout,
+      bool strict = true,
+      bool force = false});
+
   /// Scroll the element into view if it is not already.
   Future<void> scrollIntoViewIfNeeded({Duration? timeout, bool strict = true});
 
@@ -690,6 +701,48 @@ class LocatorImpl extends Locator {
         strict: strict,
         force: force);
     return (result as List).map((e) => e.toString()).toList();
+  }
+
+  @override
+  Future<void> dragTo(Locator target,
+      {({double x, double y})? sourcePosition,
+      ({double x, double y})? targetPosition,
+      Duration? timeout,
+      bool strict = true,
+      bool force = false}) async {
+    final deadline = DateTime.now().add(timeout ?? kDefaultLocatorTimeout);
+    Duration remaining() {
+      final left = deadline.difference(DateTime.now());
+      return left.isNegative ? Duration.zero : left;
+    }
+
+    final source = await _waitForActionable(
+        states: const ['visible', 'stable'],
+        timeout: remaining(),
+        strict: strict,
+        force: force);
+    final from = await _corePage.clickPointForTarget(
+        source.frame, source.resolver,
+        position: sourcePosition);
+
+    final targetImpl = target as LocatorImpl;
+    final destination = await targetImpl._waitForActionable(
+        states: const ['visible', 'stable'],
+        timeout: remaining(),
+        strict: strict,
+        force: force);
+    final to = await _corePage.clickPointForTarget(
+        destination.frame, destination.resolver,
+        position: targetPosition);
+
+    final mouse = _corePage.mouse;
+    await mouse.move(from.x, from.y);
+    await mouse.down();
+    // Upstream moves to the target twice: the first move starts the drag, the
+    // second lets dragover/pointermove handlers settle on the final position.
+    await mouse.move(to.x, to.y, steps: 5);
+    await mouse.move(to.x, to.y);
+    await mouse.up();
   }
 
   @override
