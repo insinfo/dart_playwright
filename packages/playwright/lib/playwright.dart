@@ -17,6 +17,7 @@ export 'src/js_handle.dart';
 export 'src/element_handle.dart';
 export 'src/console_message.dart';
 export 'src/dialog.dart';
+export 'src/page_error.dart';
 export 'package:playwright_core/src/accessibility.dart';
 export 'src/route.dart';
 

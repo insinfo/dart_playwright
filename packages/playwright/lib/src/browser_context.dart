@@ -1,12 +1,31 @@
+import 'dart:async';
+
 import 'package:playwright_core/src/server/core_browser.dart';
+import 'package:playwright_core/src/server/core_events.dart' as core_events;
+import 'package:playwright_core/src/server/core_page.dart' show CorePage;
+import 'package:playwright_core/src/server/dialog.dart' as core;
+import 'package:playwright_protocol/playwright_protocol.dart';
+import 'console_message.dart';
+import 'dialog.dart';
+import 'network.dart';
 import 'page.dart';
+import 'page_error.dart';
+import 'waiter.dart';
 
 /// An isolated browser context.
+///
+/// A context has its own cookie jar and storage, and its pages report their
+/// events here as well as on themselves — so a listener on the context sees
+/// what happens in every page it owns, including pages the pages themselves
+/// opened.
 abstract class BrowserContext {
   /// Create a new page in this context.
   Future<Page> newPage();
 
   /// Pages opened in this context.
+  ///
+  /// Includes pages opened by the pages themselves (`window.open`), not only
+  /// the ones created through [newPage].
   List<Page> pages();
 
   /// Whether this context has been closed.
@@ -26,22 +45,72 @@ abstract class BrowserContext {
 
   /// Close the context and every page that belongs to it.
   Future<void> close();
+
+  /// Event emitted when a page is opened in this context.
+  Stream<Page> get onPage;
+
+  /// Event emitted when the context closes.
+  Stream<void> get onClose;
+
+  /// Event emitted when any page in this context logs to the console.
+  Stream<ConsoleMessage> get onConsole;
+
+  /// Event emitted when any page in this context raises an uncaught error.
+  Stream<PageError> get onPageError;
+
+  /// Event emitted when any page in this context opens a JavaScript dialog.
+  ///
+  /// Subscribing here suppresses the automatic dismissal, exactly as
+  /// subscribing on the page does; see [Page.onDialog].
+  Stream<Dialog> get onDialog;
+
+  /// Event emitted when any page in this context issues a request.
+  Stream<Request> get onRequest;
+
+  /// Event emitted when any page in this context receives a response.
+  Stream<Response> get onResponse;
+
+  /// Event emitted when a request in this context finishes successfully.
+  Stream<Request> get onRequestFinished;
+
+  /// Event emitted when a request in this context fails.
+  Stream<Request> get onRequestFailed;
+
+  /// Wait for a page to be opened in this context.
+  ///
+  /// Start the wait before the action that opens the page, then await both.
+  Future<Page> waitForPage({bool Function(Page)? predicate, Duration? timeout});
+
+  /// Wait for a console message from any page in this context.
+  Future<ConsoleMessage> waitForConsoleMessage(
+      {bool Function(ConsoleMessage)? predicate, Duration? timeout});
+
+  /// Wait for the next occurrence of a context event.
+  Future<T> waitForEvent<T>(String event, {Duration? timeout});
 }
+
+/// Public wrappers keyed by the core context, so the same context always
+/// yields the same [BrowserContext] object.
+final Expando<BrowserContextImpl> _contextWrappers =
+    Expando<BrowserContextImpl>('playwright.browserContext');
 
 class BrowserContextImpl implements BrowserContext {
   final CoreBrowserContext _coreContext;
 
   BrowserContextImpl(this._coreContext);
 
+  /// The single wrapper for [coreContext], created on first use.
+  factory BrowserContextImpl.forCore(CoreBrowserContext coreContext) =>
+      _contextWrappers[coreContext] ??= BrowserContextImpl(coreContext);
+
   @override
   Future<Page> newPage() async {
     final corePage = await _coreContext.newPage();
-    return PageImpl(corePage);
+    return PageImpl.forCore(corePage);
   }
 
   @override
-  List<Page> pages() =>
-      _coreContext.pages.map((page) => PageImpl(page)).toList();
+  List<Page> pages() => _coreContext.pages.map(PageImpl.forCore).toList();
 
   @override
   bool isClosed() => _coreContext.isClosed;
@@ -62,4 +131,77 @@ class BrowserContextImpl implements BrowserContext {
 
   @override
   Future<void> close() => _coreContext.close();
+
+  @override
+  Stream<Page> get onPage =>
+      _coreContext.stream<CorePage>('page').map(PageImpl.forCore);
+
+  @override
+  Stream<void> get onClose => _coreContext.stream<void>('close');
+
+  @override
+  Stream<ConsoleMessage> get onConsole => _coreContext
+      .stream<core_events.CoreConsoleMessage>('console')
+      .map((message) => ConsoleMessageImpl(message));
+
+  @override
+  Stream<PageError> get onPageError => _coreContext
+      .stream<core_events.CorePageError>('pageerror')
+      .map((error) => PageErrorImpl(error));
+
+  @override
+  Stream<Dialog> get onDialog => _coreContext
+      .stream<core.Dialog>('dialog')
+      .map((coreDialog) => DialogImpl(coreDialog));
+
+  @override
+  Stream<Request> get onRequest =>
+      _coreContext.stream('request').map((r) => RequestImpl(r));
+
+  @override
+  Stream<Response> get onResponse =>
+      _coreContext.stream('response').map((r) => ResponseImpl(r));
+
+  @override
+  Stream<Request> get onRequestFinished =>
+      _coreContext.stream('requestFinished').map((r) => RequestImpl(r));
+
+  @override
+  Stream<Request> get onRequestFailed =>
+      _coreContext.stream('requestFailed').map((r) => RequestImpl(r));
+
+  /// A context-scoped wait gives up when the context closes; unlike a page,
+  /// a context has no crash of its own.
+  List<WaitAbort> get _contextAborts => [
+        (
+          stream: onClose,
+          error: () => TargetClosedException('Browser context closed'),
+        ),
+      ];
+
+  @override
+  Future<Page> waitForPage(
+          {bool Function(Page)? predicate, Duration? timeout}) =>
+      waitForStreamEvent(
+        'page',
+        onPage,
+        predicate: predicate,
+        timeout: timeout,
+        abortOn: _contextAborts,
+      );
+
+  @override
+  Future<ConsoleMessage> waitForConsoleMessage(
+          {bool Function(ConsoleMessage)? predicate, Duration? timeout}) =>
+      waitForStreamEvent(
+        'console',
+        onConsole,
+        predicate: predicate,
+        timeout: timeout,
+        abortOn: _contextAborts,
+      );
+
+  @override
+  Future<T> waitForEvent<T>(String event, {Duration? timeout}) =>
+      _coreContext.waitForEvent<T>(event, timeout: timeout);
 }

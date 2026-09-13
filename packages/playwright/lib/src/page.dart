@@ -1,5 +1,16 @@
+import 'dart:async';
+
+import 'package:playwright_core/src/server/core_events.dart' as core_events;
 import 'package:playwright_core/src/server/core_page.dart' hide Dialog;
 import 'package:playwright_core/src/server/dialog.dart' as core;
+// WaitForSelectorState is also declared by locator.dart, which is the one the
+// public API uses.
+import 'package:playwright_protocol/playwright_protocol.dart'
+    hide WaitForSelectorState;
+import 'browser_context.dart';
+import 'console_message.dart';
+import 'page_error.dart';
+import 'waiter.dart';
 import 'locator.dart';
 import 'frame.dart';
 import 'frame_locator.dart';
@@ -62,6 +73,18 @@ abstract class Page {
 
   /// Get the accessibility snapshot.
   Future<AccessibilitySnapshot> accessibilitySnapshot();
+
+  /// Resize the page viewport.
+  ///
+  /// Overrides the viewport the context was created with, for this page only.
+  Future<void> setViewportSize(int width, int height);
+
+  /// Set headers sent with every request this page makes.
+  ///
+  /// Replaces the previous set; pass an empty map to clear it. Names keep the
+  /// casing given here. Headers set this way are not merged with the ones a
+  /// request already carries: a name that collides wins.
+  Future<void> setExtraHTTPHeaders(Map<String, String> headers);
 
   /// Intercept network requests.
   Future<void> route(String urlPattern, void Function(Route) handler);
@@ -166,9 +189,15 @@ abstract class Page {
   /// Focus [selector] then type [text] character by character.
   Future<void> type(String selector, String text);
 
-  /// Register a handler for JavaScript dialogs (alert/confirm/prompt).
-  /// Without a handler, dialogs are auto-dismissed.
-  void onDialog(void Function(Dialog dialog) handler);
+  /// Event emitted when a JavaScript dialog (alert/confirm/prompt/
+  /// beforeunload) opens.
+  ///
+  /// A dialog blocks the page until it is accepted or dismissed. As upstream
+  /// does, a dialog that nobody is listening for is dismissed automatically,
+  /// so an unexpected `alert()` cannot hang the script. Subscribing here (or
+  /// on the context) takes that responsibility over: the dialog then stays
+  /// open until you call [Dialog.accept] or [Dialog.dismiss].
+  Stream<Dialog> get onDialog;
 
   /// Get the full HTML content of the page.
   Future<String> content();
@@ -225,14 +254,69 @@ abstract class Page {
   Future<Response> waitForResponse(
       {bool Function(Response)? predicate, Duration? timeout});
 
+  /// Event emitted when the page logs to the console.
+  Stream<ConsoleMessage> get onConsole;
+
+  /// Event emitted when an exception reaches the top level of the page.
+  Stream<PageError> get onPageError;
+
+  /// Event emitted when the page opens a new one (`window.open`, or a link
+  /// with `target=_blank`).
+  ///
+  /// The popup is already attached when it arrives, but it may not have
+  /// navigated yet: await [waitForLoadState] on it before reading its
+  /// content.
+  Stream<Page> get onPopup;
+
+  /// Event emitted when the page's renderer crashes.
+  ///
+  /// The page becomes unusable; every pending operation on it fails.
+  Stream<void> get onCrash;
+
+  /// Wait for the page to open a popup.
+  ///
+  /// Start the wait before the action that triggers it, then await both, or
+  /// the popup may open before anybody is listening.
+  Future<Page> waitForPopup({Duration? timeout});
+
+  /// Wait for a console message matching [predicate].
+  Future<ConsoleMessage> waitForConsoleMessage(
+      {bool Function(ConsoleMessage)? predicate, Duration? timeout});
+
+  /// Wait for a dialog matching [predicate].
+  Future<Dialog> waitForDialog(
+      {bool Function(Dialog)? predicate, Duration? timeout});
+
+  /// The page that opened this one, or null.
+  ///
+  /// Null once the opener has closed, matching upstream.
+  Page? opener();
+
+  /// The context this page belongs to.
+  BrowserContext context();
+
+  /// Whether the page has been closed.
+  bool isClosed();
+
   /// Wait for the next occurrence of a page event.
   Future<T> waitForEvent<T>(String event, {Duration? timeout});
 }
+
+/// Public wrappers, keyed by the core page they wrap.
+///
+/// `context.pages()`, `page.opener()` and the `page`/`popup` events all have
+/// to hand back the *same* [Page] object for the same underlying page, or
+/// identity comparisons in user code silently fail.
+final Expando<PageImpl> _pageWrappers = Expando<PageImpl>('playwright.page');
 
 class PageImpl implements Page {
   final CorePage _corePage;
 
   PageImpl(this._corePage);
+
+  /// The single wrapper for [corePage], created on first use.
+  factory PageImpl.forCore(CorePage corePage) =>
+      _pageWrappers[corePage] ??= PageImpl(corePage);
 
   @override
   Future<void> goto(String url,
@@ -291,6 +375,14 @@ class PageImpl implements Page {
   Future<AccessibilitySnapshot> accessibilitySnapshot() =>
       _corePage.accessibilitySnapshot();
 
+  @override
+  Future<void> setViewportSize(int width, int height) =>
+      _corePage.setViewportSize(width, height);
+
+  @override
+  Future<void> setExtraHTTPHeaders(Map<String, String> headers) =>
+      _corePage.setExtraHTTPHeaders(headers);
+
   final _routePatterns = <String>{};
 
   @override
@@ -330,11 +422,9 @@ class PageImpl implements Page {
       _corePage.type(selector, text);
 
   @override
-  void onDialog(void Function(Dialog dialog) handler) {
-    _corePage.onDialog((core.Dialog coreDialog) {
-      handler(DialogImpl(coreDialog));
-    });
-  }
+  Stream<Dialog> get onDialog => _corePage
+      .stream<core.Dialog>('dialog')
+      .map((coreDialog) => DialogImpl(coreDialog));
 
   @override
   Future<dynamic> evaluate(String expression) => _corePage.evaluate(expression);
@@ -534,6 +624,85 @@ class PageImpl implements Page {
     final stream = predicate == null ? onResponse : onResponse.where(predicate);
     return timeout == null ? stream.first : stream.first.timeout(timeout);
   }
+
+  @override
+  Stream<ConsoleMessage> get onConsole => _corePage
+      .stream<core_events.CoreConsoleMessage>('console')
+      .map((message) => ConsoleMessageImpl(message));
+
+  @override
+  Stream<PageError> get onPageError => _corePage
+      .stream<core_events.CorePageError>('pageerror')
+      .map((error) => PageErrorImpl(error));
+
+  @override
+  Stream<Page> get onPopup =>
+      _corePage.stream<CorePage>('popup').map(PageImpl.forCore);
+
+  @override
+  Stream<void> get onCrash => _corePage.stream<void>('crash');
+
+  /// The waits that a page-scoped waiter gives up on: the page closing and
+  /// the page crashing, exactly the two upstream registers.
+  List<WaitAbort> get _pageAborts => [
+        (
+          stream: onClose,
+          error: () => TargetClosedException('Page closed'),
+        ),
+        (
+          stream: onCrash,
+          error: () => PlaywrightException('Page crashed'),
+        ),
+      ];
+
+  @override
+  Future<Page> waitForPopup({Duration? timeout}) => waitForStreamEvent(
+        'popup',
+        onPopup,
+        timeout: timeout,
+        abortOn: _pageAborts,
+      );
+
+  @override
+  Future<ConsoleMessage> waitForConsoleMessage(
+          {bool Function(ConsoleMessage)? predicate, Duration? timeout}) =>
+      waitForStreamEvent(
+        'console',
+        onConsole,
+        predicate: predicate,
+        timeout: timeout,
+        abortOn: _pageAborts,
+      );
+
+  @override
+  Future<Dialog> waitForDialog(
+          {bool Function(Dialog)? predicate, Duration? timeout}) =>
+      waitForStreamEvent(
+        'dialog',
+        onDialog,
+        predicate: predicate,
+        timeout: timeout,
+        abortOn: _pageAborts,
+      );
+
+  @override
+  Page? opener() {
+    final opener = _corePage.opener;
+    if (opener == null || opener.isClosed) return null;
+    return PageImpl.forCore(opener);
+  }
+
+  @override
+  BrowserContext context() {
+    final context = _corePage.browserContext;
+    if (context == null) {
+      throw PlaywrightException('Page does not belong to a browser context');
+    }
+    return BrowserContextImpl.forCore(context);
+  }
+
+  @override
+  bool isClosed() => _corePage.isClosed;
 
   @override
   Future<T> waitForEvent<T>(String event, {Duration? timeout}) {

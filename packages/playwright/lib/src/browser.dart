@@ -37,13 +37,12 @@ class BrowserImpl implements Browser {
     final coreContext = await _coreBrowser.createBrowserContext(
         options:
             CoreContextOptions(viewport: viewport, userAgent: userAgent));
-    return BrowserContextImpl(coreContext);
+    return BrowserContextImpl.forCore(coreContext);
   }
 
   @override
-  List<BrowserContext> contexts() => _coreBrowser.contexts
-      .map((context) => BrowserContextImpl(context))
-      .toList();
+  List<BrowserContext> contexts() =>
+      _coreBrowser.contexts.map(BrowserContextImpl.forCore).toList();
 
   @override
   bool isConnected() => _coreBrowser.isConnected;
