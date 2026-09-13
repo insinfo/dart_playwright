@@ -1,7 +1,7 @@
 # Relatório de gaps para paridade com o Playwright original
 
 Data da análise: 2026-07-19
-Última atualização: 2026-07-19 (fim do dia) — ver "Progresso da rodada de 2026-07-19".
+Última atualização: 2026-09-13 — ver "Progresso da rodada de 2026-09-13".
 
 Referências locais usadas:
 
@@ -32,6 +32,185 @@ Onze commits (`146c69a`..`11d0c7a`) levaram a suíte de paridade de "toda em tim
   - **WebKit**: `Emulation.setDeviceMetricsOverride` no pageProxy + `Page.overrideUserAgent` no target (`wkPage.ts:713`).
   - *Teste de paridade*: cria um contexto 640×480 com UA customizado e verifica `window.innerWidth`/`innerHeight` e `navigator.userAgent` nos três engines — passou de primeira em todos.
 
+## Progresso da rodada de 2026-09-13 (Milestone 2)
+
+Quatro commits fecharam o item 2 de "Próximos passos imediatos" (`Frame`
+público completo) e o Milestone 2 (`getBy*`, `FrameLocator`, `Locator`
+completo, opções de actionability). A suíte de paridade saiu de 91 para 202
+testes verdes, todos rodados de fato em **Chromium, Firefox e WebKit** nesta
+máquina (Windows).
+
+### Fundação: contexto de execução por frame
+
+Era o pré-requisito de tudo. Cada frame passou a ter o próprio contexto JS,
+rastreado por um registry compartilhado (`server/context_registry.dart`)
+alimentado pelo evento de criação de contexto de cada motor:
+
+- **Chromium**: `Runtime.executionContextCreated` → `context.auxData.frameId`,
+  mundo principal quando `auxData.isDefault != false`; `Runtime.evaluate`
+  com `contextId`.
+- **Firefox/Juggler**: `Runtime.executionContextCreated` →
+  `auxData.frameId`; o mundo principal é o que não tem `auxData.name`;
+  `Runtime.evaluate` com `executionContextId`.
+- **WebKit**: `Runtime.executionContextCreated` → `context.frameId` com
+  `type == 'normal'`; `Runtime.evaluate` com `contextId`.
+
+Para o main frame, a falta do evento cai num contexto padrão sem id, que é o
+que os três protocolos resolvem sozinhos — assim um motor que não reemita o
+evento não derruba a página.
+
+`CoreFrame` deixou de ser um registro passivo: ganhou `evaluate`,
+`evaluateHandle`, `goto`, `title`, `content`, `setContent`,
+`waitForFunction` e `isDetached`. `CorePage` ganhou `executionContextFor`,
+`gotoFrame`, `contentFrame` (via `DOM.describeNode` no Chromium/WebKit e
+`Page.describeNode` no Firefox) e as variantes `*Target` de input, que
+recebem o frame mais uma expressão JS que resolve o elemento.
+
+**Coordenadas entre frames**: o ponto de clique é calculado no contexto do
+frame e depois somado à borda de cada `iframe` dono subindo até o topo
+(`getBoundingClientRect` + `borderLeftWidth`/`paddingLeft` do owner), porque
+os eventos de mouse são despachados no viewport do topo. A subida usa
+`window.frameElement` e para numa fronteira cross-origin, que a página não
+consegue atravessar.
+
+### Motor de seletores injetado
+
+Novo: `server/injected/injected_script_source.dart` (~1500 linhas de JS) e o
+modelo em Dart que o alimenta (`server/selectors.dart`). É um porte à mão de
+`packages/injected/src/domUtils.ts`, `selectorUtils.ts`, `roleUtils.ts`,
+`roleSelectorEngine.ts` e dos motores `internal:*` de `injectedScript.ts`,
+mais `normalizeWhiteSpace` de `stringUtils.ts`.
+
+Os seletores chegam como JSON estruturado construído em Dart, não como a
+sintaxe de string do Playwright, então `selectorParser.ts` e o tokenizador
+CSS não foram portados; tudo o que vem *depois* do parsing é o upstream.
+Diferenças deliberadas, documentadas no cabeçalho do arquivo:
+
+- o motor `css` usa `querySelectorAll` nativo, logo não fura shadow DOM nem
+  entende as extensões CSS do Playwright (`:has-text()`, `:visible`,
+  seletores de layout). Os motores `text`, `label` e `role` **entram** em
+  shadow roots abertas, como o upstream;
+- `getCSSContent` usa um scanner pequeno em vez do tokenizador CSS: cobre
+  strings entre aspas, `attr()` e a forma `/ "texto alternativo"`;
+- a computação de nome acessível devolve texto puro (o upstream também
+  coleciona os elementos que contribuíram, coisa que só os aria snapshots
+  usam);
+- estabilidade (`stable`) é amostrada entre *polls* sucessivos do laço de
+  actionability em Dart, guardando o último retângulo num `WeakMap`, em vez
+  de entre `requestAnimationFrame` dentro de uma chamada assíncrona — as
+  chamadas injetadas são todas síncronas porque o Juggler não espera
+  promises por nós.
+
+### API pública
+
+- **`Frame`**: de 7 para ~45 métodos. `goto`, `content`, `setContent`,
+  `title`, `url`, `name`, `parentFrame`, `childFrames`, `isDetached`,
+  `frameElement`, `evaluate`, `evaluateHandle`, `waitForSelector`,
+  `waitForFunction`, `waitForLoadState`, `waitForNavigation`, `waitForURL`,
+  as interações por frame (`click`, `dblclick`, `hover`, `fill`, `press`,
+  `type`, `focus`, `check`, `uncheck`, `selectOption`), os estados
+  (`isVisible`/`isHidden`/`isEnabled`/`isDisabled`/`isEditable`/`isChecked`,
+  `textContent`, `innerText`, `innerHTML`, `inputValue`, `getAttribute`), o
+  DOM antigo (`querySelector`, `querySelectorAll`, `evalOnSelector`,
+  `evalOnSelectorAll`, `dispatchEvent`), `locator`, `frameLocator` e os
+  `getBy*`.
+- **`FrameLocator`**: novo, com `owner`, `first`, `last`, `nth`, `locator`,
+  `frameLocator` e os sete `getBy*` — os 13 métodos do upstream. A travessia
+  de fronteira é uma parte de seletor resolvida na hora da ação.
+- **`getBy*`** em `Page`, `Frame`, `Locator` e `FrameLocator`, com a
+  semântica do upstream: normalização de espaço em branco, `exact:` e
+  substring case-insensitive por padrão; `getByRole` com `name`,
+  `description`, `checked`, `pressed`, `selected`, `expanded`, `level`,
+  `disabled` e `includeHidden`.
+- **`Locator`**: passou a ser (frame, seletor estruturado). Ganhou
+  composição (`first`, `last`, `nth`, `filter`, `and`, `or`, `visible`,
+  `all`, `contentFrame`, `page`, `frame`), ações (`dragTo`, `setChecked`,
+  `selectText`, `scrollIntoViewIfNeeded`, `dispatchEvent`, `clear`, `blur`),
+  estado (`boundingBox`, `ariaRole`, `accessibleName`) e avaliação
+  (`evaluate`, `evaluateAll`, `evaluateHandle`, `elementHandle`,
+  `elementHandles`), além de `waitFor` com
+  `attached`/`detached`/`visible`/`hidden`.
+- **Actionability**: as ações agora esperam de verdade. Os estados do
+  upstream (`visible`, `stable`, `enabled`, `editable`) são verificados em
+  laço até o timeout; `force` pula as verificações; `strict` (padrão `true`
+  no `Locator`, `false` nos métodos por seletor de `Page`/`Frame`) reproduz
+  a violação de modo estrito.
+- **`Mouse`**: saiu de "ausente". `move` (com `steps`), `down`, `up`,
+  `click`, `dblclick` e `wheel`, rastreando posição e máscara de botões.
+  Cada motor fornece apenas um `RawMouse`; o despacho de click/hover, antes
+  repetido nos três, vive uma vez só em `CorePageInputHelpers`.
+- **`ElementHandle`**: `innerText`, `innerHTML`, `inputValue`,
+  `getAttribute`, `boundingBox`, `scrollIntoViewIfNeeded`, os estados e
+  `contentFrame`/`ownerFrame`.
+- **`evaluateHandle`** deixou de ser `UnsupportedError` em Firefox e WebKit:
+  cada um ganhou execution context, `JSHandle` e `ElementHandle` próprios.
+
+### Defeitos encontrados e corrigidos
+
+1. **Firefox promovia iframes a main frame.** `Page.navigationCommitted` do
+   Juggler não carrega `parentFrameId`, e `CoreFrameManager.frameNavigated`
+   confiava no parâmetro do evento: toda navegação de iframe reescrevia
+   `_mainFrameId` para o filho. Sem contexto por frame isso passava
+   despercebido (todo `evaluate` ia para o contexto padrão); com ele,
+   `page.evaluate` passou a rodar dentro do último iframe carregado. O pai
+   agora vem do frame registrado no `frameAttached`.
+2. **WebKit deixava iframes sem ciclo de vida.** `Page.loadEventFired` e
+   `Page.domContentEventFired` informam qual frame disparou o evento, e o
+   port atribuía os dois sempre ao main frame. Consequência:
+   `frame.goto()`/`waitForLoadState()` num iframe nunca completavam.
+3. **`wrapEvaluationExpression` embrulhava IIFEs.** Uma fonte que começa com
+   `(() => { ... })();` casava com a heurística de "é uma função" e virava
+   `((() => {...})();)()`, erro de sintaxe. O script injetado começa com um
+   comentário justamente para não cair nisso.
+4. **`chromium/frame_manager.dart` era código morto** que duplicava, com
+   handlers concorrentes, o que `CrPage` já faz inline. Removido.
+
+### O que ficou de fora nesta rodada, e por quê
+
+- **`Locator.tap` e `Touchscreen`**: dependem de emulação de toque
+  (`hasTouch` no contexto), que é Milestone 4. Sem ela o evento seria
+  dispensado pela página.
+- **`setInputFiles`**: precisa de `DOM.setFileInputFiles` e equivalentes por
+  motor, mais o objeto `FileChooser`. É Milestone 3 (artefatos), junto com
+  downloads.
+- **`Locator.screenshot` e opções completas de screenshot**
+  (`fullPage`, `clip`, `mask`, `scale`, `animations`): Milestone 3. O recorte
+  por elemento exige acertar o sistema de coordenadas de cada motor
+  (documento vs viewport) — é trabalho real, não uma opção a mais.
+- **`ariaSnapshot` / assertions**: dependem de portar
+  `injected/ariaSnapshot.ts` e o renderizador YAML, que só fazem sentido
+  junto com `LocatorAssertions` (Milestone 5).
+- **`highlight`/`hideHighlight`**: exigem o overlay de
+  `injected/highlight.ts`, ferramenta de depuração sem valor em teste
+  automatizado hoje.
+- **Drag-and-drop HTML5 nativo**: `Locator.dragTo` faz um arraste real de
+  ponteiro (press, moves, release), que é o que bibliotecas modernas de
+  drag escutam. O DnD nativo do HTML5 exige interceptação de drag no
+  protocolo (`Input.setInterceptDrags` no Chromium) e equivalentes; ficou
+  para depois.
+- **Extensões CSS do Playwright** (`:has-text()`, `:visible`, seletores de
+  layout) e shadow-piercing no motor `css`: exigem portar
+  `selectorEvaluator.ts` + `cssParser.ts` + `cssTokenizer.ts` (~1500 linhas).
+  Os casos de uso mais comuns já estão cobertos por `filter(hasText:)`,
+  `visible()` e pelos `getBy*`.
+
+### Cobertura de teste desta rodada
+
+`packages/playwright/test/integration/locator_frames_parity_test.dart`: 36
+testes por motor (108 no total), somados aos 91 anteriores e a mais 3 de
+`mouse.wheel` — **202 testes verdes nos três motores**. Cobrem árvore de
+frames com pais e filhos, avaliação isolada por frame, clique e
+preenchimento confiáveis (`event.isTrusted`) dentro de iframe e de iframe
+aninhado, `Frame.goto`/`setContent` sem afetar o host, detecção de detach,
+`page.frame` por nome e URL, `FrameLocator` simples/encadeado/por índice,
+`getBy*` com nome acessível vindo de `<label for>`, de `<label>` envolvente
+e de `aria-label`, nível de heading, `checked`, `disabled`, normalização de
+espaço em branco, `exact` e regex, composição de `Locator`, violação de
+`strict`, auto-waiting de elemento que aparece e só então estabiliza,
+`timeout` e `force`, `boundingBox`, `ariaRole`, `accessibleName`, handles,
+esperas por `hidden`/`detached`, `dragTo`, `mouse.move/down/up/wheel`,
+`frameElement` e os atalhos de DOM.
+
 ## Resumo executivo
 
 O port atual já tem uma fundação rara e valiosa: ele não é apenas um wrapper sobre o driver Node. Ele implementa em Dart o registry de browsers, launch, transporte e adaptadores de protocolo para Chromium, Firefox e WebKit. Isso é a maior vantagem arquitetural do projeto.
@@ -47,7 +226,7 @@ Em termos práticos:
 | Keyboard real (com macCommands), mouse com opções, cookies, `storageState`, dialogs | Implementado |
 | Rede: eventos, waiters, corpo de resposta, interceptação com fulfill/unroute/postData | Implementado nos 3 engines |
 | Emulação de contexto: viewport, userAgent | Implementado; faltam locale, timezone, colorScheme etc. |
-| API pública completa de `Page`, `Locator`, `Frame`, `BrowserContext` | Parcial; `Frame` ainda mínimo |
+| API pública completa de `Page`, `Locator`, `Frame`, `BrowserContext` | `Frame`, `Locator` e `FrameLocator` completos com `getBy*` e actionability; `BrowserContext` ainda mínimo |
 | Eventos Playwright completos | Rede e lifecycle expostos; faltam popup, download, console, worker |
 | Downloads, videos, tracing, HAR, WebSocket, workers | Ausentes ou não expostos |
 | APIRequest/APIResponse | Ausente na API pública |
@@ -61,19 +240,19 @@ Os arquivos `docs/src/api/class-*.md` do upstream indicam uma superfície muito 
 
 | Classe upstream | Métodos documentados no upstream | Situação no port Dart |
 | --- | ---: | --- |
-| `Page` | 124 | Cerca de 20 métodos públicos principais |
-| `Locator` | 70 | 17 métodos públicos |
-| `Frame` | 61 | 7 métodos públicos |
+| `Page` | 124 | Cerca de 35 métodos públicos principais |
+| `Locator` | 70 | ~55 métodos públicos |
+| `Frame` | 61 | ~45 métodos públicos |
 | `BrowserContext` | 39 | 6 métodos públicos |
-| `ElementHandle` | 37 | 4 métodos públicos |
+| `ElementHandle` | 37 | 17 métodos públicos |
 | `Browser` | 13 | 3 métodos públicos |
 | `BrowserType` | 7 | `name` e `launch` |
 | `Route` | 6 | `continue_`, `fulfill`, `abort` |
 | `Request` | 22 | Interface mínima |
 | `Response` | 21 | Interface mínima |
-| `JSHandle` | 7 | `evaluate`, `getProperties`, `dispose` |
+| `JSHandle` | 7 | `evaluate`, `getProperties`, `dispose` (nos 3 motores) |
 | `Keyboard` | 5 | Implementado no core, exposto via `Page.keyboard` |
-| `Mouse` | 6 | Ausente |
+| `Mouse` | 6 | `move`, `down`, `up`, `click`, `dblclick`, `wheel` |
 | `Touchscreen` | 1 | Ausente |
 | `Tracing` | 8 | Ausente |
 | `APIRequestContext` | 11 | Ausente |
@@ -82,7 +261,7 @@ Os arquivos `docs/src/api/class-*.md` do upstream indicam uma superfície muito 
 | `Worker` | 7 + eventos | Ausente |
 | `Clock` | 7 | Ausente |
 | `Coverage` | 4 | Ausente |
-| `FrameLocator` | 13 | Ausente |
+| `FrameLocator` | 13 | 13 métodos (completo) |
 | Assertions | dezenas de métodos | Ausentes |
 
 Esses números não significam que todos os métodos devem ser copiados imediatamente. Eles mostram onde está a diferença real entre um núcleo nativo funcional e uma API compatível com Playwright completo.
@@ -238,46 +417,36 @@ Além do que já existe, faltam blocos grandes:
 
 5. Completar `Locator`
 
-Faltam muitos métodos modernos e recomendados:
-
-- Composição: `first`, `last`, `nth`, `and`, `or`, `filter`, `locator`, `frameLocator`, `contentFrame`, `page`.
-- Getters semânticos: `getByRole`, `getByText`, `getByLabel`, `getByPlaceholder`, `getByAltText`, `getByTitle`, `getByTestId`.
-- Ações: `dblclick`, `hover`, `tap`, `dragTo`, `dispatchEvent`, `setInputFiles`, `setChecked`, `clear`, `blur`, `focus`, `type`, `scrollIntoViewIfNeeded`, `selectText`.
-- Avaliação: `evaluate`, `evaluateAll`, `evaluateHandle`, `elementHandle`, `elementHandles`.
-- Estado: `isHidden`, `isDisabled`, `isEditable`, `boundingBox`, `screenshot`, `ariaSnapshot`, `waitForFunction`.
-- Debuggability: `describe`, `description`, `toString`, `highlight`, `hideHighlight`.
-
-6. Completar `Frame` e `FrameLocator`
-
-`Frame` hoje é mínimo. Faltam praticamente os mesmos métodos de interação de `Page`, além de:
-
-- `goto`
-- `content`
-- `setContent`
-- `title`
-- `frameElement`
-- `waitForFunction`
-- `waitForURL`
-- `isDetached`
-- `FrameLocator` completo
-
-7. Completar `ElementHandle`
+FEITO em quase tudo (2026-09-13): composição, getters semânticos, avaliação,
+estado e as ações, exceto os itens abaixo.
 
 Faltam:
 
-- `boundingBox`
-- `contentFrame`
-- `ownerFrame`
-- `querySelector`
-- `querySelectorAll`
-- `evalOnSelector`
-- `evalOnSelectorAll`
-- `screenshot`
-- `scrollIntoViewIfNeeded`
-- `waitForElementState`
-- `waitForSelector`
-- ações completas de input
-- métodos de estado (`isVisible`, `isHidden`, etc.)
+- `tap` (depende de `hasTouch`/`Touchscreen`, Milestone 4).
+- `setInputFiles` (Milestone 3).
+- `screenshot` e `ariaSnapshot` (Milestone 3 e 5).
+- `highlight`/`hideHighlight` (overlay de depuração).
+
+6. Completar `Frame` e `FrameLocator`
+
+FEITO (2026-09-13). `Frame` tem `goto`, `content`, `setContent`, `title`,
+`frameElement`, `waitForFunction`, `waitForURL`, `waitForSelector`,
+`isDetached`, as interações e estados por frame, o DOM antigo (`$`/`$$`/
+`$eval`/`$$eval`) e os `getBy*`; `FrameLocator` está completo (13 métodos).
+
+Faltam de `Frame`: `addScriptTag`, `addStyleTag`, `dragAndDrop`,
+`setInputFiles`, `tap` e `waitForTimeout`.
+
+7. Completar `ElementHandle`
+
+FEITO (2026-09-13): `boundingBox`, `contentFrame`, `ownerFrame`,
+`scrollIntoViewIfNeeded`, `innerText`, `innerHTML`, `inputValue`,
+`getAttribute` e os métodos de estado.
+
+Faltam `querySelector`, `querySelectorAll`, `evalOnSelector`,
+`evalOnSelectorAll`, `screenshot`, `waitForElementState`, `waitForSelector` e
+as ações completas de input. O upstream desaconselha handles em favor de
+`Locator`, que já cobre tudo isso — a prioridade é baixa de propósito.
 
 ### P2 - Rede, artefatos e ferramentas de debugging
 
@@ -381,8 +550,8 @@ Esses itens devem ficar depois da API de browser desktop estar madura.
 Mesmo quando um método existe no port Dart, normalmente ele aceita poucas opções. Estado atual:
 
 - `page.goto`: tem `waitUntil` e `timeout` (FEITO); faltam `referer` e cancelamento.
-- `page.click`/`locator.click`: têm `button`, `clickCount`, `delay`, `position` (FEITO); faltam `force`, `modifiers`, `trial`, `timeout`, `strict`.
-- `page.fill` e `locator.fill` não expõem `force`, `timeout`, `strict`.
+- `locator.click`: tem `button`, `clickCount`, `delay`, `position`, `force`, `timeout`, `strict` (FEITO); faltam `modifiers` e `trial`. `page.click` continua sem auto-waiting nem essas opções: é o caminho direto por seletor no main frame, mantido como estava.
+- `locator.fill` expõe `force`, `timeout` e `strict` (FEITO); `page.fill` não.
 - `page.screenshot` basicamente aceita `path`; faltam as opções completas.
 - `browser.newContext`: tem `viewport` e `userAgent` (FEITO); faltam locale, timezone, geolocation, permissions, color scheme, device scale factor, proxy, credentials, videos, downloads, storage state etc.
 - `route.fulfill`: tem `json` e `contentType` (FEITO); faltam `path`, `response`, status text customizado.
@@ -410,15 +579,15 @@ Há uma boa separação inicial, mas alguns wrappers públicos ainda conhecem cl
 
 O Playwright original tem regras sofisticadas antes de clicar, preencher, arrastar e interagir:
 
-- visibilidade;
-- estabilidade;
-- recebimento de eventos;
-- enabled/editable;
-- scroll;
-- retry até timeout;
-- strict mode.
-
-O port atual já dispara input real, mas ainda precisa reproduzir o modelo completo de actionability para ser tão confiável quanto o original.
+- visibilidade — FEITO;
+- estabilidade — FEITO (amostragem entre polls, ver a rodada de 2026-09-13);
+- recebimento de eventos — PARCIAL: `receivesPointerEvents` (o teste de
+  `elementFromPoint`/`pointer-events`) ainda não é verificado, então um
+  elemento coberto por outro é clicado assim mesmo;
+- enabled/editable — FEITO;
+- scroll — FEITO (`scrollIntoView` antes de calcular o ponto);
+- retry até timeout — FEITO;
+- strict mode — FEITO.
 
 ### Serialização JS
 
@@ -436,11 +605,13 @@ Faltam recursos completos de serialização entre Dart e runtime da página:
 ### Próximos passos imediatos (fila para a próxima rodada)
 
 1. `page.waitForPopup` e `context.waitForPage` — exige rastrear novos targets/pageProxies por engine e emitir o evento `page` no contexto (P0.4 restante).
-2. `Frame` público completo — exige execution context por frame em cada engine (`goto`, `content`, `title`, `evaluate` e interações por frame).
-3. Mais opções de contexto: `locale`, `timezoneId`, `colorScheme`, `deviceScaleFactor`, `geolocation`, `permissions`.
+2. ~~`Frame` público completo~~ — FEITO em 2026-09-13, com contexto de execução por frame nos três motores.
+3. Mais opções de contexto: `locale`, `timezoneId`, `colorScheme`, `deviceScaleFactor`, `geolocation`, `permissions`, `hasTouch` (este último destrava `tap`/`Touchscreen`).
 4. `Route.continue_` com overrides (headers/method/postData) e `Route.fallback`.
 5. Eventos `console`/`pageError` e `context.waitForConsoleMessage`.
 6. `page.setViewportSize` e `page.setExtraHTTPHeaders`.
+7. `setInputFiles` + `FileChooser`, e `Locator.screenshot` com recorte por elemento (ambos Milestone 3).
+8. Portar `selectorEvaluator`/`cssParser` para destravar as extensões CSS (`:has-text()`, `:visible`, layout) e shadow-piercing no motor `css`.
 
 ### Milestone 1 - API pública consistente e multi-engine
 
@@ -450,13 +621,13 @@ Faltam recursos completos de serialização entre Dart e runtime da página:
 - Adicionar `waitForEvent` e waiters especializados mais usados.
 - Ampliar testes de paridade para eventos e rede.
 
-### Milestone 2 - Locator/Page compatíveis com uso real
+### Milestone 2 - Locator/Page compatíveis com uso real — CONCLUÍDO (2026-09-13)
 
-- Implementar getBy* em `Page`, `Frame`, `Locator` e `FrameLocator`.
-- Completar ações de `Locator`.
-- Completar métodos de estado e inspeção.
-- Adicionar opções essenciais de actionability (`timeout`, `strict`, `force`, `position`).
-- Implementar auto-waiting mais próximo do upstream.
+- ~~Implementar getBy* em `Page`, `Frame`, `Locator` e `FrameLocator`.~~ FEITO.
+- ~~Completar ações de `Locator`.~~ FEITO, menos `tap` (precisa de `hasTouch`) e `setInputFiles` (Milestone 3).
+- ~~Completar métodos de estado e inspeção.~~ FEITO, menos `screenshot` e `ariaSnapshot`.
+- ~~Adicionar opções essenciais de actionability (`timeout`, `strict`, `force`, `position`).~~ FEITO.
+- ~~Implementar auto-waiting mais próximo do upstream.~~ FEITO: estados `visible`/`stable`/`enabled`/`editable` em laço até o timeout.
 
 ### Milestone 3 - Rede e artefatos
 

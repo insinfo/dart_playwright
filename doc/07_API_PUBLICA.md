@@ -476,35 +476,90 @@ abstract class Locator {
 
 ### 3.7. Frame
 
+> **Estado atual (2026-09-13):** implementado. O código usa **métodos** onde
+> este documento previa getters (`frame.url()`, `frame.name()`,
+> `frame.parentFrame()`, `frame.childFrames()`, `frame.isDetached()`,
+> `frame.page()`), para ficar igual ao upstream JS e evitar confundir um
+> valor instantâneo com um estado ao vivo.
+
 ```dart
 /// Um frame dentro de uma página (main frame ou iframe).
+///
+/// Cada frame tem o próprio contexto de execução JavaScript: `evaluate` e os
+/// locators criados aqui rodam no documento do frame, não no da página.
 abstract class Frame {
-  /// URL do frame
-  String get url;
-  
-  /// Nome do frame
-  String? get name;
-  
-  /// Frame pai
-  Frame? get parentFrame;
-  
-  /// Frames filhos
-  List<Frame> get childFrames;
-  
-  /// Página dona do frame
-  Page get page;
-  
-  /// Se é o frame principal
-  bool get isDetached;
-  
-  // Mesmos métodos de navegação, locator e avaliação que Page
-  Locator locator(String selector, {LocatorOptions? options});
-  Future<Response?> goto(String url, {/* options */});
+  String url();
+  String name();
+  Frame? parentFrame();
+  List<Frame> childFrames();
+  bool isDetached();
+  Page page();
+
+  /// O <iframe> dono deste frame, no documento do pai.
+  Future<ElementHandle?> frameElement();
+
+  // Navegação, conteúdo e avaliação por frame
+  Future<void> goto(String url, {WaitUntilState? waitUntil, Duration? timeout});
   Future<String> title();
   Future<String> content();
-  Future<dynamic> evaluate(String expression, {dynamic arg});
-  // ... etc
+  Future<void> setContent(String html, {WaitUntilState? waitUntil, Duration? timeout});
+  Future<dynamic> evaluate(String expression);
+  Future<JSHandle> evaluateHandle(String expression);
+
+  // Esperas
+  Future<dynamic> waitForFunction(String expression, {Duration? timeout, Duration? polling});
+  Future<void> waitForLoadState({WaitUntilState state, Duration? timeout});
+  Future<void> waitForNavigation({WaitUntilState? waitUntil, Duration? timeout});
+  Future<void> waitForURL(Pattern url, {Duration? timeout});
+  Future<ElementHandle?> waitForSelector(String selector,
+      {WaitForSelectorState state, Duration timeout, bool strict});
+
+  // Locators e getBy*
+  Locator locator(String selector,
+      {Pattern? hasText, Pattern? hasNotText, Locator? has, Locator? hasNot});
+  FrameLocator frameLocator(String selector);
+  Locator getByRole(String role, {Pattern? name, bool exact, /* ... */});
+  Locator getByText(Pattern text, {bool exact});
+  // getByLabel, getByPlaceholder, getByAltText, getByTitle, getByTestId
+
+  // Interações e estado por seletor, além do DOM antigo
+  // (click, dblclick, hover, fill, press, type, focus, check, uncheck,
+  //  selectOption, textContent, innerText, innerHTML, inputValue,
+  //  getAttribute, isVisible, isHidden, isEnabled, isDisabled, isEditable,
+  //  isChecked, querySelector, querySelectorAll, evalOnSelector,
+  //  evalOnSelectorAll, dispatchEvent)
 }
+```
+
+### 3.8. FrameLocator
+
+```dart
+/// Uma visão para dentro de um <iframe>, resolvida preguiçosamente como um
+/// Locator: nada é resolvido até a ação, então o frame pode aparecer depois.
+abstract class FrameLocator {
+  /// O locator do próprio elemento <iframe>.
+  Locator get owner;
+
+  FrameLocator get first;
+  FrameLocator get last;
+  FrameLocator nth(int index);
+
+  Locator locator(String selector,
+      {Pattern? hasText, Pattern? hasNotText, Locator? has, Locator? hasNot});
+  FrameLocator frameLocator(String selector);
+
+  // getByRole, getByText, getByLabel, getByPlaceholder, getByAltText,
+  // getByTitle, getByTestId
+}
+```
+
+```dart
+// Encadeamento através de frames aninhados
+await page
+    .frameLocator('#outer')
+    .frameLocator('#inner')
+    .getByRole('button', name: 'Enviar')
+    .click();
 ```
 
 ---

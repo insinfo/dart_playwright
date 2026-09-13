@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.4.0] - Frames, FrameLocator, getBy* e actionability
+
+### Added
+- **Contexto de execução por frame nos três motores**: cada frame tem o próprio contexto JS, rastreado por um registry compartilhado alimentado por `Runtime.executionContextCreated` (CDP `auxData.frameId`, Juggler `auxData.frameId` do mundo sem nome, WebKit `context.frameId` do tipo `normal`). Destrava tudo o que segue.
+- **`Frame` público completo**: `goto`, `content`, `setContent`, `title`, `url`, `name`, `parentFrame`, `childFrames`, `isDetached`, `frameElement`, `evaluate`, `evaluateHandle`, `waitForSelector/Function/LoadState/Navigation/URL`, as interações e estados por frame, os atalhos de DOM (`querySelector`, `querySelectorAll`, `evalOnSelector`, `evalOnSelectorAll`, `dispatchEvent`), `locator`, `frameLocator` e os `getBy*`.
+- **`FrameLocator`** com os 13 métodos do upstream, encadeável através de frames aninhados.
+- **`getBy*`** (`getByRole`, `getByText`, `getByLabel`, `getByPlaceholder`, `getByAltText`, `getByTitle`, `getByTestId`) em `Page`, `Frame`, `Locator` e `FrameLocator`, sobre um motor de seletores injetado portado de `domUtils.ts`, `selectorUtils.ts`, `roleUtils.ts`, `roleSelectorEngine.ts` e dos motores `internal:*` do `injectedScript.ts` — inclusive normalização de espaço em branco, `exact:` e computação de papel/nome acessível.
+- **`Locator` completo**: composição (`first`, `last`, `nth`, `filter`, `and`, `or`, `visible`, `all`, `contentFrame`), ações (`dragTo`, `setChecked`, `selectText`, `scrollIntoViewIfNeeded`, `dispatchEvent`, `clear`, `blur`), estado (`boundingBox`, `ariaRole`, `accessibleName`), avaliação (`evaluate`, `evaluateAll`, `evaluateHandle`, `elementHandle`, `elementHandles`) e `waitFor` com `attached`/`detached`/`visible`/`hidden`.
+- **Actionability de verdade**: as ações esperam `visible`/`stable`/`enabled`/`editable` em laço até o timeout; opções `timeout`, `strict` e `force`.
+- **`Mouse`**: `move` (com `steps`), `down`, `up`, `click`, `dblclick` e `wheel`, com rastreamento de posição e máscara de botões; `Page.mouse`.
+- **`evaluateHandle` em Firefox e WebKit**, com execution context, `JSHandle` e `ElementHandle` próprios.
+- **`ElementHandle`**: `innerText`, `innerHTML`, `inputValue`, `getAttribute`, `boundingBox`, `scrollIntoViewIfNeeded`, estados e `contentFrame`/`ownerFrame`.
+- **Suíte de paridade**: 202 testes E2E verdes em Chromium, Firefox e WebKit.
+
+### Fixed
+- **Firefox**: `Page.navigationCommitted` não traz `parentFrameId`, e o frame manager confiava no parâmetro do evento — toda navegação de iframe promovia o filho a main frame. O pai passa a vir do frame registrado no `frameAttached`.
+- **WebKit**: `Page.loadEventFired`/`Page.domContentEventFired` informam o frame de origem; atribuí-los sempre ao main frame deixava iframes sem ciclo de vida e travava `frame.goto()` num iframe.
+- Removido `chromium/frame_manager.dart`, código morto que duplicava com handlers concorrentes o que `CrPage` já faz.
+
 ## [0.3.0] - Teclado, cookies e dialogs
 
 ### Added
