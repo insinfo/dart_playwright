@@ -3,27 +3,33 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:playwright_protocol/playwright_protocol.dart';
 import 'ff_connection.dart';
+import 'ff_execution_context.dart';
 import 'ff_input.dart';
 import 'ff_network_manager.dart';
 import 'ff_route.dart';
 import '../../accessibility.dart';
 
+import '../context_registry.dart';
 import '../core_page.dart';
 import '../core_route.dart';
 import '../core_js_handle.dart';
 
 /// Represents a Firefox Juggler Page (tab).
 class FfPage extends EventEmitter
-    with CorePageInputHelpers, CorePageDialogs, CorePageContentHelpers
+    with
+        CorePageFrameEvaluation,
+        CorePageInputHelpers,
+        CorePageDialogs,
+        CorePageContentHelpers
     implements CorePage {
   final FfSession session;
   @override
   late final Keyboard keyboard;
   late final CoreFrameManager frameManager;
   late final FfNetworkManager networkManager;
+  final ContextRegistry _contexts = ContextRegistry();
 
   bool _isClosed = false;
-  String? _executionContextId;
 
   FfPage(this.session) {
     frameManager = CoreFrameManager(this);
@@ -36,7 +42,9 @@ class FfPage extends EventEmitter
           params['frameId'] as String, params['parentFrameId'] as String?);
     });
     session.on('Page.frameDetached', (params) {
-      frameManager.frameDetached(params['frameId'] as String);
+      final frameId = params['frameId'] as String;
+      _contexts.frameDetached(frameId);
+      frameManager.frameDetached(frameId);
     });
     // Firefox Juggler reports document navigations as
     // Page.navigationCommitted (not Page.navigated).
@@ -60,10 +68,20 @@ class FfPage extends EventEmitter
           params['frameId'] as String, params['name'] as String);
     });
     session.on('Runtime.executionContextCreated', (params) {
-      if (params['auxData'] != null &&
-          params['auxData']['frameId'] == frameManager.mainFrame?.id) {
-        _executionContextId = params['executionContextId'] as String;
+      final auxData = params['auxData'] as Map<String, dynamic>?;
+      final frameId = auxData?['frameId'] as String?;
+      // Juggler names the utility world; the main world has no name.
+      final worldName = auxData?['name'] as String?;
+      if (frameId == null || (worldName != null && worldName.isNotEmpty)) {
+        return;
       }
+      _contexts.contextCreated(frameId,
+          FfExecutionContext(session, params['executionContextId'] as String));
+    });
+    session.on('Runtime.executionContextDestroyed', (params) {
+      final id = params['executionContextId'] as String;
+      _contexts.contextDestroyed(id);
+      forgetExecutionContext(id);
     });
     session.on('closed', () => _onClosed());
   }
@@ -95,6 +113,48 @@ class FfPage extends EventEmitter
 
   @override
   List<CoreFrame> get frames => frameManager.frames;
+
+  @override
+  Future<CoreExecutionContext> executionContextFor(CoreFrame frame,
+      {Duration? timeout}) {
+    return _contexts.waitFor(frame.id,
+        timeout: timeout ?? const Duration(seconds: 10),
+        fallback:
+            frame.parentId == null ? FfExecutionContext(session, null) : null);
+  }
+
+  @override
+  Future<void> gotoFrame(CoreFrame frame, String url,
+      {WaitUntilState? waitUntil, Duration? timeout}) async {
+    final loaded = frame.waitForNavigation(
+        waitUntil: waitUntil, timeout: timeout ?? const Duration(seconds: 30));
+    loaded.catchError((_) {});
+    await session.send('Page.navigate', {'url': url, 'frameId': frame.id});
+    await loaded;
+  }
+
+  @override
+  Future<CoreFrame?> contentFrame(CoreJSHandle handle) async {
+    if (handle is! FfJSHandle) return null;
+    final result = await session.send('Page.describeNode', {
+      'frameId': frameIdForContext(handle.context),
+      'objectId': handle.objectId,
+    });
+    final contentFrameId = result['contentFrameId'];
+    if (contentFrameId is! String) return null;
+    return frameManager.frame(contentFrameId);
+  }
+
+  /// The frame a handle's context belongs to; Juggler's `Page.describeNode`
+  /// needs the frame id alongside the object id.
+  String? frameIdForContext(FfExecutionContext context) {
+    for (final frame in frameManager.frames) {
+      if (_contexts.contextFor(frame.id)?.contextId == context.contextId) {
+        return frame.id;
+      }
+    }
+    return frameManager.mainFrame?.id;
+  }
 
   @override
   Future<void> waitForLoadState(
@@ -163,11 +223,37 @@ class FfPage extends EventEmitter
   /// Click an element using trusted Juggler input events.
   @override
   Future<void> click(String selector,
+          {String button = 'left',
+          int clickCount = 1,
+          Duration? delay,
+          ({double x, double y})? position}) =>
+      clickTarget(mainFrame, CorePageInputHelpers.resolverForSelector(selector),
+          button: button,
+          clickCount: clickCount,
+          delay: delay,
+          position: position);
+
+  @override
+  Future<void> dblclick(String selector,
+          {String button = 'left',
+          Duration? delay,
+          ({double x, double y})? position}) =>
+      click(selector,
+          button: button, clickCount: 2, delay: delay, position: position);
+
+  @override
+  Future<void> hover(String selector, {({double x, double y})? position}) =>
+      hoverTarget(mainFrame, CorePageInputHelpers.resolverForSelector(selector),
+          position: position);
+
+  @override
+  Future<void> clickTarget(CoreFrame frame, String resolverJs,
       {String button = 'left',
       int clickCount = 1,
       Duration? delay,
       ({double x, double y})? position}) async {
-    final point = await clickPointFor(selector, position: position);
+    final point =
+        await clickPointForTarget(frame, resolverJs, position: position);
     await _mouseMove(point);
     for (var count = 1; count <= clickCount; count++) {
       await _mousePressRelease(point,
@@ -176,18 +262,18 @@ class FfPage extends EventEmitter
   }
 
   @override
-  Future<void> dblclick(String selector,
-      {String button = 'left',
-      Duration? delay,
-      ({double x, double y})? position}) {
-    return click(selector,
-        button: button, clickCount: 2, delay: delay, position: position);
-  }
+  Future<void> dblclickTarget(CoreFrame frame, String resolverJs,
+          {String button = 'left',
+          Duration? delay,
+          ({double x, double y})? position}) =>
+      clickTarget(frame, resolverJs,
+          button: button, clickCount: 2, delay: delay, position: position);
 
   @override
-  Future<void> hover(String selector,
+  Future<void> hoverTarget(CoreFrame frame, String resolverJs,
       {({double x, double y})? position}) async {
-    final point = await clickPointFor(selector, position: position);
+    final point =
+        await clickPointForTarget(frame, resolverJs, position: position);
     await _mouseMove(point);
   }
 
@@ -235,8 +321,13 @@ class FfPage extends EventEmitter
 
   /// Fill an element using trusted Juggler input events.
   @override
-  Future<void> fill(String selector, String text) async {
-    await focusAndSelect(selector);
+  Future<void> fill(String selector, String text) => fillTarget(
+      mainFrame, CorePageInputHelpers.resolverForSelector(selector), text);
+
+  @override
+  Future<void> fillTarget(
+      CoreFrame frame, String resolverJs, String text) async {
+    await focusAndSelectTarget(frame, resolverJs);
     if (text.isEmpty) {
       await keyboard.press('Delete');
       return;
@@ -244,35 +335,17 @@ class FfPage extends EventEmitter
     await session.send('Page.insertText', {'text': text});
   }
 
-  /// Evaluate JavaScript in the page.
+  /// Evaluate JavaScript in the page's main frame.
   @override
   Future<dynamic> evaluate(String expression) async {
-    final trimmed = expression.trim();
-    final isFunction = trimmed.startsWith('function') ||
-        trimmed.startsWith('async function') ||
-        RegExp(r'^(?:async\s+)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>')
-            .hasMatch(trimmed);
-    final finalExpression = isFunction ? '($expression)()' : expression;
-
-    final result = await session.send('Runtime.evaluate', {
-      'expression': finalExpression,
-      'returnByValue': true,
-      if (_executionContextId != null)
-        'executionContextId': _executionContextId,
-    });
-
-    if (result['exceptionDetails'] != null) {
-      throw PlaywrightException(
-          'Evaluation failed: ${result["exceptionDetails"]}');
-    }
-
-    return result['result']?['value'];
+    final frame = await frameManager.waitForMainFrame();
+    return evaluateInFrame(frame, expression);
   }
 
   @override
   Future<CoreJSHandle> evaluateHandle(String expression) async {
-    throw UnsupportedError(
-        'evaluateHandle not fully implemented for FfPage yet');
+    final frame = await frameManager.waitForMainFrame();
+    return evaluateHandleInFrame(frame, expression);
   }
 
   /// Take a screenshot.

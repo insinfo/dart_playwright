@@ -2,9 +2,11 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:playwright_protocol/playwright_protocol.dart';
 import 'cr_execution_context.dart';
+import 'cr_js_handle.dart';
 import 'cr_input.dart';
 import 'cr_network_manager.dart';
 import 'cr_route.dart';
+import '../context_registry.dart';
 import '../core_route.dart';
 import '../../accessibility.dart';
 import '../core_page.dart';
@@ -12,23 +14,42 @@ import '../core_js_handle.dart';
 
 /// Represents a Chromium Page (tab).
 class CrPage extends EventEmitter
-    with CorePageInputHelpers, CorePageDialogs, CorePageContentHelpers
+    with
+        CorePageFrameEvaluation,
+        CorePageInputHelpers,
+        CorePageDialogs,
+        CorePageContentHelpers
     implements CorePage {
   final dynamic session;
   final CrNetworkManager networkManager;
   @override
   late final Keyboard keyboard;
-  late final CrExecutionContext executionContext;
   final _routes = <String, void Function(CoreRoute)>{};
   late final CoreFrameManager frameManager;
+  final ContextRegistry _contexts = ContextRegistry();
 
   bool _isClosed = false;
 
   CrPage._(this.session) : networkManager = CrNetworkManager(session) {
     frameManager = CoreFrameManager(this);
     keyboard = Keyboard(CrRawKeyboard(session));
-    executionContext = CrExecutionContext(session);
     forwardNetworkEvents(networkManager, this);
+
+    session.on('Runtime.executionContextCreated', (params) {
+      final context = params['context'] as Map<String, dynamic>;
+      final auxData = context['auxData'] as Map<String, dynamic>?;
+      final frameId = auxData?['frameId'] as String?;
+      // Only the main world; isolated worlds have isDefault == false.
+      if (frameId == null || auxData?['isDefault'] == false) return;
+      _contexts.contextCreated(
+          frameId, CrExecutionContext(session, context['id'] as int));
+    });
+    session.on('Runtime.executionContextDestroyed', (params) {
+      final id = params['executionContextId'] as int;
+      _contexts.contextDestroyed(id);
+      forgetExecutionContext(id);
+    });
+    session.on('Runtime.executionContextsCleared', (_) => _contexts.clear());
     session.on('closed', () => _onClosed());
     session.on('Page.javascriptDialogOpening', _onDialogOpening);
 
@@ -48,7 +69,9 @@ class CrPage extends EventEmitter
       );
     });
     session.on('Page.frameDetached', (params) {
-      frameManager.frameDetached(params['frameId'] as String);
+      final frameId = params['frameId'] as String;
+      _contexts.frameDetached(frameId);
+      frameManager.frameDetached(frameId);
     });
     session.on('Page.navigatedWithinDocument', (params) {
       frameManager.frameNavigatedWithinDocument(
@@ -140,6 +163,43 @@ class CrPage extends EventEmitter
   List<CoreFrame> get frames => frameManager.frames;
 
   @override
+  Future<CoreExecutionContext> executionContextFor(CoreFrame frame,
+      {Duration? timeout}) {
+    return _contexts.waitFor(frame.id,
+        timeout: timeout ?? const Duration(seconds: 10),
+        // The main frame's default context is addressable without an id, so a
+        // missing creation event must not make the page unusable.
+        fallback: frame.parentId == null
+            ? CrExecutionContext(session, null)
+            : null);
+  }
+
+  @override
+  Future<void> gotoFrame(CoreFrame frame, String url,
+      {WaitUntilState? waitUntil, Duration? timeout}) async {
+    final loaded = frame.waitForNavigation(
+        waitUntil: waitUntil, timeout: timeout ?? const Duration(seconds: 30));
+    loaded.catchError((_) {});
+    final result =
+        await session.send('Page.navigate', {'url': url, 'frameId': frame.id});
+    if (result['errorText'] != null) {
+      throw PlaywrightException(
+          'Navigation to $url failed: ${result['errorText']}');
+    }
+    await loaded;
+  }
+
+  @override
+  Future<CoreFrame?> contentFrame(CoreJSHandle handle) async {
+    if (handle is! CrJSHandle) return null;
+    final info = await session
+        .send('DOM.describeNode', {'objectId': handle.objectId});
+    final frameId = info['node']?['frameId'];
+    if (frameId is! String) return null;
+    return frameManager.frame(frameId);
+  }
+
+  @override
   Future<void> waitForLoadState(
       {WaitUntilState state = WaitUntilState.load, Duration? timeout}) async {
     final frame = await frameManager.waitForMainFrame();
@@ -202,24 +262,51 @@ class CrPage extends EventEmitter
 
   /// Get the page title.
   Future<String> title() async {
-    final result = await executionContext.evaluate('document.title');
+    final result = await evaluate('document.title');
     return result.toString();
   }
 
-  /// Evaluate JavaScript in the page.
+  /// Evaluate JavaScript in the page's main frame.
   @override
   Future<dynamic> evaluate(String expression) async {
-    return executionContext.evaluate(expression);
+    final frame = await frameManager.waitForMainFrame();
+    return evaluateInFrame(frame, expression);
   }
 
   /// Click an element using trusted CDP input events.
   @override
   Future<void> click(String selector,
+          {String button = 'left',
+          int clickCount = 1,
+          Duration? delay,
+          ({double x, double y})? position}) =>
+      clickTarget(mainFrame, CorePageInputHelpers.resolverForSelector(selector),
+          button: button,
+          clickCount: clickCount,
+          delay: delay,
+          position: position);
+
+  @override
+  Future<void> dblclick(String selector,
+          {String button = 'left',
+          Duration? delay,
+          ({double x, double y})? position}) =>
+      click(selector,
+          button: button, clickCount: 2, delay: delay, position: position);
+
+  @override
+  Future<void> hover(String selector, {({double x, double y})? position}) =>
+      hoverTarget(mainFrame, CorePageInputHelpers.resolverForSelector(selector),
+          position: position);
+
+  @override
+  Future<void> clickTarget(CoreFrame frame, String resolverJs,
       {String button = 'left',
       int clickCount = 1,
       Duration? delay,
       ({double x, double y})? position}) async {
-    final point = await clickPointFor(selector, position: position);
+    final point =
+        await clickPointForTarget(frame, resolverJs, position: position);
     await _mouseMove(point);
     for (var count = 1; count <= clickCount; count++) {
       await _mousePressRelease(point,
@@ -228,18 +315,18 @@ class CrPage extends EventEmitter
   }
 
   @override
-  Future<void> dblclick(String selector,
-      {String button = 'left',
-      Duration? delay,
-      ({double x, double y})? position}) {
-    return click(selector,
-        button: button, clickCount: 2, delay: delay, position: position);
-  }
+  Future<void> dblclickTarget(CoreFrame frame, String resolverJs,
+          {String button = 'left',
+          Duration? delay,
+          ({double x, double y})? position}) =>
+      clickTarget(frame, resolverJs,
+          button: button, clickCount: 2, delay: delay, position: position);
 
   @override
-  Future<void> hover(String selector,
+  Future<void> hoverTarget(CoreFrame frame, String resolverJs,
       {({double x, double y})? position}) async {
-    final point = await clickPointFor(selector, position: position);
+    final point =
+        await clickPointForTarget(frame, resolverJs, position: position);
     await _mouseMove(point);
   }
 
@@ -278,8 +365,13 @@ class CrPage extends EventEmitter
 
   /// Fill an element using trusted CDP input events.
   @override
-  Future<void> fill(String selector, String text) async {
-    await focusAndSelect(selector);
+  Future<void> fill(String selector, String text) => fillTarget(
+      mainFrame, CorePageInputHelpers.resolverForSelector(selector), text);
+
+  @override
+  Future<void> fillTarget(
+      CoreFrame frame, String resolverJs, String text) async {
+    await focusAndSelectTarget(frame, resolverJs);
     if (text.isEmpty) {
       await keyboard.press('Delete');
       return;
@@ -289,7 +381,8 @@ class CrPage extends EventEmitter
 
   @override
   Future<CoreJSHandle> evaluateHandle(String expression) async {
-    return executionContext.evaluateHandle(expression);
+    final frame = await frameManager.waitForMainFrame();
+    return evaluateHandleInFrame(frame, expression);
   }
 
   /// Take a screenshot.

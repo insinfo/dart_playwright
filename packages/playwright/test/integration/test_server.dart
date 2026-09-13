@@ -205,6 +205,82 @@ class TestServer {
             ''');
           break;
 
+        case '/frames':
+          // Two sibling frames plus a nested one, so tests can exercise frame
+          // trees, per-frame execution contexts and FrameLocator chains.
+          request.response
+            ..statusCode = 200
+            ..headers.contentType = ContentType.html
+            ..write("""
+              <html><head><title>Frames Host</title></head><body>
+                <h1 id="host">Host page</h1>
+                <iframe id="one" name="frame-one" src="/frame-one" style="width:300px;height:120px;border:2px solid black"></iframe>
+                <iframe id="two" name="frame-two" src="/frame-two" style="width:300px;height:120px"></iframe>
+              </body></html>
+            """);
+          break;
+
+        case '/frame-one':
+          request.response
+            ..statusCode = 200
+            ..headers.contentType = ContentType.html
+            ..write("""
+              <html><head><title>Frame One</title></head><body style="margin:0">
+                <div id="label">inside frame one</div>
+                <input id="field" type="text" />
+                <button id="go">Go one</button>
+                <iframe id="deep" name="frame-deep" src="/frame-nested" style="width:200px;height:60px;border:0"></iframe>
+                <script>
+                  document.getElementById('go').addEventListener('click', (e) => {
+                    window.__clickedInFrame = e.isTrusted;
+                  });
+                  document.getElementById('field').addEventListener('input', (e) => {
+                    window.__inputInFrame = e.isTrusted;
+                  });
+                </script>
+              </body></html>
+            """);
+          break;
+
+        case '/frame-two':
+          request.response
+            ..statusCode = 200
+            ..headers.contentType = ContentType.html
+            ..write("""
+              <html><head><title>Frame Two</title></head><body style="margin:0">
+                <div id="label">inside frame two</div>
+              </body></html>
+            """);
+          break;
+
+        case '/frame-nested':
+          request.response
+            ..statusCode = 200
+            ..headers.contentType = ContentType.html
+            ..write("""
+              <html><head><title>Frame Nested</title></head><body style="margin:0">
+                <div id="label">deeply nested</div>
+                <button id="deepButton">Deep</button>
+                <script>
+                  document.getElementById('deepButton').addEventListener('click', (e) => {
+                    window.__deepClicked = e.isTrusted;
+                  });
+                </script>
+              </body></html>
+            """);
+          break;
+
+        case '/empty-frame':
+          request.response
+            ..statusCode = 200
+            ..headers.contentType = ContentType.html
+            ..write("""
+              <html><head><title>Empty Frame Host</title></head><body>
+                <iframe id="target" src="/frame-two"></iframe>
+              </body></html>
+            """);
+          break;
+
         case '/visual':
           request.response
             ..statusCode = 200

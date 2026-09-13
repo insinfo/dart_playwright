@@ -2,10 +2,12 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:async';
 import 'package:playwright_protocol/playwright_protocol.dart';
+import '../context_registry.dart';
 import '../core_page.dart';
 import '../core_js_handle.dart';
 import '../core_route.dart';
 import 'wk_connection.dart';
+import 'wk_execution_context.dart';
 import 'wk_input.dart';
 import 'wk_network_manager.dart';
 import 'wk_route.dart';
@@ -17,7 +19,11 @@ import '../../accessibility.dart';
 /// [WkPageProxySession.sendToTarget]; page-level events arrive unwrapped
 /// on the same session (via `Target.dispatchMessageFromTarget`).
 class WkPage extends EventEmitter
-    with CorePageInputHelpers, CorePageDialogs, CorePageContentHelpers
+    with
+        CorePageFrameEvaluation,
+        CorePageInputHelpers,
+        CorePageDialogs,
+        CorePageContentHelpers
     implements CorePage {
   final WkPageProxySession session;
   final String? browserContextId;
@@ -25,6 +31,7 @@ class WkPage extends EventEmitter
   late final Keyboard keyboard;
   late final CoreFrameManager frameManager;
   late final WkNetworkManager networkManager;
+  final ContextRegistry _contexts = ContextRegistry();
 
   bool _isClosed = false;
 
@@ -46,7 +53,20 @@ class WkPage extends EventEmitter
       );
     });
     session.on('Page.frameDetached', (params) {
-      frameManager.frameDetached(params['frameId'] as String);
+      final frameId = params['frameId'] as String;
+      _contexts.frameDetached(frameId);
+      frameManager.frameDetached(frameId);
+    });
+    session.on('Runtime.executionContextCreated', (params) {
+      final context = params['context'] as Map<String, dynamic>;
+      final frameId = context['frameId'] as String?;
+      // Only the page's own world; utility worlds have type 'user'.
+      if (frameId == null ||
+          (context['type'] != null && context['type'] != 'normal')) {
+        return;
+      }
+      _contexts.contextCreated(
+          frameId, WkExecutionContext(session, context['id'] as int));
     });
     session.on('Page.loadEventFired', (_) {
       if (frameManager.mainFrame != null) {
@@ -116,6 +136,39 @@ class WkPage extends EventEmitter
 
   @override
   List<CoreFrame> get frames => frameManager.frames;
+
+  @override
+  Future<CoreExecutionContext> executionContextFor(CoreFrame frame,
+      {Duration? timeout}) {
+    return _contexts.waitFor(frame.id,
+        timeout: timeout ?? const Duration(seconds: 10),
+        fallback:
+            frame.parentId == null ? WkExecutionContext(session, null) : null);
+  }
+
+  @override
+  Future<void> gotoFrame(CoreFrame frame, String url,
+      {WaitUntilState? waitUntil, Duration? timeout}) async {
+    final loaded = frame.waitForNavigation(
+        waitUntil: waitUntil, timeout: timeout ?? const Duration(seconds: 30));
+    loaded.catchError((_) {});
+    await session.connection.send('Playwright.navigate', {
+      'url': url,
+      'pageProxyId': session.pageProxyId,
+      'frameId': frame.id,
+    });
+    await loaded;
+  }
+
+  @override
+  Future<CoreFrame?> contentFrame(CoreJSHandle handle) async {
+    if (handle is! WkJSHandle) return null;
+    final info = await session
+        .sendToTarget('DOM.describeNode', {'objectId': handle.objectId});
+    final contentFrameId = info['contentFrameId'];
+    if (contentFrameId is! String) return null;
+    return frameManager.frame(contentFrameId);
+  }
 
   @override
   Future<void> waitForLoadState(
@@ -188,17 +241,14 @@ class WkPage extends EventEmitter
     return result.toString();
   }
 
-  /// Click an element using trusted WebKit input events.
-  ///
-  /// Mouse events are a pageProxy-level command (`Input.dispatchMouseEvent`),
-  /// not a page-target command.
   @override
-  Future<void> click(String selector,
+  Future<void> clickTarget(CoreFrame frame, String resolverJs,
       {String button = 'left',
       int clickCount = 1,
       Duration? delay,
       ({double x, double y})? position}) async {
-    final point = await clickPointFor(selector, position: position);
+    final point =
+        await clickPointForTarget(frame, resolverJs, position: position);
     await _mouseMove(point);
     for (var count = 1; count <= clickCount; count++) {
       await _mousePressRelease(point,
@@ -207,20 +257,49 @@ class WkPage extends EventEmitter
   }
 
   @override
-  Future<void> dblclick(String selector,
-      {String button = 'left',
-      Duration? delay,
-      ({double x, double y})? position}) {
-    return click(selector,
-        button: button, clickCount: 2, delay: delay, position: position);
-  }
+  Future<void> dblclickTarget(CoreFrame frame, String resolverJs,
+          {String button = 'left',
+          Duration? delay,
+          ({double x, double y})? position}) =>
+      clickTarget(frame, resolverJs,
+          button: button, clickCount: 2, delay: delay, position: position);
 
   @override
-  Future<void> hover(String selector,
+  Future<void> hoverTarget(CoreFrame frame, String resolverJs,
       {({double x, double y})? position}) async {
-    final point = await clickPointFor(selector, position: position);
+    final point =
+        await clickPointForTarget(frame, resolverJs, position: position);
     await _mouseMove(point);
   }
+
+  /// Click an element using trusted WebKit input events.
+  ///
+  /// Mouse events are a pageProxy-level command (`Input.dispatchMouseEvent`),
+  /// not a page-target command.
+  @override
+  Future<void> click(String selector,
+          {String button = 'left',
+          int clickCount = 1,
+          Duration? delay,
+          ({double x, double y})? position}) =>
+      clickTarget(mainFrame, CorePageInputHelpers.resolverForSelector(selector),
+          button: button,
+          clickCount: clickCount,
+          delay: delay,
+          position: position);
+
+  @override
+  Future<void> dblclick(String selector,
+          {String button = 'left',
+          Duration? delay,
+          ({double x, double y})? position}) =>
+      click(selector,
+          button: button, clickCount: 2, delay: delay, position: position);
+
+  @override
+  Future<void> hover(String selector, {({double x, double y})? position}) =>
+      hoverTarget(mainFrame, CorePageInputHelpers.resolverForSelector(selector),
+          position: position);
 
   static const _buttonsMask = {'left': 1, 'right': 2, 'middle': 4};
 
@@ -262,8 +341,13 @@ class WkPage extends EventEmitter
 
   /// Fill an element using trusted WebKit input events.
   @override
-  Future<void> fill(String selector, String text) async {
-    await focusAndSelect(selector);
+  Future<void> fill(String selector, String text) => fillTarget(
+      mainFrame, CorePageInputHelpers.resolverForSelector(selector), text);
+
+  @override
+  Future<void> fillTarget(
+      CoreFrame frame, String resolverJs, String text) async {
+    await focusAndSelectTarget(frame, resolverJs);
     if (text.isEmpty) {
       // Goes through the keyboard so macCommands (deleteForward:) are
       // attached; a bare key event does not edit on macOS.
@@ -275,29 +359,14 @@ class WkPage extends EventEmitter
 
   @override
   Future<dynamic> evaluate(String expression) async {
-    final trimmed = expression.trim();
-    final isFunction = trimmed.startsWith('function') ||
-        trimmed.startsWith('async function') ||
-        RegExp(r'^(?:async\s+)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>')
-            .hasMatch(trimmed);
-    final finalExpression = isFunction ? '($expression)()' : expression;
-
-    final result = await session.sendToTarget('Runtime.evaluate', {
-      'expression': finalExpression,
-      'returnByValue': true,
-    });
-
-    if (result['wasThrown'] == true || result['exceptionDetails'] != null) {
-      throw PlaywrightException('Evaluation failed: ${result["result"]}');
-    }
-
-    return result['result']?['value'];
+    final frame = await frameManager.waitForMainFrame();
+    return evaluateInFrame(frame, expression);
   }
 
   @override
   Future<CoreJSHandle> evaluateHandle(String expression) async {
-    throw UnsupportedError(
-        'evaluateHandle not fully implemented for WkPage yet');
+    final frame = await frameManager.waitForMainFrame();
+    return evaluateHandleInFrame(frame, expression);
   }
 
   Future<List<int>> screenshot({String? path}) async {

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:playwright_protocol/playwright_protocol.dart';
+import 'core_js_handle.dart';
 import 'core_page.dart';
 
 class CoreFrame {
@@ -11,6 +12,7 @@ class CoreFrame {
   String name = '';
   String currentLoaderId = '';
   int _navigationOrdinal = 0;
+  bool _detached = false;
   final Set<String> _lifecycleEvents = {};
 
   final EventEmitter _emitter = EventEmitter();
@@ -27,6 +29,58 @@ class CoreFrame {
 
   List<CoreFrame> get childFrames =>
       manager.frames.where((frame) => frame.parentId == id).toList();
+
+  /// True once the frame has been removed from the page.
+  bool get isDetached => _detached;
+
+  void markDetached() {
+    _detached = true;
+    _emitter.emit('detached');
+  }
+
+  /// Evaluates [expression] in this frame's own execution context.
+  Future<dynamic> evaluate(String expression) =>
+      page.evaluateInFrame(this, expression);
+
+  /// Evaluates [expression] in this frame, returning a handle.
+  Future<CoreJSHandle> evaluateHandle(String expression) =>
+      page.evaluateHandleInFrame(this, expression);
+
+  /// Evaluates [expression] with the selector engine installed in this frame.
+  Future<dynamic> evaluateInjected(String expression) =>
+      page.evaluateInjected(this, expression);
+
+  /// Evaluates [expression] with the selector engine installed, returning a
+  /// handle.
+  Future<CoreJSHandle> evaluateHandleInjected(String expression) =>
+      page.evaluateHandleInjected(this, expression);
+
+  /// Navigates this frame to [url].
+  Future<void> goto(String url,
+          {WaitUntilState? waitUntil, Duration? timeout}) =>
+      page.gotoFrame(this, url, waitUntil: waitUntil, timeout: timeout);
+
+  /// The frame's document title.
+  Future<String> title() async {
+    final result = await evaluate('document.title');
+    return result?.toString() ?? '';
+  }
+
+  /// The frame's full HTML.
+  Future<String> content() async {
+    final result = await evaluate('document.documentElement.outerHTML');
+    return result?.toString() ?? '';
+  }
+
+  /// Replaces this frame's document with [html].
+  Future<void> setContent(String html,
+          {WaitUntilState? waitUntil, Duration? timeout}) =>
+      setContentVia(evaluate, html, waitUntil: waitUntil, timeout: timeout);
+
+  /// Polls [expression] in this frame until it is truthy.
+  Future<dynamic> waitForFunction(String expression,
+          {Duration? timeout, Duration? polling}) =>
+      pollForTruthy(evaluate, expression, timeout: timeout, polling: polling);
 
   bool onLifecycleEvent(String eventName) {
     if (eventName == 'init') {
@@ -222,7 +276,11 @@ class CoreFrameManager {
       // In some engines (like Firefox), we might not get frameAttached before navigated
       frameAttached(frameId, parentId);
       frame = _frames[frameId]!;
-    } else if (parentId == null) {
+    } else if (frame.parentId == null) {
+      // Trust the parent recorded when the frame was attached, not the one on
+      // this event: Firefox's Page.navigationCommitted carries no
+      // parentFrameId, so every child navigation used to promote the child to
+      // main frame and misdirect per-frame evaluation.
       _mainFrameId = frameId;
       if (!_mainFrameCompleter.isCompleted) {
         _mainFrameCompleter.complete(frame);
@@ -238,13 +296,18 @@ class CoreFrameManager {
 
   void frameDetached(String frameId) {
     final frame = _frames[frameId];
+    if (frame == null) return;
+    // Detaching a frame detaches its whole subtree; the engines only report
+    // the root of the removed tree.
+    for (final child in frame.childFrames) {
+      frameDetached(child.id);
+    }
     _frames.remove(frameId);
     if (_mainFrameId == frameId) {
       _mainFrameId = null;
     }
-    if (frame != null) {
-      page.emit('frameDetached', frame);
-    }
+    frame.markDetached();
+    page.emit('frameDetached', frame);
   }
 
   void frameLifecycleEvent(String frameId, String eventName,
