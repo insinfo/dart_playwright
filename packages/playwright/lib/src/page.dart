@@ -9,6 +9,8 @@ import 'package:playwright_protocol/playwright_protocol.dart'
     hide WaitForSelectorState;
 import 'browser_context.dart';
 import 'console_message.dart';
+import 'download.dart';
+import 'file_chooser.dart';
 import 'page_error.dart';
 import 'waiter.dart';
 import 'locator.dart';
@@ -69,7 +71,52 @@ abstract class Page {
   Future<String> title();
 
   /// Take a screenshot of the page.
-  Future<List<int>> screenshot({String? path});
+  ///
+  /// [type] is `png`, `jpeg` or `webp`; [quality] (0-100) only applies to the
+  /// lossy ones. [fullPage] captures the whole scrollable document. [clip] is
+  /// a rectangle in CSS pixels, relative to the viewport (or to the document
+  /// when [fullPage] is set). [scale] is `device` (the default, honouring the
+  /// device pixel ratio) or `css`.
+  ///
+  /// Not implemented yet: `omitBackground`, `mask`, `caret`, `animations` and
+  /// `style`.
+  Future<List<int>> screenshot({
+    String? path,
+    String type = 'png',
+    int? quality,
+    bool fullPage = false,
+    ({double x, double y, double width, double height})? clip,
+    String scale = 'device',
+  });
+
+  /// Render the page to PDF.
+  ///
+  /// **Chromium only.** Neither the Juggler nor the WebKit protocol has a
+  /// print-to-PDF command, and upstream Playwright has the same limit; the
+  /// other two engines throw [UnsupportedError].
+  ///
+  /// Sizes are in inches. [format] names a paper size (`letter`, `legal`,
+  /// `tabloid`, `ledger`, `a0`..`a6`) and wins over [width]/[height].
+  Future<List<int>> pdf({
+    String? path,
+    bool landscape = false,
+    bool displayHeaderFooter = false,
+    String headerTemplate = '',
+    String footerTemplate = '',
+    bool printBackground = false,
+    double scale = 1,
+    String? format,
+    double? width,
+    double? height,
+    double marginTop = 0,
+    double marginBottom = 0,
+    double marginLeft = 0,
+    double marginRight = 0,
+    String pageRanges = '',
+    bool preferCSSPageSize = false,
+    bool tagged = false,
+    bool outline = false,
+  });
 
   /// Get the accessibility snapshot.
   Future<AccessibilitySnapshot> accessibilitySnapshot();
@@ -78,6 +125,16 @@ abstract class Page {
   ///
   /// Overrides the viewport the context was created with, for this page only.
   Future<void> setViewportSize(int width, int height);
+
+  /// Point the `<input type=file>` matched by [selector] at [paths].
+  Future<void> setInputFiles(String selector, List<String> paths,
+      {Duration? timeout});
+
+  /// Turn file chooser interception on or off.
+  ///
+  /// Reading [onFileChooser] or calling [waitForFileChooser] turns it on for
+  /// you; this is here for turning it back off.
+  Future<void> setInterceptFileChooser(bool enabled);
 
   /// Set headers sent with every request this page makes.
   ///
@@ -268,6 +325,25 @@ abstract class Page {
   /// content.
   Stream<Page> get onPopup;
 
+  /// Event emitted when the page opens a file chooser.
+  ///
+  /// Reading this getter turns interception on, because a chooser that was
+  /// not intercepted has already become a native dialog by the time anyone
+  /// could listen. Use [setInterceptFileChooser] to turn it back off.
+  Stream<FileChooser> get onFileChooser;
+
+  /// Wait for the page to open a file chooser.
+  Future<FileChooser> waitForFileChooser({Duration? timeout});
+
+  /// Event emitted when the page starts a download.
+  ///
+  /// Whether downloads happen at all is a context option; see
+  /// `Browser.newContext(acceptDownloads:)`.
+  Stream<Download> get onDownload;
+
+  /// Wait for the page to start a download.
+  Future<Download> waitForDownload({Duration? timeout});
+
   /// Event emitted when the page's renderer crashes.
   ///
   /// The page becomes unusable; every pending operation on it fails.
@@ -368,8 +444,74 @@ class PageImpl implements Page {
   Future<String> title() => _corePage.title();
 
   @override
-  Future<List<int>> screenshot({String? path}) =>
-      _corePage.screenshot(path: path);
+  Future<List<int>> screenshot({
+    String? path,
+    String type = 'png',
+    int? quality,
+    bool fullPage = false,
+    ({double x, double y, double width, double height})? clip,
+    String scale = 'device',
+  }) =>
+      _corePage.screenshot(
+        path: path,
+        options: CoreScreenshotOptions(
+          type: type,
+          quality: quality,
+          fullPage: fullPage,
+          clip: clip == null
+              ? null
+              : CoreRect(
+                  x: clip.x,
+                  y: clip.y,
+                  width: clip.width,
+                  height: clip.height),
+          scale: scale,
+        ),
+      );
+
+  @override
+  Future<List<int>> pdf({
+    String? path,
+    bool landscape = false,
+    bool displayHeaderFooter = false,
+    String headerTemplate = '',
+    String footerTemplate = '',
+    bool printBackground = false,
+    double scale = 1,
+    String? format,
+    double? width,
+    double? height,
+    double marginTop = 0,
+    double marginBottom = 0,
+    double marginLeft = 0,
+    double marginRight = 0,
+    String pageRanges = '',
+    bool preferCSSPageSize = false,
+    bool tagged = false,
+    bool outline = false,
+  }) =>
+      _corePage.pdf(
+        path: path,
+        options: CorePdfOptions(
+          landscape: landscape,
+          displayHeaderFooter: displayHeaderFooter,
+          headerTemplate: headerTemplate,
+          footerTemplate: footerTemplate,
+          printBackground: printBackground,
+          scale: scale,
+          format: format,
+          width: width,
+          height: height,
+          marginTop: marginTop,
+          marginBottom: marginBottom,
+          marginLeft: marginLeft,
+          marginRight: marginRight,
+          pageRanges: pageRanges,
+          preferCSSPageSize: preferCSSPageSize,
+          tagged: tagged,
+          outline: outline,
+        ),
+      );
 
   @override
   Future<AccessibilitySnapshot> accessibilitySnapshot() =>
@@ -382,6 +524,15 @@ class PageImpl implements Page {
   @override
   Future<void> setExtraHTTPHeaders(Map<String, String> headers) =>
       _corePage.setExtraHTTPHeaders(headers);
+
+  @override
+  Future<void> setInputFiles(String selector, List<String> paths,
+          {Duration? timeout}) =>
+      locator(selector).setInputFiles(paths, timeout: timeout, strict: false);
+
+  @override
+  Future<void> setInterceptFileChooser(bool enabled) =>
+      _corePage.setInterceptFileChooser(enabled);
 
   final _routePatterns = <String>{};
 
@@ -641,6 +792,39 @@ class PageImpl implements Page {
 
   @override
   Stream<void> get onCrash => _corePage.stream<void>('crash');
+
+  /// Interception is turned on the first time anybody asks for the stream;
+  /// re-arming it is cheap and idempotent on all three engines.
+  @override
+  Stream<FileChooser> get onFileChooser {
+    _corePage.setInterceptFileChooser(true).catchError((Object _) {});
+    return _corePage.stream<CoreFileChooser>('filechooser').map((chooser) =>
+        FileChooserImpl(this, chooser, (paths) async {
+          final frame = _corePage.mainFrame;
+          await _corePage.setInputFilePaths(frame, chooser.element, paths);
+        }));
+  }
+
+  @override
+  Stream<Download> get onDownload =>
+      _corePage.stream<CoreDownload>('download').map(DownloadImpl.new);
+
+  @override
+  Future<Download> waitForDownload({Duration? timeout}) => waitForStreamEvent(
+        'download',
+        onDownload,
+        timeout: timeout,
+        abortOn: _pageAborts,
+      );
+
+  @override
+  Future<FileChooser> waitForFileChooser({Duration? timeout}) =>
+      waitForStreamEvent(
+        'filechooser',
+        onFileChooser,
+        timeout: timeout,
+        abortOn: _pageAborts,
+      );
 
   /// The waits that a page-scoped waiter gives up on: the page closing and
   /// the page crashing, exactly the two upstream registers.

@@ -7,8 +7,25 @@ abstract class Route {
   /// The request being intercepted.
   Request request();
 
-  /// Continue the request.
-  Future<void> continue_();
+  /// Continue the request, optionally rewriting it on the way out.
+  ///
+  /// [headers] replaces the request headers wholesale; a name given here
+  /// wins over the one the request carried, and the casing is preserved.
+  /// Changing the URL to a different protocol is rejected by the engines.
+  Future<void> continue_({
+    String? url,
+    String? method,
+    Map<String, String>? headers,
+    String? postData,
+    List<int>? postDataBytes,
+  });
+
+  /// Decline this route, so the next matching handler receives it.
+  ///
+  /// Handlers run newest first; when the last one falls back, the request
+  /// continues untouched. This is the one method here that touches no
+  /// protocol at all.
+  Future<void> fallback();
 
   /// Fulfill the request with the given response.
   ///
@@ -23,6 +40,13 @@ abstract class Route {
       Object? json});
 
   /// Abort the request.
+  ///
+  /// [errorCode] is one of `aborted`, `accessdenied`, `addressunreachable`,
+  /// `blockedbyclient`, `blockedbyresponse`, `connectionaborted`,
+  /// `connectionclosed`, `connectionfailed`, `connectionrefused`,
+  /// `connectionreset`, `internetdisconnected`, `namenotresolved`,
+  /// `timedout` or `failed`. Each engine maps it onto what it understands;
+  /// WebKit only distinguishes four outcomes, so most codes collapse there.
   Future<void> abort([String errorCode = 'failed']);
 }
 
@@ -38,7 +62,26 @@ class RouteImpl implements Route {
   Request request() => _request;
 
   @override
-  Future<void> continue_() => _coreRoute.continue_();
+  Future<void> continue_({
+    String? url,
+    String? method,
+    Map<String, String>? headers,
+    String? postData,
+    List<int>? postDataBytes,
+  }) {
+    assert(postData == null || postDataBytes == null,
+        'pass postData or postDataBytes, not both');
+    return _coreRoute.continue_(
+      url: url,
+      method: method,
+      headers: headers,
+      postData: postDataBytes ??
+          (postData == null ? null : utf8.encode(postData)),
+    );
+  }
+
+  @override
+  Future<void> fallback() => _coreRoute.fallback();
 
   @override
   Future<void> fulfill(

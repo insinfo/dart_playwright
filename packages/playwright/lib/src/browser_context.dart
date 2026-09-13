@@ -2,11 +2,14 @@ import 'dart:async';
 
 import 'package:playwright_core/src/server/core_browser.dart';
 import 'package:playwright_core/src/server/core_events.dart' as core_events;
-import 'package:playwright_core/src/server/core_page.dart' show CorePage;
+import 'package:playwright_core/src/server/core_page.dart'
+    show CoreDownload, CorePage;
 import 'package:playwright_core/src/server/dialog.dart' as core;
 import 'package:playwright_protocol/playwright_protocol.dart';
+import 'api_request.dart';
 import 'console_message.dart';
 import 'dialog.dart';
+import 'download.dart';
 import 'network.dart';
 import 'page.dart';
 import 'page_error.dart';
@@ -46,6 +49,13 @@ abstract class BrowserContext {
   /// Close the context and every page that belongs to it.
   Future<void> close();
 
+  /// An HTTP client that shares this context's cookie jar.
+  ///
+  /// Cookies stored in the context are sent with the request, and
+  /// `Set-Cookie` on the response is written back, so a session established
+  /// through the API is visible to the pages and the other way round.
+  APIRequestContext get request;
+
   /// Event emitted when a page is opened in this context.
   Stream<Page> get onPage;
 
@@ -63,6 +73,9 @@ abstract class BrowserContext {
   /// Subscribing here suppresses the automatic dismissal, exactly as
   /// subscribing on the page does; see [Page.onDialog].
   Stream<Dialog> get onDialog;
+
+  /// Event emitted when any page in this context starts a download.
+  Stream<Download> get onDownload;
 
   /// Event emitted when any page in this context issues a request.
   Stream<Request> get onRequest;
@@ -132,6 +145,12 @@ class BrowserContextImpl implements BrowserContext {
   @override
   Future<void> close() => _coreContext.close();
 
+  late final APIRequestContext _request =
+      APIRequestContextImpl(cookieOwner: this);
+
+  @override
+  APIRequestContext get request => _request;
+
   @override
   Stream<Page> get onPage =>
       _coreContext.stream<CorePage>('page').map(PageImpl.forCore);
@@ -153,6 +172,10 @@ class BrowserContextImpl implements BrowserContext {
   Stream<Dialog> get onDialog => _coreContext
       .stream<core.Dialog>('dialog')
       .map((coreDialog) => DialogImpl(coreDialog));
+
+  @override
+  Stream<Download> get onDownload =>
+      _coreContext.stream<CoreDownload>('download').map(DownloadImpl.new);
 
   @override
   Stream<Request> get onRequest =>

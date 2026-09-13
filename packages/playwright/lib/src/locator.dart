@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:playwright_protocol/playwright_protocol.dart'
     show PlaywrightException, TimeoutException;
@@ -200,6 +201,28 @@ abstract class Locator with LocatorFactory {
   /// Fill an input field.
   Future<void> fill(String text,
       {Duration? timeout, bool strict = true, bool force = false});
+
+  /// Point this `<input type=file>` at [paths].
+  ///
+  /// The engines resolve the paths in the browser process, so the files have
+  /// to exist where the browser runs; passing bytes instead is not supported
+  /// yet. An empty list clears the input.
+  Future<void> setInputFiles(List<String> paths,
+      {Duration? timeout, bool strict = true});
+
+  /// Take a screenshot of this element.
+  ///
+  /// Waits for the element to be visible and stable, scrolls it into view and
+  /// captures exactly its box. [type], [quality] and [scale] work as in
+  /// [Page.screenshot].
+  Future<List<int>> screenshot({
+    String? path,
+    String type = 'png',
+    int? quality,
+    String scale = 'device',
+    Duration? timeout,
+    bool strict = true,
+  });
 
   /// Clear the input field.
   Future<void> clear({Duration? timeout, bool strict = true, bool force = false});
@@ -633,6 +656,73 @@ class LocatorImpl extends Locator {
         strict: strict,
         force: force);
     await _corePage.fillTarget(target.frame, target.resolver, text);
+  }
+
+  @override
+  Future<void> setInputFiles(List<String> paths,
+      {Duration? timeout, bool strict = true}) async {
+    // The file input does not have to be visible — upstream explicitly
+    // supports the common pattern of a hidden input driven by a styled
+    // button — so only attachment is required here.
+    final resolved = await _poll(timeout ?? kDefaultLocatorTimeout, () async {
+      final frames = await _resolveFrames(strict);
+      final handle = await frames.frame.evaluateHandleInjected('''
+        () => {
+          const el = window.__pwDart.query(${jsonEncode(_selector.parts)}, $strict);
+          if (!el) throw new Error('Element not found');
+          const input = window.__pwDart.retarget(el, 'follow-label');
+          if (!input || input.tagName !== 'INPUT' || input.type !== 'file')
+            throw new Error('Element is not an <input type=file>');
+          return input;
+        }
+      ''');
+      return (frame: frames.frame, handle: handle);
+    });
+    try {
+      if (paths.isEmpty) {
+        // Chromium's DOM.setFileInputFiles ignores an empty list, so clearing
+        // goes through the DOM instead. Assigning '' is the one mutation the
+        // HTML spec allows on a file input, and it works on every engine.
+        await resolved.handle.evaluate('''
+          (el) => {
+            el.value = '';
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+        ''');
+        return;
+      }
+      // The engines resolve the paths themselves; the core normalizes them to
+      // absolute, native-separator form first.
+      await _corePage.setInputFilePaths(resolved.frame, resolved.handle, paths);
+    } finally {
+      await resolved.handle.dispose().catchError((Object _) {});
+    }
+  }
+
+  @override
+  Future<List<int>> screenshot({
+    String? path,
+    String type = 'png',
+    int? quality,
+    String scale = 'device',
+    Duration? timeout,
+    bool strict = true,
+  }) async {
+    final target = await _waitForActionable(
+        states: const ['visible', 'stable'],
+        timeout: timeout,
+        strict: strict);
+    final rect =
+        await _corePage.documentRectForTarget(target.frame, target.resolver);
+    final options = CoreScreenshotOptions(
+        type: type, quality: quality, scale: scale);
+    options.validate();
+    final bytes = await _corePage.screenshotRect(rect, options,
+        // An element taller than the viewport still has to be captured whole.
+        fitsViewport: false);
+    if (path != null) await File(path).writeAsBytes(bytes);
+    return bytes;
   }
 
   @override

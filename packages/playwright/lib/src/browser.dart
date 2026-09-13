@@ -7,8 +7,16 @@ abstract class Browser {
   ///
   /// [viewport] sets the page viewport size and [userAgent] overrides the
   /// browser user agent for every page in the context.
-  Future<BrowserContext> newContext(
-      {({int width, int height})? viewport, String? userAgent});
+  ///
+  /// [acceptDownloads] decides whether downloads are written to disk at all;
+  /// with it off the engines refuse them. [downloadsPath] is where they land,
+  /// defaulting to a temporary directory removed when the browser closes.
+  Future<BrowserContext> newContext({
+    ({int width, int height})? viewport,
+    String? userAgent,
+    bool acceptDownloads,
+    String? downloadsPath,
+  });
 
   /// Currently open browser contexts.
   List<BrowserContext> contexts();
@@ -32,11 +40,19 @@ class BrowserImpl implements Browser {
   BrowserImpl(this._coreBrowser);
 
   @override
-  Future<BrowserContext> newContext(
-      {({int width, int height})? viewport, String? userAgent}) async {
+  Future<BrowserContext> newContext({
+    ({int width, int height})? viewport,
+    String? userAgent,
+    bool acceptDownloads = true,
+    String? downloadsPath,
+  }) async {
     final coreContext = await _coreBrowser.createBrowserContext(
-        options:
-            CoreContextOptions(viewport: viewport, userAgent: userAgent));
+        options: CoreContextOptions(
+      viewport: viewport,
+      userAgent: userAgent,
+      acceptDownloads: acceptDownloads,
+      downloadsPath: downloadsPath,
+    ));
     return BrowserContextImpl.forCore(coreContext);
   }
 

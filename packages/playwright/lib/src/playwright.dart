@@ -1,4 +1,5 @@
 import 'package:playwright_core/playwright_core.dart';
+import 'api_request.dart';
 import 'browser_type.dart';
 
 /// The entry point for Playwright Dart.
@@ -7,6 +8,9 @@ class Playwright {
   late final BrowserType chromium;
   late final BrowserType firefox;
   late final BrowserType webkit;
+
+  /// Creates HTTP request contexts that do not need a browser at all.
+  final APIRequest request = const APIRequest();
 
   Playwright._(this._registry) {
     // We instantiate wrappers around the core engine types
