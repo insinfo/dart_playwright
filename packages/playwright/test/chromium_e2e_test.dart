@@ -28,6 +28,23 @@ void main() {
       await server.close(force: true);
     });
 
+    test('waitForTimeout espera pelo menos o tempo pedido', () async {
+      final context = await browser.newContext();
+      final page = await context.newPage();
+      await page.goto('http://127.0.0.1:${server.port}');
+
+      final relogio = Stopwatch()..start();
+      await page.waitForTimeout(const Duration(milliseconds: 300));
+      relogio.stop();
+
+      // Espera fixa e ruim em teste, e por isso este e o unico lugar onde ela
+      // aparece: o que se verifica aqui e a propria espera. A margem cobre a
+      // resolucao do temporizador, mas nao chega perto de deixar passar uma
+      // implementacao que nao espere.
+      expect(relogio.elapsedMilliseconds, greaterThanOrEqualTo(290));
+      await context.close();
+    });
+
     test('Deve navegar e extrair o título corretamente', () async {
       final context = await browser.newContext();
       final page = await context.newPage();

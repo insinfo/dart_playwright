@@ -45,6 +45,15 @@ abstract class Page {
   Future<dynamic> waitForFunction(String expression,
       {Duration? timeout, Duration? polling});
 
+  /// Wait for [timeout] to elapse.
+  ///
+  /// Never wait on a fixed delay in a test: it is flaky when the machine is
+  /// slow and wasteful when it is fast. Use [waitForSelector],
+  /// [waitForFunction] or [waitForLoadState] instead. This exists because
+  /// upstream has it, and it is honest for debugging and for scripting a page
+  /// whose readiness has no observable signal.
+  Future<void> waitForTimeout(Duration timeout);
+
   /// Get the page title.
   Future<String> title();
 
@@ -215,6 +224,10 @@ class PageImpl implements Page {
           {Duration? timeout, Duration? polling}) =>
       _corePage.waitForFunction(expression,
           timeout: timeout, polling: polling);
+
+  @override
+  Future<void> waitForTimeout(Duration timeout) =>
+      Future<void>.delayed(timeout);
 
   @override
   Future<String> title() => _corePage.title();
