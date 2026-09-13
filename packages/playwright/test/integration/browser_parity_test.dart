@@ -265,10 +265,11 @@ void main() {
 
         test('Deve aceitar dialog prompt com texto', () async {
           await page.goto(server.url('/dialog'));
-          page.onDialog((dialog) {
+          final dialogs = page.onDialog.listen((dialog) {
             expect(dialog.type, equals('prompt'));
             dialog.accept('Playwright');
           });
+          addTearDown(dialogs.cancel);
           await page.evaluate('() => window.runPrompt()');
           expect(await page.locator('#result').textContent(),
               equals('got:Playwright'));

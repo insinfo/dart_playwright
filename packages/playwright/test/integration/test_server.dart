@@ -1,5 +1,6 @@
-import 'dart:io';
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 class TestServer {
   final HttpServer _server;
@@ -33,6 +34,22 @@ class TestServer {
           ..write('<html><body>slow</body></html>');
         request.response.close().catchError((_) {});
       });
+      return;
+    }
+
+    // Echoes the request headers as JSON; used to prove setExtraHTTPHeaders
+    // reaches the wire. Handled before the switch so the header map is read
+    // from the live request.
+    if (path == '/echo-headers') {
+      final headers = <String, String>{};
+      request.headers.forEach((name, values) {
+        headers[name.toLowerCase()] = values.join(', ');
+      });
+      request.response
+        ..statusCode = 200
+        ..headers.contentType = ContentType.json
+        ..write(jsonEncode(headers));
+      request.response.close().catchError((_) {});
       return;
     }
 
@@ -381,6 +398,57 @@ class TestServer {
             ..write("""
               <html><head><title>Empty Frame Host</title></head><body>
                 <iframe id="target" src="/frame-two"></iframe>
+              </body></html>
+            """);
+          break;
+
+        // Opens a popup via window.open and via a target=_blank link.
+        case '/popup':
+          request.response
+            ..statusCode = 200
+            ..headers.contentType = ContentType.html
+            ..write("""
+              <html><head><title>Popup Host</title></head><body>
+                <a id="link" href="/popup-target" target="_blank">open</a>
+                <button id="open" onclick="window.open('/popup-target')">open</button>
+              </body></html>
+            """);
+          break;
+
+        case '/popup-target':
+          request.response
+            ..statusCode = 200
+            ..headers.contentType = ContentType.html
+            ..write(
+                '<html><head><title>Popup Target</title></head><body><h1 id="popup">I am a popup</h1></body></html>');
+          break;
+
+        // console.* on demand, so a test can start listening first.
+        case '/console':
+          request.response
+            ..statusCode = 200
+            ..headers.contentType = ContentType.html
+            ..write("""
+              <html><body>
+                <script>
+                  window.emitLog = () => console.log('hello', 42);
+                  window.emitWarning = () => console.warn('watch out');
+                  window.emitError = () => console.error('it broke');
+                </script>
+              </body></html>
+            """);
+          break;
+
+        // Throws an uncaught error on demand.
+        case '/pageerror':
+          request.response
+            ..statusCode = 200
+            ..headers.contentType = ContentType.html
+            ..write("""
+              <html><body>
+                <script>
+                  window.boom = () => { setTimeout(() => { throw new TypeError('kaboom'); }, 0); };
+                </script>
               </body></html>
             """);
           break;
