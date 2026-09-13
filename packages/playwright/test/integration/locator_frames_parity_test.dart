@@ -643,6 +643,40 @@ void main() {
               equals('Save'));
           expect(await page.locator('text="Beta"').count(), equals(1));
         });
+
+        // ------------------------------------------------- hit target
+
+        test('Deve recusar clique em elemento coberto por overlay', () async {
+          await page.goto(server.url('/occluded'));
+          await expectLater(
+            page
+                .locator('#target')
+                .click(timeout: const Duration(milliseconds: 800)),
+            throwsA(isA<TimeoutException>()),
+          );
+          expect(await page.evaluate('() => window.__hit'), isFalse);
+        });
+
+        test('force deve pular a verificacao de hit target', () async {
+          await page.goto(server.url('/occluded'));
+          // The overlay swallows the real click, so the button never fires;
+          // what `force` proves is that the check is skipped and the action
+          // is dispatched instead of timing out.
+          await page
+              .locator('#target')
+              .click(force: true, timeout: const Duration(seconds: 5));
+        });
+
+        test('Deve clicar assim que o overlay sai da frente', () async {
+          await page.goto(server.url('/occluded'));
+          final click = page
+              .locator('#target')
+              .click(timeout: const Duration(seconds: 15));
+          await page.evaluate('() => setTimeout(() => window.uncover(), 200)');
+          await click;
+          expect(await page.evaluate('() => window.__hit'), isTrue);
+        });
+
       });
     }
   });

@@ -491,7 +491,14 @@ class LocatorImpl extends Locator {
       case 'notfound':
         throw _NotResolved('element not found');
       case 'state':
-        throw _NotResolved('element is not ${map['state']}');
+        final state = '${map['state']}';
+        // The hit-target check reports what is in the way, so the timeout can
+        // name the overlay instead of just saying "not actionable".
+        if (state.startsWith('receivesEvents:')) {
+          throw _NotResolved('element does not receive pointer events: '
+              '${state.substring('receivesEvents:'.length)} intercepts them');
+        }
+        throw _NotResolved('element is not $state');
       default:
         throw _NotResolved('unknown result $map');
     }
@@ -517,17 +524,24 @@ class LocatorImpl extends Locator {
 
   /// Waits until the element is actionable, then hands the engine the frame
   /// and the resolver expression it needs to dispatch real input.
+  ///
+  /// [position] only matters for the `receivesEvents` check, which has to hit
+  /// test the exact point the action will aim at.
   Future<({CoreFrame frame, String resolver})> _waitForActionable(
       {required List<String> states,
       Duration? timeout,
       bool strict = true,
-      bool force = false}) {
+      bool force = false,
+      ({double x, double y})? position}) {
     final effectiveStates = force ? const <String>[] : states;
+    final options = position == null
+        ? 'undefined'
+        : '{ position: { x: ${position.x}, y: ${position.y} } }';
     return _poll(timeout ?? kDefaultLocatorTimeout, () async {
       final resolved = await _resolveFrames(strict);
       final result = await resolved.frame.evaluateInjected('''
         () => window.__pwDart.run(${jsonEncode(resolved.parts)}, $strict,
-            ${jsonEncode(effectiveStates)}, (el) => true)
+            ${jsonEncode(effectiveStates)}, (el) => true, undefined, $options)
       ''');
       _unwrap(result);
       return (
@@ -539,7 +553,18 @@ class LocatorImpl extends Locator {
 
   CorePage get _corePage => _frame.coreFrame.page;
 
-  static const _clickStates = ['visible', 'stable', 'enabled'];
+  /// The states upstream requires before a click: visible, not moving, not
+  /// disabled, and actually reachable by a pointer at the action point.
+  static const _clickStates = [
+    'visible',
+    'stable',
+    'enabled',
+    'receivesEvents'
+  ];
+
+  /// Hover does not need the element to be enabled, but it does need the
+  /// pointer to reach it.
+  static const _hoverStates = ['visible', 'stable', 'receivesEvents'];
 
   // ---------------------------------------------------------------- actions
 
@@ -553,7 +578,11 @@ class LocatorImpl extends Locator {
       bool strict = true,
       bool force = false}) async {
     final target = await _waitForActionable(
-        states: _clickStates, timeout: timeout, strict: strict, force: force);
+        states: _clickStates,
+        timeout: timeout,
+        strict: strict,
+        force: force,
+        position: position);
     await _corePage.clickTarget(target.frame, target.resolver,
         button: button,
         clickCount: clickCount,
@@ -570,7 +599,11 @@ class LocatorImpl extends Locator {
       bool strict = true,
       bool force = false}) async {
     final target = await _waitForActionable(
-        states: _clickStates, timeout: timeout, strict: strict, force: force);
+        states: _clickStates,
+        timeout: timeout,
+        strict: strict,
+        force: force,
+        position: position);
     await _corePage.dblclickTarget(target.frame, target.resolver,
         button: button, delay: delay, position: position);
   }
@@ -582,10 +615,11 @@ class LocatorImpl extends Locator {
       bool strict = true,
       bool force = false}) async {
     final target = await _waitForActionable(
-        states: const ['visible', 'stable'],
+        states: _hoverStates,
         timeout: timeout,
         strict: strict,
-        force: force);
+        force: force,
+        position: position);
     await _corePage.hoverTarget(target.frame, target.resolver,
         position: position);
   }

@@ -453,6 +453,25 @@ class TestServer {
             """);
           break;
 
+        // A button fully covered by an overlay: clicking it must be refused,
+        // not silently delivered to the overlay.
+        case '/occluded':
+          request.response
+            ..statusCode = 200
+            ..headers.contentType = ContentType.html
+            ..write("""
+              <html><body style="margin:0">
+                <button id="target" style="position:absolute; left:20px; top:20px; width:200px; height:60px;"
+                        onclick="window.__hit = true">Click me</button>
+                <div id="overlay" style="position:absolute; left:0; top:0; width:400px; height:200px; background:rgba(0,0,0,0.4)"></div>
+                <script>
+                  window.__hit = false;
+                  window.uncover = () => document.getElementById('overlay').remove();
+                </script>
+              </body></html>
+            """);
+          break;
+
         case '/visual':
           request.response
             ..statusCode = 200

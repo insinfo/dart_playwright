@@ -28,8 +28,9 @@ missing and when it is planned.
   `visible`, `all`), actions, state, evaluation and `waitFor`.
 - `getByRole`, `getByText`, `getByLabel`, `getByPlaceholder`, `getByAltText`,
   `getByTitle`, `getByTestId` on `Page`, `Frame`, `Locator` and `FrameLocator`.
-- Auto-waiting actionability: `visible`, `stable`, `enabled`, `editable`,
-  retried until the timeout, with `force` and `strict`.
+- Auto-waiting actionability: `visible`, `stable`, `enabled`, `editable` and
+  `receivesEvents` (hit-target testing, so an element covered by another is
+  not clicked), retried until the timeout, with `force` and `strict`.
 - `Mouse` and `Keyboard` dispatching trusted protocol input, including macOS
   editing commands on WebKit.
 

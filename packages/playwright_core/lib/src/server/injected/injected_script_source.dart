@@ -1462,8 +1462,95 @@ function checkElementIsStable(element) {
       previous.width === rect.width && previous.height === rect.height;
 }
 
+// Ports injectedScript.ts#expectHitTarget: does a click at the action point
+// actually land on this element, or is something on top of it?
+//
+// The walk starts at the outermost root and descends through shadow roots,
+// because elementFromPoint only ever reports the top node of the root it is
+// called on. The element that finally answers counts as a hit when it is the
+// target itself or one of its descendants.
+function hitTargetAt(element, point) {
+  const roots = [];
+  let parentElement = element;
+  while (parentElement) {
+    const root = enclosingShadowRootOrDocument(parentElement);
+    if (!root)
+      break;
+    roots.push(root);
+    if (root.nodeType === 9 /* Node.DOCUMENT_NODE */)
+      break;
+    parentElement = root.host;
+  }
+
+  let hitElement;
+  for (let index = roots.length - 1; index >= 0; index--) {
+    const root = roots[index];
+    // `display: contents` boxes are skipped by elementsFromPoint but are what
+    // elementFromPoint answers, so put them back at the front.
+    const elements = root.elementsFromPoint(point.x, point.y);
+    const singleElement = root.elementFromPoint(point.x, point.y);
+    if (singleElement && elements[0] &&
+        parentElementOrShadowHost(singleElement) === elements[0]) {
+      const style = document.defaultView.getComputedStyle(singleElement);
+      if (style && style.display === 'contents')
+        elements.unshift(singleElement);
+    }
+    if (elements[0] && elements[0].shadowRoot === root &&
+        elements[1] === singleElement)
+      elements.shift();
+    const innerElement = elements[0];
+    if (!innerElement)
+      break;
+    hitElement = innerElement;
+    if (index && innerElement !== roots[index - 1].host)
+      break;
+  }
+
+  let cursor = hitElement;
+  while (cursor && cursor !== element)
+    cursor = parentElementOrShadowHost(cursor);
+  if (cursor === element)
+    return null;
+
+  // A label that forwards to the target is a legitimate hit: clicking it acts
+  // on the control, which is what the caller asked for.
+  if (hitElement && hitElement.closest) {
+    const label = hitElement.closest('label');
+    if (label && label.control === element)
+      return null;
+  }
+
+  return hitElement ? describeNodeBriefly(hitElement) : 'nothing';
+}
+
+// A short, human-readable form of the element that intercepted the click, so
+// the timeout says what is in the way instead of just "not actionable".
+function describeNodeBriefly(node) {
+  if (!node || node.nodeType !== 1 /* Node.ELEMENT_NODE */)
+    return String(node);
+  let description = node.nodeName.toLowerCase();
+  if (node.id)
+    description += '#' + node.id;
+  else if (node.classList && node.classList.length)
+    description += '.' + Array.from(node.classList).join('.');
+  const text = normalizeWhiteSpace(node.textContent || '').slice(0, 30);
+  return text ? '<' + description + '> "' + text + '"' : '<' + description + '>';
+}
+
+// The viewport point an action on this element would aim at: the centre of
+// its box, or `position` measured from its top-left corner. Mirrors what the
+// Dart side computes in clickPointForTarget, before the walk up through any
+// owning iframes.
+function actionPointFor(element, position) {
+  element.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+  const rect = element.getBoundingClientRect();
+  if (position)
+    return { x: rect.left + position.x, y: rect.top + position.y };
+  return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+}
+
 // Returns the name of the first state the element does not satisfy, or null.
-function checkStates(node, states) {
+function checkStates(node, states, options) {
   for (const state of states) {
     if (state === 'stable') {
       const element = retarget(node, 'no-follow-label');
@@ -1471,6 +1558,16 @@ function checkStates(node, states) {
         return 'attached';
       if (!checkElementIsStable(element))
         return 'stable';
+      continue;
+    }
+    if (state === 'receivesEvents') {
+      const element = retarget(node, 'no-follow-label');
+      if (!element || !element.isConnected)
+        return 'attached';
+      const point = actionPointFor(element, options && options.position);
+      const blocker = hitTargetAt(element, point);
+      if (blocker)
+        return 'receivesEvents:' + blocker;
       continue;
     }
     const result = elementState(node, state);
@@ -1515,12 +1612,13 @@ window.__pwDart = {
   retarget,
   elementState,
   checkStates,
+  hitTargetAt,
 
   /// Resolves the selector, checks actionability and runs `body(el)`.
   ///
   /// Returns `{error}` instead of throwing so the Dart-side retry loop can
   /// tell "not there yet" apart from a real failure.
-  run(parts, strict, states, body, root) {
+  run(parts, strict, states, body, root, options) {
     let element;
     try {
       element = this.query(parts, strict, root);
@@ -1530,7 +1628,7 @@ window.__pwDart = {
     if (!element)
       return { error: 'notfound' };
     if (states && states.length) {
-      const missing = checkStates(element, states);
+      const missing = checkStates(element, states, options);
       if (missing)
         return { error: 'state', state: missing };
     }
