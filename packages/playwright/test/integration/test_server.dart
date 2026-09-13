@@ -53,6 +53,60 @@ class TestServer {
       return;
     }
 
+    // Echoes method, headers and body as JSON, so a test can prove what
+    // actually reached the server after a route rewrote the request.
+    if (path == '/echo-request') {
+      final headers = <String, String>{};
+      request.headers.forEach((name, values) {
+        headers[name.toLowerCase()] = values.join(', ');
+      });
+      utf8.decoder.bind(request).join().then((body) {
+        request.response
+          ..statusCode = 200
+          ..headers.contentType = ContentType.json
+          ..headers.set('X-Echo', 'yes')
+          ..write(jsonEncode({
+            'method': request.method,
+            'headers': headers,
+            'body': body,
+          }));
+        request.response.close().catchError((_) {});
+      });
+      return;
+    }
+
+    // 302 to /redirect-end, for the redirect chain.
+    if (path == '/redirect-start') {
+      request.response
+        ..statusCode = 302
+        ..headers.set(HttpHeaders.locationHeader, '/redirect-end');
+      request.response.close().catchError((_) {});
+      return;
+    }
+
+    // A file the browser must download rather than render.
+    if (path == '/download-file') {
+      request.response
+        ..statusCode = 200
+        ..headers.contentType = ContentType('application', 'octet-stream')
+        ..headers.set('Content-Disposition', 'attachment; filename="report.txt"')
+        ..write('downloaded payload');
+      request.response.close().catchError((_) {});
+      return;
+    }
+
+    // Sets a session cookie, so an API request and a page can be shown to
+    // share one jar.
+    if (path == '/set-cookie') {
+      request.response
+        ..statusCode = 200
+        ..headers.set('Set-Cookie', 'apitoken=abc123; Path=/')
+        ..headers.contentType = ContentType.json
+        ..write('{"ok":true}');
+      request.response.close().catchError((_) {});
+      return;
+    }
+
     try {
       switch (path) {
         case '/hello':
@@ -470,6 +524,71 @@ class TestServer {
                 </script>
               </body></html>
             """);
+          break;
+
+        case '/redirect-end':
+          request.response
+            ..statusCode = 200
+            ..headers.contentType = ContentType.html
+            ..write('<html><body><h1 id="arrived">arrived</h1></body></html>');
+          break;
+
+        // A page with a stylesheet and an image, so resourceType has
+        // something other than "document" to report.
+        case '/resources':
+          request.response
+            ..statusCode = 200
+            ..headers.contentType = ContentType.html
+            ..write("""
+              <html><head><link rel="stylesheet" href="/style.css"></head>
+              <body><p id="styled">styled</p></body></html>
+            """);
+          break;
+
+        case '/style.css':
+          request.response
+            ..statusCode = 200
+            ..headers.contentType = ContentType('text', 'css')
+            ..write('#styled { color: rgb(1, 2, 3); }');
+          break;
+
+        // A file input plus a button that opens the chooser for it.
+        case '/upload':
+          request.response
+            ..statusCode = 200
+            ..headers.contentType = ContentType.html
+            ..write("""
+              <html><body>
+                <input id="upload" type="file">
+                <input id="uploadMany" type="file" multiple>
+                <button id="pick" onclick="document.getElementById('upload').click()">Pick</button>
+                <script>
+                  window.names = (id) => Array.from(
+                      document.getElementById(id).files).map(f => f.name).join(',');
+                </script>
+              </body></html>
+            """);
+          break;
+
+        // Tall enough that a full-page shot is clearly bigger than the
+        // viewport, with a known box to clip and to shoot by element.
+        case '/tall':
+          request.response
+            ..statusCode = 200
+            ..headers.contentType = ContentType.html
+            ..write("""
+              <html><body style="margin:0; height:3000px; background:linear-gradient(white, black)">
+                <div id="box" style="position:absolute; left:10px; top:20px;
+                     width:120px; height:60px; background:rgb(0,128,0)"></div>
+              </body></html>
+            """);
+          break;
+
+        case '/download':
+          request.response
+            ..statusCode = 200
+            ..headers.contentType = ContentType.html
+            ..write('<html><body><a id="grab" href="/download-file" download="report.txt">Grab</a></body></html>');
           break;
 
         case '/visual':

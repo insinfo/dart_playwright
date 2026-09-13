@@ -69,7 +69,11 @@ void main() {
 
         test('Deve emitir console com tipo e texto', () async {
           await page.goto(server.url('/console'));
+          // Filter on the text: the browser itself logs to the console too
+          // (a 404 for the favicon, for one), and the first message is not
+          // necessarily ours.
           final message = page.waitForConsoleMessage(
+              predicate: (m) => m.text().contains('hello'),
               timeout: const Duration(seconds: 15));
           await page.evaluate('() => window.emitLog()');
           final console = await message;
