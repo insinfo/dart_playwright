@@ -1,23 +1,65 @@
+import 'package:playwright_core/src/server/core_element_handle.dart';
+import 'package:playwright_core/src/server/core_js_handle.dart';
 import 'package:playwright_core/src/server/core_page.dart';
-import 'page.dart';
+import 'package:playwright_core/src/server/selectors.dart';
+
+import 'element_handle.dart';
+import 'js_handle.dart';
 import 'locator.dart';
+import 'page.dart';
 
 /// A frame within a page.
-abstract class Frame {
-  /// The frame's name.
+///
+/// Every frame has its own JavaScript execution context, so `evaluate` and the
+/// locators created here run against that frame's document, not the page's.
+abstract class Frame with LocatorFactory {
+  /// The frame's name (the `name`/`id` of the owning `iframe`).
   String name();
 
   /// The frame's URL.
   String url();
 
-  /// Parent frame, if any.
+  /// Parent frame, or null for the main frame.
   Frame? parentFrame();
 
   /// Child frames.
   List<Frame> childFrames();
 
-  /// Evaluate JavaScript expression in the frame.
+  /// Whether the frame has been removed from the page.
+  bool isDetached();
+
+  /// The page containing this frame.
+  Page page();
+
+  // ------------------------------------------------------------ navigation
+
+  /// Navigate this frame to [url].
+  Future<void> goto(String url,
+      {WaitUntilState? waitUntil, Duration? timeout});
+
+  /// The frame's full HTML.
+  Future<String> content();
+
+  /// Replace this frame's document with [html].
+  Future<void> setContent(String html,
+      {WaitUntilState? waitUntil, Duration? timeout});
+
+  /// The frame document's title.
+  Future<String> title();
+
+  // ------------------------------------------------------------ evaluation
+
+  /// Evaluate a JavaScript expression in this frame's context.
   Future<dynamic> evaluate(String expression);
+
+  /// Evaluate a JavaScript expression in this frame, returning a handle.
+  Future<JSHandle> evaluateHandle(String expression);
+
+  // --------------------------------------------------------------- waiting
+
+  /// Poll [expression] in this frame until it is truthy, then return it.
+  Future<dynamic> waitForFunction(String expression,
+      {Duration? timeout, Duration? polling});
 
   /// Wait for this frame to reach a load state.
   Future<void> waitForLoadState(
@@ -30,18 +72,113 @@ abstract class Frame {
   /// Wait until this frame URL matches [url].
   Future<void> waitForURL(Pattern url, {Duration? timeout});
 
-  /// Create a locator for an element within the frame.
-  Locator locator(String selector);
+  /// Wait until [selector] reaches [state] in this frame.
+  ///
+  /// Returns a handle to the element for the attached/visible states, and
+  /// null for detached/hidden.
+  Future<ElementHandle?> waitForSelector(String selector,
+      {WaitForSelectorState state = WaitForSelectorState.visible,
+      Duration timeout = kDefaultLocatorTimeout,
+      bool strict = false});
 
-  /// Get the page containing this frame.
-  Page page();
+  // --------------------------------------------------------------- actions
+
+  /// Click an element in this frame.
+  Future<void> click(String selector,
+      {String button = 'left',
+      int clickCount = 1,
+      Duration? delay,
+      ({double x, double y})? position,
+      Duration? timeout,
+      bool strict = false,
+      bool force = false});
+
+  /// Double-click an element in this frame.
+  Future<void> dblclick(String selector,
+      {String button = 'left',
+      Duration? delay,
+      ({double x, double y})? position,
+      Duration? timeout,
+      bool strict = false,
+      bool force = false});
+
+  /// Hover over an element in this frame.
+  Future<void> hover(String selector,
+      {({double x, double y})? position,
+      Duration? timeout,
+      bool strict = false,
+      bool force = false});
+
+  /// Fill an input in this frame.
+  Future<void> fill(String selector, String text,
+      {Duration? timeout, bool strict = false, bool force = false});
+
+  /// Focus an element then press [key].
+  Future<void> press(String selector, String key,
+      {Duration? timeout, bool strict = false});
+
+  /// Focus an element then type [text] character by character.
+  Future<void> type(String selector, String text,
+      {Duration? timeout, bool strict = false});
+
+  /// Focus an element in this frame.
+  Future<void> focus(String selector,
+      {Duration? timeout, bool strict = false});
+
+  /// Check a checkbox/radio in this frame.
+  Future<void> check(String selector,
+      {Duration? timeout, bool strict = false, bool force = false});
+
+  /// Uncheck a checkbox in this frame.
+  Future<void> uncheck(String selector,
+      {Duration? timeout, bool strict = false, bool force = false});
+
+  /// Select option(s) of a `<select>` in this frame.
+  Future<List<String>> selectOption(String selector, dynamic value,
+      {Duration? timeout, bool strict = false, bool force = false});
+
+  // ----------------------------------------------------------------- state
+
+  Future<String> textContent(String selector,
+      {Duration? timeout, bool strict = false});
+  Future<String> innerText(String selector,
+      {Duration? timeout, bool strict = false});
+  Future<String> innerHTML(String selector,
+      {Duration? timeout, bool strict = false});
+  Future<String> inputValue(String selector,
+      {Duration? timeout, bool strict = false});
+  Future<String?> getAttribute(String selector, String name,
+      {Duration? timeout, bool strict = false});
+  Future<bool> isVisible(String selector);
+  Future<bool> isHidden(String selector);
+  Future<bool> isEnabled(String selector, {Duration? timeout});
+  Future<bool> isDisabled(String selector, {Duration? timeout});
+  Future<bool> isEditable(String selector, {Duration? timeout});
+  Future<bool> isChecked(String selector, {Duration? timeout});
 }
 
-class FrameImpl implements Frame {
+class FrameImpl extends Frame {
   final CoreFrame _coreFrame;
   final Page _page;
 
   FrameImpl(this._coreFrame, this._page);
+
+  /// The engine-level frame this wraps.
+  CoreFrame get coreFrame => _coreFrame;
+
+  @override
+  Locator byParts(List<Map<String, dynamic>> parts) =>
+      LocatorImpl(this, ParsedSelector(parts));
+
+  @override
+  bool operator ==(Object other) =>
+      other is FrameImpl && other._coreFrame == _coreFrame;
+
+  @override
+  int get hashCode => _coreFrame.hashCode;
+
+  @override
+  String toString() => "Frame(name: '${name()}', url: '${url()}')";
 
   @override
   String name() => _coreFrame.name;
@@ -60,8 +197,58 @@ class FrameImpl implements Frame {
       _coreFrame.childFrames.map((frame) => FrameImpl(frame, _page)).toList();
 
   @override
-  Future<dynamic> evaluate(String expression) =>
-      _coreFrame.page.evaluate(expression);
+  bool isDetached() => _coreFrame.isDetached;
+
+  @override
+  Page page() => _page;
+
+  // ------------------------------------------------------------ navigation
+
+  @override
+  Future<void> goto(String url,
+          {WaitUntilState? waitUntil, Duration? timeout}) =>
+      _coreFrame.goto(url, waitUntil: waitUntil, timeout: timeout);
+
+  @override
+  Future<String> content() => _coreFrame.content();
+
+  @override
+  Future<void> setContent(String html,
+          {WaitUntilState? waitUntil, Duration? timeout}) =>
+      _coreFrame.setContent(html, waitUntil: waitUntil, timeout: timeout);
+
+  @override
+  Future<String> title() => _coreFrame.title();
+
+  // ------------------------------------------------------------ evaluation
+
+  @override
+  Future<dynamic> evaluate(String expression) => _coreFrame.evaluate(expression);
+
+  @override
+  Future<JSHandle> evaluateHandle(String expression) async {
+    // Goes through the injected variant so that handles always come back from
+    // a context where window.__pwDart exists: ElementHandle's state getters
+    // are implemented on top of it.
+    final handle = await _coreFrame.evaluateHandleInjected(expression);
+    return wrapHandle(handle);
+  }
+
+  /// Wraps an engine handle in the public API type.
+  JSHandle wrapHandle(CoreJSHandle handle) {
+    if (handle is CoreElementHandle) {
+      return ElementHandleImpl(handle, frame: this);
+    }
+    return JSHandleImpl(handle);
+  }
+
+  // --------------------------------------------------------------- waiting
+
+  @override
+  Future<dynamic> waitForFunction(String expression,
+          {Duration? timeout, Duration? polling}) =>
+      _coreFrame.waitForFunction(expression,
+          timeout: timeout, polling: polling);
 
   @override
   Future<void> waitForLoadState(
@@ -78,8 +265,147 @@ class FrameImpl implements Frame {
       _coreFrame.waitForURL(url, timeout: timeout);
 
   @override
-  Locator locator(String selector) => LocatorImpl(_page, selector);
+  Future<ElementHandle?> waitForSelector(String selector,
+      {WaitForSelectorState state = WaitForSelectorState.visible,
+      Duration timeout = kDefaultLocatorTimeout,
+      bool strict = false}) async {
+    final target = locator(selector);
+    await target.waitFor(state: state, timeout: timeout, strict: strict);
+    if (state == WaitForSelectorState.detached ||
+        state == WaitForSelectorState.hidden) {
+      return null;
+    }
+    return target.elementHandle(timeout: timeout, strict: strict);
+  }
+
+  // --------------------------------------------------------------- actions
 
   @override
-  Page page() => _page;
+  Future<void> click(String selector,
+          {String button = 'left',
+          int clickCount = 1,
+          Duration? delay,
+          ({double x, double y})? position,
+          Duration? timeout,
+          bool strict = false,
+          bool force = false}) =>
+      locator(selector).click(
+          button: button,
+          clickCount: clickCount,
+          delay: delay,
+          position: position,
+          timeout: timeout,
+          strict: strict,
+          force: force);
+
+  @override
+  Future<void> dblclick(String selector,
+          {String button = 'left',
+          Duration? delay,
+          ({double x, double y})? position,
+          Duration? timeout,
+          bool strict = false,
+          bool force = false}) =>
+      locator(selector).dblclick(
+          button: button,
+          delay: delay,
+          position: position,
+          timeout: timeout,
+          strict: strict,
+          force: force);
+
+  @override
+  Future<void> hover(String selector,
+          {({double x, double y})? position,
+          Duration? timeout,
+          bool strict = false,
+          bool force = false}) =>
+      locator(selector).hover(
+          position: position, timeout: timeout, strict: strict, force: force);
+
+  @override
+  Future<void> fill(String selector, String text,
+          {Duration? timeout, bool strict = false, bool force = false}) =>
+      locator(selector)
+          .fill(text, timeout: timeout, strict: strict, force: force);
+
+  @override
+  Future<void> press(String selector, String key,
+          {Duration? timeout, bool strict = false}) =>
+      locator(selector).press(key, timeout: timeout, strict: strict);
+
+  @override
+  Future<void> type(String selector, String text,
+          {Duration? timeout, bool strict = false}) =>
+      locator(selector)
+          .pressSequentially(text, timeout: timeout, strict: strict);
+
+  @override
+  Future<void> focus(String selector, {Duration? timeout, bool strict = false}) =>
+      locator(selector).focus(timeout: timeout, strict: strict);
+
+  @override
+  Future<void> check(String selector,
+          {Duration? timeout, bool strict = false, bool force = false}) =>
+      locator(selector).check(timeout: timeout, strict: strict, force: force);
+
+  @override
+  Future<void> uncheck(String selector,
+          {Duration? timeout, bool strict = false, bool force = false}) =>
+      locator(selector).uncheck(timeout: timeout, strict: strict, force: force);
+
+  @override
+  Future<List<String>> selectOption(String selector, dynamic value,
+          {Duration? timeout, bool strict = false, bool force = false}) =>
+      locator(selector)
+          .selectOption(value, timeout: timeout, strict: strict, force: force);
+
+  // ----------------------------------------------------------------- state
+
+  @override
+  Future<String> textContent(String selector,
+          {Duration? timeout, bool strict = false}) =>
+      locator(selector).textContent(timeout: timeout, strict: strict);
+
+  @override
+  Future<String> innerText(String selector,
+          {Duration? timeout, bool strict = false}) =>
+      locator(selector).innerText(timeout: timeout, strict: strict);
+
+  @override
+  Future<String> innerHTML(String selector,
+          {Duration? timeout, bool strict = false}) =>
+      locator(selector).innerHTML(timeout: timeout, strict: strict);
+
+  @override
+  Future<String> inputValue(String selector,
+          {Duration? timeout, bool strict = false}) =>
+      locator(selector).inputValue(timeout: timeout, strict: strict);
+
+  @override
+  Future<String?> getAttribute(String selector, String name,
+          {Duration? timeout, bool strict = false}) =>
+      locator(selector).getAttribute(name, timeout: timeout, strict: strict);
+
+  @override
+  Future<bool> isVisible(String selector) => locator(selector).isVisible();
+
+  @override
+  Future<bool> isHidden(String selector) => locator(selector).isHidden();
+
+  @override
+  Future<bool> isEnabled(String selector, {Duration? timeout}) =>
+      locator(selector).isEnabled(timeout: timeout, strict: false);
+
+  @override
+  Future<bool> isDisabled(String selector, {Duration? timeout}) =>
+      locator(selector).isDisabled(timeout: timeout, strict: false);
+
+  @override
+  Future<bool> isEditable(String selector, {Duration? timeout}) =>
+      locator(selector).isEditable(timeout: timeout, strict: false);
+
+  @override
+  Future<bool> isChecked(String selector, {Duration? timeout}) =>
+      locator(selector).isChecked(timeout: timeout, strict: false);
 }

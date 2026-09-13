@@ -1,8 +1,8 @@
 import 'package:playwright_core/src/server/core_page.dart' hide Dialog;
 import 'package:playwright_core/src/server/dialog.dart' as core;
-import 'package:playwright_core/src/server/core_element_handle.dart';
 import 'locator.dart';
 import 'frame.dart';
+import 'frame_locator.dart';
 import 'js_handle.dart';
 import 'element_handle.dart';
 import 'route.dart';
@@ -78,14 +78,58 @@ abstract class Page {
   /// Evaluate JavaScript expression and return a handle.
   Future<JSHandle> evaluateHandle(String expression);
 
-  /// Create a locator for an element.
-  Locator locator(String selector);
+  /// Create a locator for an element in the page's main frame.
+  ///
+  /// [hasText], [hasNotText], [has] and [hasNot] narrow the match the same way
+  /// upstream's `locator(selector, { ... })` options do.
+  Locator locator(String selector,
+      {Pattern? hasText, Pattern? hasNotText, Locator? has, Locator? hasNot});
 
   /// The page's main frame.
   Frame mainFrame();
 
-  /// All frames attached to the page.
+  /// All frames attached to the page, main frame included.
   List<Frame> frames();
+
+  /// The frame with the given [name], or whose URL matches [url].
+  ///
+  /// Returns null when no frame matches.
+  Frame? frame({String? name, Pattern? url});
+
+  /// A view into the iframe matched by [selector], resolved lazily.
+  FrameLocator frameLocator(String selector);
+
+  /// Locate an element by its ARIA role, in the main frame.
+  Locator getByRole(String role,
+      {Object? checked,
+      bool? disabled,
+      bool? expanded,
+      bool? includeHidden,
+      int? level,
+      Pattern? name,
+      Object? pressed,
+      bool? selected,
+      Pattern? description,
+      bool exact = false});
+
+  /// Locate an element containing [text], in the main frame.
+  Locator getByText(Pattern text, {bool exact = false});
+
+  /// Locate a form control by its label, in the main frame.
+  Locator getByLabel(Pattern text, {bool exact = false});
+
+  /// Locate an input by its placeholder, in the main frame.
+  Locator getByPlaceholder(Pattern text, {bool exact = false});
+
+  /// Locate an element by its `alt` attribute, in the main frame.
+  Locator getByAltText(Pattern text, {bool exact = false});
+
+  /// Locate an element by its `title` attribute, in the main frame.
+  Locator getByTitle(Pattern text, {bool exact = false});
+
+  /// Locate an element by its test id attribute, in the main frame.
+  Locator getByTestId(Pattern testId,
+      {String attributeName = Selectors.defaultTestIdAttribute});
 
   /// Click an element using trusted protocol-level input events.
   ///
@@ -129,9 +173,13 @@ abstract class Page {
   /// Get the current URL of the page.
   Future<String> url();
 
-  /// Wait until [selector] matches an element, or throw on timeout.
-  Future<void> waitForSelector(String selector,
-      {Duration timeout = const Duration(seconds: 30)});
+  /// Wait until [selector] reaches [state] in the main frame, or throw on
+  /// timeout. Returns a handle for the attached/visible states, null
+  /// otherwise.
+  Future<ElementHandle?> waitForSelector(String selector,
+      {WaitForSelectorState state = WaitForSelectorState.visible,
+      Duration timeout = kDefaultLocatorTimeout,
+      bool strict = false});
 
   /// Close the page.
   Future<void> close();
@@ -286,26 +334,96 @@ class PageImpl implements Page {
   Future<dynamic> evaluate(String expression) => _corePage.evaluate(expression);
 
   @override
-  Future<JSHandle> evaluateHandle(String expression) async {
-    final handle = await _corePage.evaluateHandle(expression);
-    // Cast appropriately based on the handle type returned
-    if (handle is CoreElementHandle) {
-      return ElementHandleImpl(handle);
-    }
-    return JSHandleImpl(handle);
-  }
+  Future<JSHandle> evaluateHandle(String expression) =>
+      _mainFrame.evaluateHandle(expression);
+
+  /// The main frame, typed so locators can be built from it.
+  FrameImpl get _mainFrame => FrameImpl(_corePage.mainFrame, this);
 
   @override
-  Locator locator(String selector) {
-    return LocatorImpl(this, selector);
-  }
+  Locator locator(String selector,
+          {Pattern? hasText,
+          Pattern? hasNotText,
+          Locator? has,
+          Locator? hasNot}) =>
+      _mainFrame.locator(selector,
+          hasText: hasText, hasNotText: hasNotText, has: has, hasNot: hasNot);
 
   @override
-  Frame mainFrame() => FrameImpl(_corePage.mainFrame, this);
+  Frame mainFrame() => _mainFrame;
 
   @override
   List<Frame> frames() =>
       _corePage.frames.map((frame) => FrameImpl(frame, this)).toList();
+
+  @override
+  Frame? frame({String? name, Pattern? url}) {
+    for (final frame in _corePage.frames) {
+      if (name != null && frame.name == name) return FrameImpl(frame, this);
+      if (url != null && _matchesUrl(url, frame.url)) {
+        return FrameImpl(frame, this);
+      }
+    }
+    return null;
+  }
+
+  static bool _matchesUrl(Pattern pattern, String value) {
+    if (pattern is RegExp) return pattern.hasMatch(value);
+    return value == pattern.toString();
+  }
+
+  @override
+  FrameLocator frameLocator(String selector) =>
+      _mainFrame.frameLocator(selector);
+
+  @override
+  Locator getByRole(String role,
+          {Object? checked,
+          bool? disabled,
+          bool? expanded,
+          bool? includeHidden,
+          int? level,
+          Pattern? name,
+          Object? pressed,
+          bool? selected,
+          Pattern? description,
+          bool exact = false}) =>
+      _mainFrame.getByRole(role,
+          checked: checked,
+          disabled: disabled,
+          expanded: expanded,
+          includeHidden: includeHidden,
+          level: level,
+          name: name,
+          pressed: pressed,
+          selected: selected,
+          description: description,
+          exact: exact);
+
+  @override
+  Locator getByText(Pattern text, {bool exact = false}) =>
+      _mainFrame.getByText(text, exact: exact);
+
+  @override
+  Locator getByLabel(Pattern text, {bool exact = false}) =>
+      _mainFrame.getByLabel(text, exact: exact);
+
+  @override
+  Locator getByPlaceholder(Pattern text, {bool exact = false}) =>
+      _mainFrame.getByPlaceholder(text, exact: exact);
+
+  @override
+  Locator getByAltText(Pattern text, {bool exact = false}) =>
+      _mainFrame.getByAltText(text, exact: exact);
+
+  @override
+  Locator getByTitle(Pattern text, {bool exact = false}) =>
+      _mainFrame.getByTitle(text, exact: exact);
+
+  @override
+  Locator getByTestId(Pattern testId,
+          {String attributeName = Selectors.defaultTestIdAttribute}) =>
+      _mainFrame.getByTestId(testId, attributeName: attributeName);
 
   @override
   Future<void> click(String selector,
@@ -349,10 +467,12 @@ class PageImpl implements Page {
   }
 
   @override
-  Future<void> waitForSelector(String selector,
-      {Duration timeout = const Duration(seconds: 30)}) {
-    return LocatorImpl(this, selector).waitFor(timeout: timeout);
-  }
+  Future<ElementHandle?> waitForSelector(String selector,
+          {WaitForSelectorState state = WaitForSelectorState.visible,
+          Duration timeout = kDefaultLocatorTimeout,
+          bool strict = false}) =>
+      _mainFrame.waitForSelector(selector,
+          state: state, timeout: timeout, strict: strict);
 
   @override
   Future<void> close() => _corePage.close();
