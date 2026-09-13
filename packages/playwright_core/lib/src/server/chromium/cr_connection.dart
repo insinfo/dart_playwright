@@ -55,6 +55,15 @@ class CRConnection extends EventEmitter {
   /// Get an existing session.
   CDPSession? getSession(String sessionId) => _sessions[sessionId];
 
+  /// Tears down the session for [sessionId] after the target detached.
+  ///
+  /// Without this, `Target.detachedFromTarget` left the session alive and the
+  /// page never learned it had closed: `close` only fired when the whole
+  /// connection went down.
+  void closeSession(String sessionId) {
+    _sessions.remove(sessionId)?._onClosed();
+  }
+
   /// Send a CDP command to the browser root session.
   Future<Map<String, dynamic>> send(String method, [Map<String, dynamic>? params]) {
     return _sendMessage(method, params, null);

@@ -92,7 +92,13 @@ class EventEmitter {
     } else if (arg1 != null) {
       listener(arg1);
     } else {
-      listener();
+      // Zero-payload events (`close`, `load`, ...) must still reach listeners
+      // that declare one optional parameter, which is how [stream] subscribes.
+      try {
+        listener();
+      } on NoSuchMethodError {
+        listener(null);
+      }
     }
   }
 
@@ -119,6 +125,9 @@ class EventEmitter {
     return completer.future;
   }
 
+  /// Broadcast streams handed out by [stream], one per event name.
+  final _streamControllers = <String, StreamController<dynamic>>{};
+
   /// Create a broadcast Stream for [event].
   ///
   /// This bridges the EventEmitter pattern to Dart's Stream pattern,
@@ -126,20 +135,38 @@ class EventEmitter {
   /// ```dart
   /// emitter.stream('load').listen((_) => print('loaded'));
   /// ```
+  ///
+  /// The controller is cached per event name and the underlying emitter
+  /// listener is only registered while the stream has subscribers, so
+  /// [listenerCount] stays truthful: merely reading the getter does not make
+  /// the emitter believe somebody is listening. Upstream relies on that
+  /// distinction (an unobserved dialog is dismissed instead of blocking the
+  /// page), so it has to hold here too.
   Stream<T> stream<T>(String event) {
-    final controller = StreamController<T>.broadcast(
-      onCancel: () {
-        // Could clean up listener here if needed
-      },
-    );
-
-    on(event, (dynamic arg) {
-      if (!controller.isClosed) {
-        controller.add(arg as T);
+    final controller = _streamControllers.putIfAbsent(event, () {
+      late final StreamController<dynamic> created;
+      void forward([dynamic arg]) {
+        if (!created.isClosed) created.add(arg);
       }
-    });
 
-    return controller.stream;
+      created = StreamController<dynamic>.broadcast(
+        onListen: () => on(event, forward),
+        onCancel: () => off(event, forward),
+      );
+      return created;
+    });
+    return controller.stream.cast<T>();
+  }
+
+  /// Closes every stream handed out by [stream] and drops all listeners.
+  ///
+  /// Called when the emitting object is disposed, so subscribers see the
+  /// stream end instead of hanging forever.
+  void disposeStreams() {
+    for (final controller in _streamControllers.values) {
+      if (!controller.isClosed) controller.close();
+    }
+    _streamControllers.clear();
   }
 }
 

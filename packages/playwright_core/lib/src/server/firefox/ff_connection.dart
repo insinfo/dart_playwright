@@ -47,6 +47,14 @@ class FfConnection extends EventEmitter {
     return session;
   }
 
+  /// Tears down the session for [sessionId] after Juggler detached its target.
+  ///
+  /// Sessions used to live until the whole connection went down, so a closed
+  /// page never told anyone it had closed.
+  void closeSession(String sessionId) {
+    _sessions.remove(sessionId)?._onClosed();
+  }
+
   Future<Map<String, dynamic>> send(String method, [Map<String, dynamic>? params]) {
     return _sendMessage(method, params, null);
   }

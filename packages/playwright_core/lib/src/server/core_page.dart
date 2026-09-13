@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:playwright_protocol/playwright_protocol.dart';
 import '../accessibility.dart';
+import 'core_browser.dart';
+import 'core_events.dart';
 import 'dialog.dart';
 import 'keyboard.dart';
 import 'core_js_handle.dart';
@@ -9,6 +11,8 @@ import 'core_route.dart';
 import 'frames.dart';
 import 'mouse.dart';
 import 'injected/injected_script_source.dart';
+export 'core_events.dart'
+    show CoreConsoleMessage, CorePageError, CoreSourceLocation;
 export 'dialog.dart' show Dialog;
 export 'keyboard.dart' show Keyboard;
 export 'mouse.dart' show Mouse, RawMouse;
@@ -37,6 +41,20 @@ abstract class CoreExecutionContext {
 abstract class CorePage extends EventEmitter {
   CoreFrame get mainFrame;
   List<CoreFrame> get frames;
+
+  /// The context this page belongs to, assigned when the context registers
+  /// the page. Null only for a page that was built outside a context.
+  CoreBrowserContext? get browserContext;
+  set browserContext(CoreBrowserContext? value);
+
+  /// The page that opened this one through `window.open` or a
+  /// `target=_blank` link, or null for a page opened programmatically.
+  CorePage? get opener;
+  set opener(CorePage? value);
+
+  /// Whether the page has been closed (by [close], by the script, or because
+  /// its context or browser went away).
+  bool get isClosed;
   Future<void> goto(String url, {WaitUntilState? waitUntil, Duration? timeout});
 
   /// Reloads the page and waits for the navigation to reach [waitUntil].
@@ -64,6 +82,15 @@ abstract class CorePage extends EventEmitter {
   Future<CoreJSHandle> evaluateHandle(String expression);
   Future<List<int>> screenshot({String? path});
   Future<AccessibilitySnapshot> accessibilitySnapshot();
+
+  /// Resizes the page viewport, overriding whatever the context set.
+  Future<void> setViewportSize(int width, int height);
+
+  /// Sets headers sent with every request this page makes.
+  ///
+  /// Replaces the previous set; pass an empty map to clear it. Header names
+  /// keep the casing given here, as upstream does.
+  Future<void> setExtraHTTPHeaders(Map<String, String> headers);
 
   // -------------------------------------------------------------- per frame
 
@@ -196,8 +223,23 @@ String wrapEvaluationExpression(String expression) {
   return isFunction ? '($expression)()' : expression;
 }
 
+/// Ownership links every page carries: the context that owns it and the page
+/// that opened it.
+mixin CorePageOwnership {
+  CoreBrowserContext? browserContext;
+  CorePage? opener;
+}
+
 /// Dialog dispatch shared by the engine pages.
-mixin CorePageDialogs {
+///
+/// Upstream dismisses a dialog that nobody is watching, because a modal
+/// dialog blocks the renderer and an unobserved one would hang the script.
+/// "Watching" means either the imperative [onDialog] handler, a subscriber on
+/// the page's `dialog` stream, or a subscriber on the context's.
+mixin CorePageDialogs on EventEmitter {
+  /// Supplied by [CorePageOwnership]; the context also receives `dialog`.
+  CoreBrowserContext? get browserContext;
+
   void Function(Dialog dialog)? _dialogHandler;
 
   /// Registers the dialog handler (replaces any previous one).
@@ -205,15 +247,125 @@ mixin CorePageDialogs {
     _dialogHandler = handler;
   }
 
-  /// Routes an opened [dialog] to the handler, or auto-dismisses it.
+  /// Routes an opened [dialog] to whoever is watching, or auto-dismisses it.
   void dispatchDialog(Dialog dialog) {
     final handler = _dialogHandler;
-    if (handler != null) {
-      handler(dialog);
-    } else {
+    final context = browserContext;
+    final watchedByPage = listenerCount('dialog') > 0;
+    final watchedByContext = context != null && context.listenerCount('dialog') > 0;
+
+    if (handler == null && !watchedByPage && !watchedByContext) {
       dialog.dismiss();
+      return;
+    }
+
+    if (handler != null) handler(dialog);
+    // Dialog.accept/dismiss are idempotent, so reaching several watchers is
+    // safe: the first decision wins and the rest are no-ops.
+    if (watchedByPage) emit('dialog', dialog);
+    if (watchedByContext) context.emit('dialog', dialog);
+  }
+}
+
+/// Normalizes an engine's console message type.
+///
+/// Upstream does almost no normalization here: CDP's `Runtime.consoleAPICalled`
+/// type and CDP's `Log` level are passed through verbatim, and the single
+/// rename in the whole codebase is Juggler's `warn` (`ffPage.ts:290`), because
+/// Firefox uses it for browser-generated messages while every other engine and
+/// the documented `ConsoleMessage.type()` vocabulary say `warning`. WebKit's
+/// two derivations (`log` takes the level, `timing` becomes `timeEnd`) are
+/// applied by the WebKit driver before calling this.
+String normalizeConsoleType(String? raw) {
+  if (raw == null || raw.isEmpty) return 'log';
+  return raw == 'warn' ? 'warning' : raw;
+}
+
+/// Splits `"TypeError: x is not a function"` into name and message.
+///
+/// Port of `splitErrorMessage` (`utils/stackTrace.ts:134`): the first colon
+/// separates them and the message skips the following `": "`. A message with
+/// no colon has an empty name.
+({String name, String message}) splitErrorMessage(String message) {
+  final index = message.indexOf(':');
+  if (index == -1) return (name: '', message: message);
+  return (
+    name: message.substring(0, index),
+    message: index + 2 <= message.length
+        ? message.substring(index + 2)
+        : message,
+  );
+}
+
+/// Builds a [CorePageError] from a CDP `Runtime.ExceptionDetails`.
+///
+/// Port of `exceptionToError` (`chromium/crProtocolHelper.ts:84`): the
+/// exception's `description` already carries `Name: message` plus the V8 stack,
+/// so the header is everything before the first `    at` line, and the error
+/// name can be overridden by the `name` property of the exception preview
+/// (which is how a subclass of `Error` reports its own name).
+CorePageError pageErrorFromCdpExceptionDetails(Map<String, dynamic> details) {
+  final exception = details['exception'] as Map<String, dynamic>?;
+  String messageWithStack;
+  if (exception != null) {
+    messageWithStack =
+        exception['description'] as String? ?? '${exception['value']}';
+  } else {
+    messageWithStack = details['text'] as String? ?? '';
+  }
+
+  final lines = messageWithStack.split('\n');
+  final firstStackLine =
+      lines.indexWhere((line) => line.startsWith('    at'));
+  final header = firstStackLine == -1
+      ? messageWithStack
+      : lines.sublist(0, firstStackLine).join('\n');
+  final stack = firstStackLine == -1 ? '' : messageWithStack;
+
+  final split = splitErrorMessage(header);
+  var name = split.name;
+  final preview = exception?['preview'] as Map<String, dynamic>?;
+  final properties = preview?['properties'] as List?;
+  if (properties != null) {
+    for (final property in properties) {
+      if (property is Map && property['name'] == 'name') {
+        name = property['value'] as String? ?? 'Error';
+        break;
+      }
     }
   }
+  return CorePageError(name: name, message: split.message, stack: stack);
+}
+
+/// Renders one `Runtime.RemoteObject` (CDP, WebKit) or Juggler remote object
+/// the way devtools would show it in the console.
+///
+/// Primitives print as their value; everything else falls back to the
+/// engine-provided description (`Object`, `Array(3)`, a function's source).
+/// Upstream instead builds a JSHandle per argument and calls `preview()` on
+/// it; that needs the whole handle machinery for what is, in practice, the
+/// same string for every value a test asserts on.
+String describeRemoteObject(dynamic remoteObject) {
+  if (remoteObject is! Map) return '${remoteObject ?? ''}';
+  final unserializable = remoteObject['unserializableValue'];
+  if (unserializable != null) return '$unserializable';
+  if (remoteObject.containsKey('value') && remoteObject['objectId'] == null) {
+    final value = remoteObject['value'];
+    if (value is String) return value;
+    return jsonEncode(value);
+  }
+  final description = remoteObject['description'];
+  if (description != null) return '$description';
+  if (remoteObject['subtype'] == 'null') return 'null';
+  final type = remoteObject['type'];
+  if (type == 'undefined') return 'undefined';
+  return '${type ?? ''}';
+}
+
+/// Joins console call arguments with a space, as the devtools console does.
+String describeConsoleArgs(dynamic args) {
+  if (args is! List) return '';
+  return args.map(describeRemoteObject).join(' ');
 }
 
 /// Re-emits the engine network manager's events on the page, where the

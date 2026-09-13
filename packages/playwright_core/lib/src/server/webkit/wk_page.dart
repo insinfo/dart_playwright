@@ -20,6 +20,7 @@ import '../../accessibility.dart';
 /// on the same session (via `Target.dispatchMessageFromTarget`).
 class WkPage extends EventEmitter
     with
+        CorePageOwnership,
         CorePageFrameEvaluation,
         CorePageInputHelpers,
         CorePageDialogs,
@@ -45,6 +46,11 @@ class WkPage extends EventEmitter
     forwardNetworkEvents(networkManager, this);
     // WebKit reports dialogs via the Dialog domain on the pageProxy session.
     session.on('Dialog.javascriptDialogOpening', _onDialogOpening);
+    session.on('Console.messageAdded', _onConsoleMessageAdded);
+    // WebKit has no crash event: the target simply goes away with a flag.
+    session.on('Target.targetDestroyed', (params) {
+      if (params['crashed'] == true) emit('crash', true);
+    });
     session.on('Page.frameNavigated', (params) {
       final frame = params['frame'] as Map<String, dynamic>;
       frameManager.frameNavigated(
@@ -103,10 +109,63 @@ class WkPage extends EventEmitter
     ));
   }
 
+  void _onConsoleMessageAdded(Map<String, dynamic> params) {
+    final message = params['message'] as Map<String, dynamic>?;
+    if (message == null) return;
+    final text = message['text'] as String? ?? '';
+    // WebKit reports line/column 1-based; upstream normalizes to 0-based so
+    // locations agree across engines.
+    final location = CoreSourceLocation(
+      url: message['url'] as String? ?? '',
+      lineNumber: ((message['line'] as num?)?.toInt() ?? 1) - 1,
+      columnNumber: ((message['column'] as num?)?.toInt() ?? 1) - 1,
+    );
+
+    // An uncaught exception reaches WebKit as a console message; it is a page
+    // error, not console output, so it leaves through the other door.
+    if (message['level'] == 'error' && message['source'] == 'javascript') {
+      final split = splitErrorMessage(text);
+      final stackTrace = message['stackTrace'] as Map<String, dynamic>?;
+      final callFrames = stackTrace?['callFrames'] as List?;
+      final stack = callFrames == null
+          ? ''
+          : '$text\n${callFrames.map((frame) {
+              final f = frame as Map<String, dynamic>;
+              final name = (f['functionName'] as String?)?.isNotEmpty == true
+                  ? f['functionName']
+                  : 'unknown';
+              return '    at $name (${f['url']}:${f['lineNumber']}:${f['columnNumber']})';
+            }).join('\n')}';
+      emit(
+          'pageerror',
+          CorePageError(
+              name: split.name, message: split.message, stack: stack));
+      return;
+    }
+
+    // `log` carries the real severity in `level`; `timing` is what upstream
+    // surfaces as `timeEnd`.
+    final rawType = message['type'] as String? ?? '';
+    final type = rawType == 'log'
+        ? message['level'] as String? ?? 'log'
+        : (rawType == 'timing' ? 'timeEnd' : rawType);
+    final parameters = message['parameters'];
+    emit(
+        'console',
+        CoreConsoleMessage(
+          type: normalizeConsoleType(type),
+          text: parameters is List && parameters.isNotEmpty
+              ? describeConsoleArgs(parameters)
+              : text,
+          location: location,
+        ));
+  }
+
   Future<void> initialize() async {
     await session.send('Dialog.enable');
     await session.sendToTarget('Page.enable');
     await session.sendToTarget('Runtime.enable');
+    await session.sendToTarget('Console.enable');
     // Network events (requestWillBeSent & friends) only flow after enable.
     await session.sendToTarget('Network.enable');
     // WebKit only reports frame changes that happen after Page.enable. The
@@ -396,9 +455,35 @@ class WkPage extends EventEmitter
         .send('Playwright.closePage', {'pageProxyId': session.pageProxyId});
   }
 
+  @override
+  Future<void> setViewportSize(int width, int height) async {
+    // WebKit splits this across both layers: device metrics are a pageProxy
+    // command, the screen size a target one (wkPage.ts:713).
+    await session.send('Emulation.setDeviceMetricsOverride', {
+      'width': width,
+      'height': height,
+      'fixedLayout': false,
+      'deviceScaleFactor': 1,
+    });
+    await session.sendToTarget('Page.setScreenSizeOverride', {
+      'width': width,
+      'height': height,
+    });
+  }
+
+  @override
+  Future<void> setExtraHTTPHeaders(Map<String, String> headers) async {
+    await session
+        .sendToTarget('Network.setExtraHTTPHeaders', {'headers': headers});
+  }
+
+  @override
+  bool get isClosed => _isClosed;
+
   void _onClosed() {
     if (_isClosed) return;
     _isClosed = true;
-    emit('close');
+    emit('close', true);
+    disposeStreams();
   }
 }

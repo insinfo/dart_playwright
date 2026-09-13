@@ -11,8 +11,72 @@ class WkBrowser extends EventEmitter implements CoreBrowser {
   final _contexts = <WkBrowserContext>[];
   bool _isClosed = false;
 
+  /// Pages by pageProxy id, so a popup can find the page that opened it.
+  final _pagesByProxy = <String, WkPage>{};
+
+  /// One completer per pageProxy id, completed once the page is initialized,
+  /// emulated and registered on its context.
+  final _pageCompleters = <String, Completer<WkPage>>{};
+
   WkBrowser(this.connection) {
     connection.on('closed', () => _onClosed());
+    // Every page - requested or opened by the page itself - is announced here
+    // before its session carries any traffic.
+    connection.on('Playwright.pageProxyCreated', _onPageProxyCreated);
+    connection.on('Playwright.pageProxyDestroyed', (params) {
+      _pagesByProxy.remove(params['pageProxyId'] as String?);
+    });
+  }
+
+  void _onPageProxyCreated(Map<String, dynamic> params) {
+    final pageProxyId = params['pageProxyId'] as String?;
+    if (pageProxyId == null || _pagesByProxy.containsKey(pageProxyId)) return;
+    _adoptPageProxy(pageProxyId, params).catchError((Object _) {});
+  }
+
+  Future<void> _adoptPageProxy(
+      String pageProxyId, Map<String, dynamic> params) async {
+    final contextId = params['browserContextId'] as String?;
+    final context = _contextFor(contextId);
+    if (context == null) return;
+
+    // The session was created eagerly by the connection when the
+    // pageProxyCreated message arrived, so no event is lost here.
+    final session = connection.pageProxySession(pageProxyId);
+    await session.waitForTarget(timeout: const Duration(seconds: 30));
+
+    final page = WkPage(session, browserContextId: contextId);
+    await page.initialize();
+    await context.applyContextOptions(session);
+
+    final openerId = params['openerId'] as String?;
+    _pagesByProxy[pageProxyId] = page;
+    context.registerPage(page,
+        opener: openerId == null ? null : _pagesByProxy[openerId]);
+
+    final completer = _pageCompleters.remove(pageProxyId);
+    if (completer != null && !completer.isCompleted) completer.complete(page);
+  }
+
+  WkBrowserContext? _contextFor(String? browserContextId) {
+    for (final context in _contexts) {
+      if (context.browserContextId == browserContextId) return context;
+    }
+    return null;
+  }
+
+  /// The page for [pageProxyId], waiting for it to be fully adopted.
+  Future<WkPage> pageForProxy(String pageProxyId,
+      {Duration timeout = const Duration(seconds: 30)}) {
+    final existing = _pagesByProxy[pageProxyId];
+    if (existing != null) return Future.value(existing);
+    final completer =
+        _pageCompleters.putIfAbsent(pageProxyId, () => Completer<WkPage>());
+    return completer.future.timeout(timeout, onTimeout: () {
+      _pageCompleters.remove(pageProxyId);
+      throw PlaywrightException(
+          'Timeout waiting for the WebKit page of proxy $pageProxyId');
+    });
   }
 
   Future<void> init() async {
@@ -56,13 +120,17 @@ class WkBrowser extends EventEmitter implements CoreBrowser {
   void _onClosed() {
     if (_isClosed) return;
     _isClosed = true;
+    for (final context in _contexts.toList()) {
+      context.notifyClosed();
+    }
     _contexts.clear();
-    emit('disconnected');
+    emit('disconnected', true);
+    disposeStreams();
   }
 }
 
 /// An isolated WebKit browser context.
-class WkBrowserContext
+class WkBrowserContext extends EventEmitter
     with BrowserContextStorage
     implements CoreBrowserContext {
   final WkBrowser browser;
@@ -78,23 +146,22 @@ class WkBrowserContext
   @override
   Future<CorePage> newPage() async {
     if (_closed) throw PlaywrightException('Context closed');
-    final connection = browser.connection;
-
-    final pageResult = await connection.send('Playwright.createPage', {
+    final pageResult = await browser.connection.send('Playwright.createPage', {
       'browserContextId': browserContextId,
     });
-    final pageProxyId = pageResult['pageProxyId'] as String;
+    // Playwright.pageProxyCreated already arrived (it precedes the createPage
+    // response); the handler builds and registers the page, exactly as it
+    // does for a popup.
+    return browser.pageForProxy(pageResult['pageProxyId'] as String);
+  }
 
-    // The session was created eagerly when Playwright.pageProxyCreated
-    // arrived (which happens before the createPage response).
-    final session = connection.pageProxySession(pageProxyId);
-    await session.waitForTarget(timeout: Duration(seconds: 10));
-
-    final page = WkPage(session, browserContextId: browserContextId);
-    await page.initialize();
+  /// Applies the context's emulation to a page of this context.
+  ///
+  /// WebKit splits this across both protocol layers: device metrics are a
+  /// pageProxy command, the user agent a target one.
+  Future<void> applyContextOptions(WkPageProxySession session) async {
     final viewport = options.viewport;
     if (viewport != null) {
-      // Device metrics are a pageProxy-level command in WebKit.
       await session.send('Emulation.setDeviceMetricsOverride', {
         'width': viewport.width,
         'height': viewport.height,
@@ -107,8 +174,6 @@ class WkBrowserContext
         'value': options.userAgent,
       });
     }
-    trackedPages.add(page);
-    return page;
   }
 
   @override
@@ -175,5 +240,6 @@ class WkBrowserContext
     });
     trackedPages.clear();
     browser._contexts.remove(this);
+    notifyClosed();
   }
 }

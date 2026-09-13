@@ -33,7 +33,12 @@ abstract class CoreBrowser extends EventEmitter {
 }
 
 /// An isolated browser context owned by a [CoreBrowser].
-abstract class CoreBrowserContext {
+///
+/// Emits, mirroring upstream's `BrowserContext` events:
+/// `page` ([CorePage]), `close`, `console` ([CoreConsoleMessage]),
+/// `pageerror` ([CorePageError]), `dialog` ([Dialog]), and the network
+/// events `request`/`response`/`requestFinished`/`requestFailed`.
+abstract class CoreBrowserContext extends EventEmitter {
   /// Pages opened in this context.
   List<CorePage> get pages;
 
@@ -64,11 +69,52 @@ abstract class CoreBrowserContext {
 ///
 /// Each engine supplies raw cookie access; localStorage is gathered by
 /// evaluating in the pages this context has opened.
-mixin BrowserContextStorage {
+mixin BrowserContextStorage on EventEmitter {
   /// Pages opened by this context, used to snapshot localStorage per origin.
   final List<CorePage> trackedPages = [];
 
   List<CorePage> get pages => List.unmodifiable(trackedPages);
+
+  /// Page-level events the context re-emits, exactly the set upstream
+  /// forwards from `Page` to `BrowserContext`.
+  static const forwardedPageEvents = <String>[
+    'console',
+    'pageerror',
+    'request',
+    'response',
+    'requestFinished',
+    'requestFailed',
+  ];
+
+  /// Adopts [page]: records it, forwards its events, and announces it.
+  ///
+  /// Every page reaches the context through here — the ones created by
+  /// [CoreBrowserContext.newPage] and the ones the page itself opened with
+  /// `window.open` — so `context.pages` and the `page` event never disagree.
+  /// [opener], when given, is the page that opened [page]; it also gets a
+  /// `popup` event, which is what `page.waitForPopup` waits on.
+  void registerPage(CorePage page, {CorePage? opener}) {
+    if (trackedPages.contains(page)) return;
+    page.browserContext = this as CoreBrowserContext;
+    page.opener = opener;
+    trackedPages.add(page);
+
+    for (final event in forwardedPageEvents) {
+      page.on(event, (dynamic payload) => emit(event, payload));
+    }
+    page.once('close', ([dynamic _]) => trackedPages.remove(page));
+
+    // The opener sees the popup first: upstream resolves `waitForPopup`
+    // before the context's `page` event listeners run.
+    if (opener != null) opener.emit('popup', page);
+    emit('page', page);
+  }
+
+  /// Announces the context's own closure and releases its streams.
+  void notifyClosed() {
+    emit('close', true);
+    (this as EventEmitter).disposeStreams();
+  }
 
   Future<List<Map<String, dynamic>>> cookies([List<String>? urls]);
 

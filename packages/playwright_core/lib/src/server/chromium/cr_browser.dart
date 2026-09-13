@@ -16,10 +16,19 @@ class CrBrowser extends EventEmitter implements CoreBrowser {
 
   bool _isClosed = false;
 
+  /// Pages by CDP target id, so a popup can find the page that opened it.
+  final _pagesByTarget = <String, CrPage>{};
+
+  /// One completer per target id, completed once the page is fully adopted
+  /// (attached, initialized, emulation applied and registered on a context).
+  final _pageCompleters = <String, Completer<CrPage>>{};
+
   CrBrowser._(this.connection, this.process, this._tempUserDataDir) {
     connection.on('closed', () => _onClosed());
     connection.on('Target.targetCreated', _onTargetCreated);
     connection.on('Target.targetDestroyed', _onTargetDestroyed);
+    connection.on('Target.attachedToTarget', _onAttachedToTarget);
+    connection.on('Target.detachedFromTarget', _onDetachedFromTarget);
   }
 
   /// Connect to a Chromium instance.
@@ -39,6 +48,82 @@ class CrBrowser extends EventEmitter implements CoreBrowser {
   Future<void> _initialize() async {
     // Enable target discovery
     await connection.send('Target.setDiscoverTargets', {'discover': true});
+    // Auto-attach is what makes popups observable: a page opened by
+    // `window.open` is never handed to us by a command response, so the only
+    // way to get a session for it is to be attached as it appears. Flattened
+    // sessions ride the same websocket with a `sessionId` field.
+    //
+    // waitForDebuggerOnStart is left off on purpose: pausing every new target
+    // means we would also have to resume the ones we do not model (OOPIFs,
+    // workers), and a target we forget to resume hangs the page.
+    await connection.send('Target.setAutoAttach', {
+      'autoAttach': true,
+      'waitForDebuggerOnStart': false,
+      'flatten': true,
+    });
+  }
+
+  void _onAttachedToTarget(Map<String, dynamic> params) {
+    final targetInfo = params['targetInfo'] as Map<String, dynamic>?;
+    if (targetInfo == null || targetInfo['type'] != 'page') return;
+    final targetId = targetInfo['targetId'] as String;
+    if (_pagesByTarget.containsKey(targetId)) return;
+    // Fire-and-forget: adopting is async, and a target that goes away
+    // mid-adoption must not surface as an unhandled error.
+    _adoptTarget(params['sessionId'] as String, targetId, targetInfo)
+        .catchError((Object _) {});
+  }
+
+  Future<void> _adoptTarget(String sessionId, String targetId,
+      Map<String, dynamic> targetInfo) async {
+    final context = _contextFor(targetInfo['browserContextId'] as String?);
+    // A target from a context we do not own (the launch-time about:blank of a
+    // non-persistent browser, for instance) is left alone.
+    if (context == null) return;
+
+    final session = connection.createSession(sessionId, 'page');
+    final page = await CrPage.create(session, targetId: targetId);
+    await context.applyContextOptions(session);
+
+    final openerId = targetInfo['openerId'] as String?;
+    _pagesByTarget[targetId] = page;
+    context.registerPage(page,
+        opener: openerId == null ? null : _pagesByTarget[openerId]);
+
+    final completer = _pageCompleters.remove(targetId);
+    if (completer != null && !completer.isCompleted) completer.complete(page);
+  }
+
+  void _onDetachedFromTarget(Map<String, dynamic> params) {
+    final sessionId = params['sessionId'] as String?;
+    if (sessionId != null) connection.closeSession(sessionId);
+    final targetId = params['targetId'] as String?;
+    if (targetId != null) _pagesByTarget.remove(targetId);
+  }
+
+  CrBrowserContext? _contextFor(String? browserContextId) {
+    for (final context in _contexts) {
+      if (context.browserContextId == browserContextId) return context;
+    }
+    return null;
+  }
+
+  /// The page for [targetId], waiting for the auto-attach to land.
+  ///
+  /// `Target.createTarget` answers with a target id before the session for it
+  /// exists, so page creation funnels through the same adoption path as a
+  /// popup and both end up on `context.pages`.
+  Future<CrPage> pageForTarget(String targetId,
+      {Duration timeout = const Duration(seconds: 30)}) {
+    final existing = _pagesByTarget[targetId];
+    if (existing != null) return Future.value(existing);
+    final completer =
+        _pageCompleters.putIfAbsent(targetId, () => Completer<CrPage>());
+    return completer.future.timeout(timeout, onTimeout: () {
+      _pageCompleters.remove(targetId);
+      throw PlaywrightException(
+          'Timeout waiting for the Chromium page session of target $targetId');
+    });
   }
 
   void _onTargetCreated(Map<String, dynamic> params) {
@@ -93,8 +178,12 @@ class CrBrowser extends EventEmitter implements CoreBrowser {
   void _onClosed() {
     if (_isClosed) return;
     _isClosed = true;
+    for (final context in _contexts.toList()) {
+      context.notifyClosed();
+    }
     _contexts.clear();
-    emit('disconnected');
+    emit('disconnected', true);
+    disposeStreams();
 
     // Cleanup temp profile if needed
     if (_tempUserDataDir != null) {
@@ -106,7 +195,7 @@ class CrBrowser extends EventEmitter implements CoreBrowser {
 }
 
 /// An isolated Chromium browser context (incognito-like partition).
-class CrBrowserContext
+class CrBrowserContext extends EventEmitter
     with BrowserContextStorage
     implements CoreBrowserContext {
   final CrBrowser browser;
@@ -122,20 +211,20 @@ class CrBrowserContext
   @override
   Future<CorePage> newPage() async {
     if (_closed) throw PlaywrightException('Context closed');
-    final connection = browser.connection;
-
-    final targetId = (await connection.send('Target.createTarget', {
+    final targetId = (await browser.connection.send('Target.createTarget', {
       'url': 'about:blank',
       if (browserContextId != null) 'browserContextId': browserContextId,
-    }))['targetId'];
+    }))['targetId'] as String;
+    // The page itself is built by the auto-attach handler; see
+    // CrBrowser.pageForTarget.
+    return browser.pageForTarget(targetId);
+  }
 
-    final sessionId = (await connection.send('Target.attachToTarget', {
-      'targetId': targetId,
-      'flatten': true,
-    }))['sessionId'];
-
-    final session = connection.createSession(sessionId, 'page');
-    final page = await CrPage.create(session);
+  /// Applies the context's emulation to a freshly attached page session.
+  ///
+  /// Chromium has no context-wide viewport or user agent, so both are set per
+  /// page - including pages the context did not create, such as popups.
+  Future<void> applyContextOptions(CDPSession session) async {
     final viewport = options.viewport;
     if (viewport != null) {
       await session.send('Emulation.setDeviceMetricsOverride', {
@@ -150,8 +239,6 @@ class CrBrowserContext
         'userAgent': options.userAgent,
       });
     }
-    trackedPages.add(page);
-    return page;
   }
 
   @override
@@ -196,5 +283,6 @@ class CrBrowserContext
     }
     trackedPages.clear();
     browser._contexts.remove(this);
+    notifyClosed();
   }
 }

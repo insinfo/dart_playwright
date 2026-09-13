@@ -17,6 +17,7 @@ import '../core_js_handle.dart';
 /// Represents a Firefox Juggler Page (tab).
 class FfPage extends EventEmitter
     with
+        CorePageOwnership,
         CorePageFrameEvaluation,
         CorePageInputHelpers,
         CorePageDialogs,
@@ -40,6 +41,9 @@ class FfPage extends EventEmitter
     networkManager = FfNetworkManager(session);
     forwardNetworkEvents(networkManager, this);
     session.on('Page.dialogOpened', _onDialogOpened);
+    session.on('Runtime.console', _onConsole);
+    session.on('Page.uncaughtError', _onUncaughtError);
+    session.on('Page.crashed', (_) => emit('crash', true));
     session.on('Page.frameAttached', (params) {
       frameManager.frameAttached(
           params['frameId'] as String, params['parentFrameId'] as String?);
@@ -103,6 +107,46 @@ class FfPage extends EventEmitter
         });
       },
     ));
+  }
+
+  void _onConsole(Map<String, dynamic> params) {
+    final location = params['location'] as Map<String, dynamic>?;
+    emit(
+        'console',
+        CoreConsoleMessage(
+          // Juggler says 'warn' for browser-generated messages; every other
+          // engine and the documented vocabulary say 'warning'.
+          type: normalizeConsoleType(params['type'] as String?),
+          text: describeConsoleArgs(params['args']),
+          location: CoreSourceLocation(
+            url: location?['url'] as String? ?? '',
+            lineNumber: (location?['lineNumber'] as num?)?.toInt() ?? 0,
+            columnNumber: (location?['columnNumber'] as num?)?.toInt() ?? 0,
+          ),
+        ));
+  }
+
+  void _onUncaughtError(Map<String, dynamic> params) {
+    final message = params['message'] as String? ?? '';
+    final split = splitErrorMessage(message);
+    // SpiderMonkey stacks read `func@url:line:col`; upstream rewrites them to
+    // the V8 shape so a stack looks the same whichever engine produced it.
+    final frames = (params['stack'] as String? ?? '')
+        .split('\n')
+        .where((line) => line.isNotEmpty)
+        .map((line) {
+          final at = line.indexOf('@');
+          if (at == -1) return '    at $line';
+          return '    at ${line.substring(0, at)} (${line.substring(at + 1)})';
+        })
+        .join('\n');
+    emit(
+        'pageerror',
+        CorePageError(
+          name: split.name,
+          message: split.message,
+          stack: frames.isEmpty ? message : '$message\n$frames',
+        ));
   }
 
   Future<void> initialize() async {
@@ -371,9 +415,32 @@ class FfPage extends EventEmitter
     await session.send('Page.close');
   }
 
+  @override
+  Future<void> setViewportSize(int width, int height) async {
+    await session.send('Page.setViewportSize', {
+      'viewportSize': {'width': width, 'height': height},
+      'screenSize': {'width': width, 'height': height},
+      'isMobile': false,
+    });
+  }
+
+  @override
+  Future<void> setExtraHTTPHeaders(Map<String, String> headers) async {
+    // Juggler wants an array of {name, value}, not a plain object.
+    await session.send('Network.setExtraHTTPHeaders', {
+      'headers': headers.entries
+          .map((entry) => {'name': entry.key, 'value': entry.value})
+          .toList(),
+    });
+  }
+
+  @override
+  bool get isClosed => _isClosed;
+
   void _onClosed() {
     if (_isClosed) return;
     _isClosed = true;
-    emit('close');
+    emit('close', true);
+    disposeStreams();
   }
 }

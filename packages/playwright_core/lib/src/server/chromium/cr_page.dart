@@ -15,12 +15,16 @@ import '../core_js_handle.dart';
 /// Represents a Chromium Page (tab).
 class CrPage extends EventEmitter
     with
+        CorePageOwnership,
         CorePageFrameEvaluation,
         CorePageInputHelpers,
         CorePageDialogs,
         CorePageContentHelpers
     implements CorePage {
   final dynamic session;
+
+  /// The CDP target id backing this page, used to match popups to openers.
+  final String? targetId;
   final CrNetworkManager networkManager;
   @override
   late final Keyboard keyboard;
@@ -32,7 +36,8 @@ class CrPage extends EventEmitter
 
   bool _isClosed = false;
 
-  CrPage._(this.session) : networkManager = CrNetworkManager(session) {
+  CrPage._(this.session, this.targetId)
+      : networkManager = CrNetworkManager(session) {
     frameManager = CoreFrameManager(this);
     keyboard = Keyboard(CrRawKeyboard(session));
     mouse = Mouse(CrRawMouse(session));
@@ -55,6 +60,12 @@ class CrPage extends EventEmitter
     session.on('Runtime.executionContextsCleared', (_) => _contexts.clear());
     session.on('closed', () => _onClosed());
     session.on('Page.javascriptDialogOpening', _onDialogOpening);
+    session.on('Runtime.consoleAPICalled', _onConsoleAPICalled);
+    session.on('Log.entryAdded', _onLogEntryAdded);
+    session.on('Runtime.exceptionThrown', _onExceptionThrown);
+    // The renderer died: the tab is showing "Aw, Snap!". The session survives,
+    // so the page object stays usable enough to report the crash.
+    session.on('Inspector.targetCrashed', (_) => emit('crash', true));
 
     // Frame events
     session.on('Page.frameAttached', (params) {
@@ -118,9 +129,61 @@ class CrPage extends EventEmitter
     ));
   }
 
+  void _onConsoleAPICalled(Map<String, dynamic> params) {
+    // CDP replays the last 1000 console messages when Runtime is enabled,
+    // tagged with executionContextId 0. Upstream drops them (crPage.ts:797)
+    // and so must we, or every page starts by reporting the previous page's
+    // console.
+    final contextId = params['executionContextId'];
+    if (contextId == null || contextId == 0) return;
+
+    final stack = params['stackTrace'] as Map<String, dynamic>?;
+    final frames = stack?['callFrames'] as List?;
+    final top = (frames != null && frames.isNotEmpty)
+        ? frames.first as Map<String, dynamic>
+        : null;
+    emit(
+        'console',
+        CoreConsoleMessage(
+          type: normalizeConsoleType(params['type'] as String?),
+          text: describeConsoleArgs(params['args']),
+          location: CoreSourceLocation(
+            url: top?['url'] as String? ?? '',
+            lineNumber: (top?['lineNumber'] as num?)?.toInt() ?? 0,
+            columnNumber: (top?['columnNumber'] as num?)?.toInt() ?? 0,
+          ),
+        ));
+  }
+
+  void _onLogEntryAdded(Map<String, dynamic> params) {
+    final entry = params['entry'] as Map<String, dynamic>?;
+    if (entry == null) return;
+    // Worker entries belong to the worker's own console (crPage.ts:858).
+    // Everything else the browser itself reports - failed subresources, CSP
+    // violations, deprecations - reaches the page console with the log level
+    // standing in for the console type.
+    if (entry['source'] == 'worker') return;
+    emit(
+        'console',
+        CoreConsoleMessage(
+          type: normalizeConsoleType(entry['level'] as String?),
+          text: entry['text'] as String? ?? '',
+          location: CoreSourceLocation(
+            url: entry['url'] as String? ?? '',
+            lineNumber: (entry['lineNumber'] as num?)?.toInt() ?? 0,
+          ),
+        ));
+  }
+
+  void _onExceptionThrown(Map<String, dynamic> params) {
+    final details = params['exceptionDetails'] as Map<String, dynamic>?;
+    if (details == null) return;
+    emit('pageerror', pageErrorFromCdpExceptionDetails(details));
+  }
+
   /// Create and initialize a new page.
-  static Future<CrPage> create(dynamic session) async {
-    final page = CrPage._(session);
+  static Future<CrPage> create(dynamic session, {String? targetId}) async {
+    final page = CrPage._(session, targetId);
     await page._initialize();
     return page;
   }
@@ -141,6 +204,12 @@ class CrPage extends EventEmitter
     // existing tree or waitForMainFrame() would never complete.
     final result = await session.send('Page.getFrameTree');
     _handleFrameTree(result['frameTree'] as Map<String, dynamic>);
+    // Upstream sends this last, after everything the page needs is enabled
+    // (crPage.ts:548). It is not only about paused targets: while a target
+    // auto-attached from `window.open` has not been resumed, the opener's
+    // renderer stays blocked inside the `window.open` call, so the evaluate
+    // or the click that opened the popup never returns.
+    await session.send('Runtime.runIfWaitingForDebugger');
   }
 
   void _handleFrameTree(Map<String, dynamic> frameTree) {
@@ -426,6 +495,32 @@ class CrPage extends EventEmitter
     return headers.map((key, value) => MapEntry('$key', '$value'));
   }
 
+  @override
+  Future<void> setViewportSize(int width, int height) async {
+    // Upstream keeps screen size equal to the viewport for a plain
+    // setViewportSize (page.ts:636) and sends a landscape orientation for
+    // non-mobile pages (crPage.ts:922).
+    await session.send('Emulation.setDeviceMetricsOverride', {
+      'mobile': false,
+      'width': width,
+      'height': height,
+      'screenWidth': width,
+      'screenHeight': height,
+      'deviceScaleFactor': 1,
+      'screenOrientation': {'angle': 0, 'type': 'landscapePrimary'},
+      'dontSetVisibleSize': false,
+    });
+  }
+
+  @override
+  Future<void> setExtraHTTPHeaders(Map<String, String> headers) async {
+    // CDP takes a plain object and upstream does not lower-case the names.
+    await session.send('Network.setExtraHTTPHeaders', {'headers': headers});
+  }
+
+  @override
+  bool get isClosed => _isClosed;
+
   /// Close the page.
   Future<void> close() async {
     if (_isClosed) return;
@@ -435,6 +530,7 @@ class CrPage extends EventEmitter
   void _onClosed() {
     if (_isClosed) return;
     _isClosed = true;
-    emit('close');
+    emit('close', true);
+    disposeStreams();
   }
 }

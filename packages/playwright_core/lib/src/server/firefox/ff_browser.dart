@@ -14,27 +14,54 @@ class FfBrowser extends EventEmitter implements CoreBrowser {
   FfBrowser(this.connection) {
     session = connection.rootSession;
 
-    // In Juggler, new pages emit Browser.attachedToTarget
-    session.on('Browser.attachedToTarget', (params) {
-      final targetInfo = params['targetInfo'];
-      if (targetInfo['type'] == 'page') {
-        final sessionId = params['sessionId'] as String;
-        final targetId = targetInfo['targetId'] as String;
-        final newSession = connection.createSession(sessionId);
-        final page = FfPage(newSession);
-        if (_pendingPages.containsKey(targetId)) {
-          _pendingPages[targetId]?.complete(page);
-          _pendingPages.remove(targetId);
-        } else {
-          _attachedPages[targetId] = page;
-        }
-      }
+    // In Juggler every page - the ones we ask for and the ones the page opens
+    // itself - arrives as Browser.attachedToTarget. That single entry point is
+    // what makes popups observable.
+    session.on('Browser.attachedToTarget', _onAttachedToTarget);
+    session.on('Browser.detachedFromTarget', (params) {
+      _pagesByTarget.remove(params['targetId'] as String?);
+      final sessionId = params['sessionId'] as String?;
+      if (sessionId != null) connection.closeSession(sessionId);
     });
     connection.on('closed', () => _onClosed());
   }
 
   final _pendingPages = <String, Completer<FfPage>>{};
-  final _attachedPages = <String, FfPage>{};
+  final _pagesByTarget = <String, FfPage>{};
+
+  void _onAttachedToTarget(Map<String, dynamic> params) {
+    final targetInfo = params['targetInfo'] as Map<String, dynamic>?;
+    if (targetInfo == null || targetInfo['type'] != 'page') return;
+    final targetId = targetInfo['targetId'] as String;
+    if (_pagesByTarget.containsKey(targetId)) return;
+    final newSession = connection.createSession(params['sessionId'] as String);
+    final page = FfPage(newSession);
+    _pagesByTarget[targetId] = page;
+    _adoptPage(page, targetId, targetInfo).catchError((Object _) {});
+  }
+
+  Future<void> _adoptPage(FfPage page, String targetId,
+      Map<String, dynamic> targetInfo) async {
+    // Page.ready is Juggler's equivalent of "the session is usable"; nothing
+    // else can be sent to the page before it.
+    await page.initialize();
+    final contextId = targetInfo['browserContextId'] as String?;
+    final context = _contextFor(contextId);
+    if (context != null) {
+      final openerId = targetInfo['openerId'] as String?;
+      context.registerPage(page,
+          opener: openerId == null ? null : _pagesByTarget[openerId]);
+    }
+    final completer = _pendingPages.remove(targetId);
+    if (completer != null && !completer.isCompleted) completer.complete(page);
+  }
+
+  FfBrowserContext? _contextFor(String? browserContextId) {
+    for (final context in _contexts) {
+      if (context.browserContextId == browserContextId) return context;
+    }
+    return null;
+  }
 
   Future<void> init() async {
     await session.send('Browser.enable', {
@@ -86,26 +113,16 @@ class FfBrowser extends EventEmitter implements CoreBrowser {
     return context;
   }
 
-  /// Waits for the page session attached to [targetId] (created via
-  /// Browser.newPage) and initializes it.
-  Future<FfPage> waitForPage(String targetId) async {
-    if (_attachedPages.containsKey(targetId)) {
-      final page = _attachedPages.remove(targetId)!;
-      await page.initialize();
-      return page;
-    }
-
-    final completer = Completer<FfPage>();
-    _pendingPages[targetId] = completer;
-
-    final page =
-        await completer.future.timeout(Duration(seconds: 10), onTimeout: () {
+  /// Waits for the page attached to [targetId] (created via Browser.newPage)
+  /// to finish being adopted by its context.
+  Future<FfPage> waitForPage(String targetId) {
+    final completer =
+        _pendingPages.putIfAbsent(targetId, () => Completer<FfPage>());
+    return completer.future
+        .timeout(const Duration(seconds: 30), onTimeout: () {
       _pendingPages.remove(targetId);
       throw PlaywrightException('Timeout waiting for Firefox page session');
     });
-
-    await page.initialize();
-    return page;
   }
 
   @override
@@ -121,13 +138,17 @@ class FfBrowser extends EventEmitter implements CoreBrowser {
   void _onClosed() {
     if (_isClosed) return;
     _isClosed = true;
+    for (final context in _contexts.toList()) {
+      context.notifyClosed();
+    }
     _contexts.clear();
-    emit('disconnected');
+    emit('disconnected', true);
+    disposeStreams();
   }
 }
 
 /// An isolated Firefox (Juggler) browser context.
-class FfBrowserContext
+class FfBrowserContext extends EventEmitter
     with BrowserContextStorage
     implements CoreBrowserContext {
   final FfBrowser browser;
@@ -145,9 +166,9 @@ class FfBrowserContext
     final result = await browser.session.send('Browser.newPage', {
       'browserContextId': browserContextId,
     });
-    final page = await browser.waitForPage(result['targetId'] as String);
-    trackedPages.add(page);
-    return page;
+    // The page itself is built and registered by the attachedToTarget
+    // handler, the same path a popup takes.
+    return browser.waitForPage(result['targetId'] as String);
   }
 
   @override
@@ -187,5 +208,6 @@ class FfBrowserContext
     });
     trackedPages.clear();
     browser._contexts.remove(this);
+    notifyClosed();
   }
 }
