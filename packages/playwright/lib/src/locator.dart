@@ -1,6 +1,7 @@
-import 'dart:async';
 import 'dart:convert';
 
+import 'package:playwright_protocol/playwright_protocol.dart'
+    show PlaywrightException, TimeoutException;
 import 'package:playwright_core/src/server/core_js_handle.dart';
 import 'package:playwright_core/src/server/core_element_handle.dart';
 import 'package:playwright_core/src/server/core_page.dart';
@@ -35,9 +36,8 @@ class BoundingBox {
 }
 
 /// Thrown when a locator resolves to more than one element while strict.
-class StrictModeViolation implements Exception {
-  final String message;
-  StrictModeViolation(this.message);
+class StrictModeViolation extends PlaywrightException {
+  StrictModeViolation(super.message);
   @override
   String toString() => 'StrictModeViolation: $message';
 }
@@ -445,7 +445,7 @@ class LocatorImpl extends Locator {
         throw TimeoutException(
             'Timeout ${timeout.inMilliseconds}ms exceeded waiting for '
             '${_selector.description}: $lastReason',
-            timeout);
+            timeout: timeout);
       }
       await Future<void>.delayed(const Duration(milliseconds: 50));
     }

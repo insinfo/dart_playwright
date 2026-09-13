@@ -205,6 +205,81 @@ class TestServer {
             ''');
           break;
 
+        case '/semantics':
+          // Exercises the getBy* engines: roles, accessible names from
+          // labels, whitespace that needs normalising, and the attribute
+          // engines behind placeholder/alt/title/testid.
+          request.response
+            ..statusCode = 200
+            ..headers.contentType = ContentType.html
+            ..write("""
+              <html><head><title>Semantics</title></head><body>
+                <h1>Pagina de semantica</h1>
+                <h2>Secao dois</h2>
+                <nav aria-label="Principal"><a href="/hello">Ir para hello</a></nav>
+                <button id="save">Save</button>
+                <button id="saveDraft">Save draft</button>
+                <button id="close" aria-label="Fechar">x</button>
+                <label for="user">Username</label>
+                <input id="user" type="text" />
+                <label>Password <input id="pass" type="password" /></label>
+                <input id="search" type="search" placeholder="Search here" />
+                <img id="cat" alt="A cat" width="20" height="20"
+                     src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" />
+                <span id="tip" title="Tooltip text">hover me</span>
+                <button data-testid="submit">Enviar</button>
+                <input id="agree" type="checkbox" checked />
+                <input id="news" type="checkbox" />
+                <div id="spaced">Hello
+                       world</div>
+                <ul>
+                  <li class="row">Alpha</li>
+                  <li class="row">Beta</li>
+                  <li class="row">Gamma</li>
+                </ul>
+                <button id="disabledBtn" disabled>Disabled action</button>
+                <script>
+                  document.getElementById('save').addEventListener('click', (e) => {
+                    window.__savedTrusted = e.isTrusted;
+                  });
+                </script>
+              </body></html>
+            """);
+          break;
+
+        case '/late':
+          // The button only appears after a delay, and only becomes stable
+          // after a short animation: exercises auto-waiting.
+          request.response
+            ..statusCode = 200
+            ..headers.contentType = ContentType.html
+            ..write("""
+              <html><body>
+                <div id="slot"></div>
+                <script>
+                  setTimeout(() => {
+                    const button = document.createElement('button');
+                    button.id = 'later';
+                    button.textContent = 'Later';
+                    button.style.position = 'relative';
+                    button.style.left = '0px';
+                    button.addEventListener('click', (e) => {
+                      window.__lateClicked = e.isTrusted;
+                      window.__lateLeft = button.getBoundingClientRect().left;
+                    });
+                    document.getElementById('slot').appendChild(button);
+                    let left = 0;
+                    const move = setInterval(() => {
+                      left += 20;
+                      button.style.left = left + 'px';
+                      if (left >= 60) clearInterval(move);
+                    }, 40);
+                  }, 400);
+                </script>
+              </body></html>
+            """);
+          break;
+
         case '/frames':
           // Two sibling frames plus a nested one, so tests can exercise frame
           // trees, per-frame execution contexts and FrameLocator chains.

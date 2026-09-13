@@ -68,15 +68,19 @@ class WkPage extends EventEmitter
       _contexts.contextCreated(
           frameId, WkExecutionContext(session, context['id'] as int));
     });
-    session.on('Page.loadEventFired', (_) {
-      if (frameManager.mainFrame != null) {
-        frameManager.frameLifecycleEvent(frameManager.mainFrame!.id, 'load');
-      }
+    // WebKit reports which frame fired the event; attributing everything to
+    // the main frame left child frames without lifecycle events, so
+    // frame.goto()/waitForLoadState() on an iframe never completed.
+    session.on('Page.loadEventFired', (params) {
+      final frameId =
+          params['frameId'] as String? ?? frameManager.mainFrame?.id;
+      if (frameId != null) frameManager.frameLifecycleEvent(frameId, 'load');
     });
-    session.on('Page.domContentEventFired', (_) {
-      if (frameManager.mainFrame != null) {
-        frameManager.frameLifecycleEvent(
-            frameManager.mainFrame!.id, 'DOMContentLoaded');
+    session.on('Page.domContentEventFired', (params) {
+      final frameId =
+          params['frameId'] as String? ?? frameManager.mainFrame?.id;
+      if (frameId != null) {
+        frameManager.frameLifecycleEvent(frameId, 'DOMContentLoaded');
       }
     });
     session.on('closed', () => _onClosed());
