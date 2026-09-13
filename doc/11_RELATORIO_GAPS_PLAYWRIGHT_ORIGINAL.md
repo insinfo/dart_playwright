@@ -1,7 +1,7 @@
 # Relatório de gaps para paridade com o Playwright original
 
 Data da análise: 2026-07-19
-Última atualização: 2026-09-13 — ver "Progresso da rodada de 2026-09-13".
+Última atualização: 2026-09-13 — ver "Progresso da rodada de 2026-09-13 (eventos P0)".
 
 Referências locais usadas:
 
@@ -31,6 +31,122 @@ Onze commits (`146c69a`..`11d0c7a`) levaram a suíte de paridade de "toda em tim
   - **Firefox**: em nível de contexto no Juggler (`Browser.setDefaultViewport` com o shape `{viewport: {viewportSize: {...}}}` e `Browser.setUserAgentOverride`), aplicados antes de existir qualquer página — idêntico ao upstream (`ffBrowser.ts:191`).
   - **WebKit**: `Emulation.setDeviceMetricsOverride` no pageProxy + `Page.overrideUserAgent` no target (`wkPage.ts:713`).
   - *Teste de paridade*: cria um contexto 640×480 com UA customizado e verifica `window.innerWidth`/`innerHeight` e `navigator.userAgent` nos três engines — passou de primeira em todos.
+
+## Progresso da rodada de 2026-09-13 (eventos P0)
+
+Fecha o item 3 (eventos de primeira classe) e o item 4 (esperas
+especializadas) de "P0 - Necessário para paridade estrutural", mais os itens
+1, 5 e 6 de "Próximos passos imediatos". A suíte saiu de 209 para **276
+testes verdes**, todos rodados de fato nos três motores nesta máquina.
+
+### Fundação: o emissor mentia
+
+`EventEmitter.stream` criava um `StreamController` novo a cada leitura do
+getter e registrava nele um listener permanente. Duas consequências:
+
+1. `listenerCount` contava getters lidos, não assinantes. A regra do upstream
+   — um dialog que ninguém observa é dispensado, porque um modal bloqueia o
+   renderer — não tinha como ser implementada em cima disso.
+2. Eventos sem payload (`emit('load')`, `emit('close')`) chamavam o listener
+   com zero argumentos e estouravam `NoSuchMethodError`. Ou seja,
+   `page.onLoad.listen(...)` estava quebrado desde sempre, e nenhum teste
+   assinava esses streams para perceber.
+
+Agora há um controller por nome de evento, o listener do emissor só existe
+enquanto o stream tem assinante (via `onListen`/`onCancel`), e `disposeStreams`
+fecha tudo quando o objeto morre — que é o que faz uma espera pendente ser
+cancelada em vez de ficar pendurada.
+
+### Rastreamento de novos targets por motor
+
+Era o item apontado como o primeiro da fila. Toda página passa por um único
+caminho de adoção, e `newPage` usa o mesmo caminho que um popup — então
+`context.pages` e o evento `page` não podem divergir:
+
+- **Chromium**: `Target.setAutoAttach {autoAttach: true, flatten: true}` na
+  sessão do browser. `Target.createTarget` devolve um id; a página é
+  construída pelo handler de `Target.attachedToTarget`, e `newPage` espera por
+  ela. `openerId` no `targetInfo` dá o opener.
+- **Firefox**: `Browser.attachedToTarget` já existia para `newPage`; passou a
+  ser a única porta de entrada, com `openerId` e `browserContextId` do
+  `targetInfo`.
+- **WebKit**: `Playwright.pageProxyCreated` no nível do browser, com
+  `pageProxyId`, `browserContextId` e `openerId`. A sessão de pageProxy já era
+  criada avidamente pela conexão, então nenhum evento se perde entre a criação
+  e o `Playwright.createPage` responder.
+
+`waitForDebuggerOnStart` ficou desligado no Chromium de propósito: com ele,
+todo target novo nasce pausado e qualquer um que a gente não modele (OOPIF,
+worker) trava a página se esquecermos de retomá-lo.
+
+### O defeito que custou a rodada
+
+No Chromium, `page.evaluate("window.open(...)")` e o clique num botão que
+chama `window.open` **nunca retornavam**, embora o popup fosse criado e
+adotado corretamente. `target=_blank` funcionava.
+
+Causa: com auto-attach ligado, o renderer do opener fica bloqueado dentro da
+chamada síncrona de `window.open` até o target novo ser retomado. O upstream
+manda `Runtime.runIfWaitingForDebugger` no fim da inicialização da página
+(`crPage.ts:548`) — o que se lê como "retome se estiver pausado", mas na
+prática é também o sinal que destrava o opener. Sem ele o `Input.dispatchMouseEvent`
+do clique nunca recebia ack e a espera do teste estourava.
+
+### Eventos por motor
+
+| Evento | Chromium | Firefox | WebKit |
+| --- | --- | --- | --- |
+| console | `Runtime.consoleAPICalled` (descartando `executionContextId == 0`, que é o replay do CDP ao habilitar `Runtime`) + `Log.entryAdded` sem `source == 'worker'` | `Runtime.console` | `Console.messageAdded`, com `type == 'log'` usando o `level` e `timing` virando `timeEnd` |
+| pageerror | `Runtime.exceptionThrown` | `Page.uncaughtError`, com o stack do SpiderMonkey reescrito para o formato V8 | `Console.messageAdded` com `level == 'error' && source == 'javascript'` |
+| crash | `Inspector.targetCrashed` | `Page.crashed` | campo `crashed` de `Target.targetDestroyed` |
+| popup | `openerId` do `targetInfo` | `openerId` do `targetInfo` | `openerId` do `pageProxyCreated` |
+
+A única normalização de nome de tipo em todo o upstream é o `warn` do Juggler
+virando `warning`; o resto passa cru, e aqui também.
+
+### API pública
+
+- **`Page`**: `onConsole`, `onPageError`, `onPopup`, `onCrash`, `onDialog`
+  (agora `Stream<Dialog>`), `waitForPopup`, `waitForConsoleMessage`,
+  `waitForDialog`, `opener()`, `context()`, `isClosed()`,
+  `setViewportSize`, `setExtraHTTPHeaders`.
+- **`BrowserContext`**: `onPage`, `onClose`, `onConsole`, `onPageError`,
+  `onDialog`, `onRequest`, `onResponse`, `onRequestFinished`,
+  `onRequestFailed`, `waitForPage`, `waitForConsoleMessage`, `waitForEvent`.
+- **Cancelamento consistente** (`lib/src/waiter.dart`): toda espera desiste no
+  timeout, no fechamento do alvo (o stream fecha) e, nas de página, no crash —
+  os mesmos dois `rejectOnEvent` que o `Waiter` do upstream registra.
+- **Identidade de wrappers**: `PageImpl.forCore`/`BrowserContextImpl.forCore`
+  guardam o wrapper num `Expando`, então `context.pages()`, `popup.opener()` e
+  o evento `page` devolvem o mesmo objeto. Sem isso, `expect(popup.opener(),
+  same(page))` seria falso e o usuário não teria como comparar páginas.
+
+### Quebra de API
+
+`page.onDialog` deixou de ser o método que recebia um handler e virou um
+`Stream<Dialog>`, como todos os outros eventos. O auto-dismiss continua: sem
+assinante na página nem no contexto, o dialog é dispensado.
+
+### O que ficou de fora desta rodada, e por quê
+
+- **`onCrash` só foi provado no Chromium** (`chrome://crash`). Firefox só tem
+  `about:crashcontent` em build de debug e o WebKit não tem equivalente
+  suportado; a fiação dos dois está no lugar e não foi exercitada de ponta a
+  ponta.
+- **`ConsoleMessage.args()`**: o upstream monta um `JSHandle` por argumento e
+  chama `preview()` neles. Aqui o texto vem do `description` do RemoteObject,
+  que dá a mesma string para tudo que um teste costuma asserir, mas não
+  devolve handles.
+- **`WebError` no contexto**: o upstream emite `weberror` (com um wrapper que
+  carrega a página de origem) em vez de `pageerror` no `BrowserContext`. Aqui
+  o contexto emite `pageerror` com o mesmo payload da página; a página de
+  origem ainda não viaja junto.
+- **`download`, `fileChooser`, `webSocket`, `worker`, `serviceWorker`,
+  `backgroundPage`**: dependem das classes correspondentes, que são Milestone
+  3. Sem a classe, o evento não teria o que carregar.
+- **`removeAllListeners` com `behavior`** e `setDefaultTimeout` /
+  `setDefaultNavigationTimeout`: cada espera ainda recebe o timeout por
+  parâmetro.
 
 ## Progresso da rodada de 2026-09-13 (Milestone 2)
 
@@ -227,7 +343,7 @@ Em termos práticos:
 | Rede: eventos, waiters, corpo de resposta, interceptação com fulfill/unroute/postData | Implementado nos 3 engines |
 | Emulação de contexto: viewport, userAgent | Implementado; faltam locale, timezone, colorScheme etc. |
 | API pública completa de `Page`, `Locator`, `Frame`, `BrowserContext` | `Frame`, `Locator` e `FrameLocator` completos com `getBy*` e actionability; `BrowserContext` ainda mínimo |
-| Eventos Playwright completos | Rede e lifecycle expostos; faltam popup, download, console, worker |
+| Eventos Playwright completos | Rede, lifecycle, console, pageError, popup, dialog, crash e os eventos de contexto expostos nos 3 motores; faltam download, fileChooser, webSocket, worker |
 | Downloads, videos, tracing, HAR, WebSocket, workers | Ausentes ou não expostos |
 | APIRequest/APIResponse | Ausente na API pública |
 | Test runner `@playwright/test`, expect, reporters | Ausente; exige implementação Dart própria |
@@ -243,7 +359,7 @@ Os arquivos `docs/src/api/class-*.md` do upstream indicam uma superfície muito 
 | `Page` | 124 | Cerca de 35 métodos públicos principais |
 | `Locator` | 70 | ~55 métodos públicos |
 | `Frame` | 61 | ~45 métodos públicos |
-| `BrowserContext` | 39 | 6 métodos públicos |
+| `BrowserContext` | 39 | 8 métodos + 9 streams de evento + 3 esperas |
 | `ElementHandle` | 37 | 17 métodos públicos |
 | `Browser` | 13 | 3 métodos públicos |
 | `BrowserType` | 7 | `name` e `launch` |
@@ -320,28 +436,28 @@ Hoje `packages/playwright/lib/src/js_handle.dart` e `packages/playwright/lib/src
 
 FEITO (2026-07-19): `Page.onClose/onLoad/onDomContentLoaded/onFrame*/onRequest/onResponse/onRequestFinished/onRequestFailed` funcionam nos três engines (network managers próprios para Firefox e WebKit).
 
+FEITO (2026-09-13, eventos P0): `Page.onConsole/onPageError/onPopup/onCrash/onDialog`; `BrowserContext.onPage/onClose/onConsole/onPageError/onDialog/onRequest/onResponse/onRequestFinished/onRequestFailed`; `Browser.onDisconnected`.
+
 Ainda faltam streams/listeners públicos para:
 
-- `Page`: `console`, `crash`, `dialog` (como stream), `download`, `fileChooser`, `pageError`, `popup`, `webSocket`, `worker`.
-- `BrowserContext`: `page`, `close`, `console`, `dialog`, `download`, `request`, `response`, `serviceWorker`, `webError` e demais eventos.
-- `Browser`: `disconnected`, `context`.
+- `Page`: `download`, `fileChooser`, `webSocket`, `worker` — dependem das classes correspondentes (Milestone 3).
+- `BrowserContext`: `download`, `serviceWorker`, `backgroundPage`, e `webError` no formato do upstream (hoje o contexto emite `pageerror` com o payload da página, sem a página de origem junto).
+- `Browser`: `context`.
 - `WebSocket` e `Worker`: eventos próprios.
 
 4. Implementar `waitForEvent` e esperas especializadas
 
 FEITO (2026-07-19): `page.waitForRequest`, `page.waitForResponse`, `page.waitForURL`, `page.waitForFunction`, `page.waitForEvent` com timeout.
 
+FEITO (2026-09-13, eventos P0): `page.waitForPopup`, `page.waitForConsoleMessage`, `page.waitForDialog`, `context.waitForPage`, `context.waitForConsoleMessage`, `context.waitForEvent`, e o cancelamento consistente (timeout, fechamento do alvo, crash da página) em `packages/playwright/lib/src/waiter.dart`.
+
 Faltam:
 
 - `page.waitForDownload`
 - `page.waitForFileChooser`
-- `page.waitForPopup`
 - `page.waitForWebSocket`
 - `page.waitForWorker`
-- `context.waitForPage`
-- `context.waitForConsoleMessage`
 - `worker.waitForEvent`
-- cancelamento consistente entre todas as esperas
 
 ### P1 - API pública principal
 
@@ -413,7 +529,7 @@ Além do que já existe, faltam blocos grandes:
 - Artefatos: `pdf`, `video`, `coverage`, `screencast`, `pageErrors`, `consoleMessages`.
 - Devtools/diagnóstico: `pause`, `requestGC`, `bringToFront`, locator highlight/picker.
 - Handlers: `addLocatorHandler`, `removeLocatorHandler`.
-- Configuração: `setViewportSize`, `setExtraHTTPHeaders`, default timeouts.
+- Configuração: ~~`setViewportSize`, `setExtraHTTPHeaders`~~ (FEITO em 2026-09-13), default timeouts.
 
 5. Completar `Locator`
 
@@ -604,12 +720,12 @@ Faltam recursos completos de serialização entre Dart e runtime da página:
 
 ### Próximos passos imediatos (fila para a próxima rodada)
 
-1. `page.waitForPopup` e `context.waitForPage` — exige rastrear novos targets/pageProxies por engine e emitir o evento `page` no contexto (P0.4 restante).
+1. ~~`page.waitForPopup` e `context.waitForPage`~~ — FEITO em 2026-09-13, com rastreamento de targets/pageProxies nos três motores.
 2. ~~`Frame` público completo~~ — FEITO em 2026-09-13, com contexto de execução por frame nos três motores.
 3. Mais opções de contexto: `locale`, `timezoneId`, `colorScheme`, `deviceScaleFactor`, `geolocation`, `permissions`, `hasTouch` (este último destrava `tap`/`Touchscreen`).
 4. `Route.continue_` com overrides (headers/method/postData) e `Route.fallback`.
-5. Eventos `console`/`pageError` e `context.waitForConsoleMessage`.
-6. `page.setViewportSize` e `page.setExtraHTTPHeaders`.
+5. ~~Eventos `console`/`pageError` e `context.waitForConsoleMessage`~~ — FEITO em 2026-09-13.
+6. ~~`page.setViewportSize` e `page.setExtraHTTPHeaders`~~ — FEITO em 2026-09-13.
 7. `setInputFiles` + `FileChooser`, e `Locator.screenshot` com recorte por elemento (ambos Milestone 3).
 8. Portar `selectorEvaluator`/`cssParser` para destravar as extensões CSS (`:has-text()`, `:visible`, layout) e shadow-piercing no motor `css`.
 
@@ -617,8 +733,8 @@ Faltam recursos completos de serialização entre Dart e runtime da página:
 
 - Criar interfaces core neutras para `JSHandle`, `ElementHandle`, `Request`, `Response`, `Route`.
 - Remover dependência direta de Chromium dos wrappers públicos.
-- Expor streams/eventos básicos de `Page`, `BrowserContext` e `Browser`.
-- Adicionar `waitForEvent` e waiters especializados mais usados.
+- ~~Expor streams/eventos básicos de `Page`, `BrowserContext` e `Browser`.~~ FEITO em 2026-09-13.
+- ~~Adicionar `waitForEvent` e waiters especializados mais usados.~~ FEITO em 2026-09-13 (faltam os que dependem de classes do Milestone 3).
 - Ampliar testes de paridade para eventos e rede.
 
 ### Milestone 2 - Locator/Page compatíveis com uso real — CONCLUÍDO (2026-09-13)

@@ -1,6 +1,7 @@
 # Playwright for Dart
 
 [![CI](https://github.com/insinfo/dart_playwright/actions/workflows/ci.yml/badge.svg)](https://github.com/insinfo/dart_playwright/actions/workflows/ci.yml)
+[![AI Assisted](https://img.shields.io/badge/AI-Assisted-purple.svg)](https://github.com/insinfo/dart_playwright#how-this-package-was-built)
 
 A native Dart port of Playwright focused on browser automation across Chromium,
 Firefox, and WebKit.
@@ -20,12 +21,19 @@ the runtime control plane.
 
 ## Packages
 
-| Package | Purpose |
-| --- | --- |
-| `packages/playwright_protocol` | Shared protocol types, transport types, errors, and event utilities. |
-| `packages/playwright_core` | Browser registry, process transport, and engine-specific implementations for Chromium, Firefox, and WebKit. |
-| `packages/playwright` | User-facing Dart API. |
-| `packages/playwright_mcp` | Model Context Protocol server backed by this Playwright Dart implementation. |
+| Package | Purpose | Published |
+| --- | --- | --- |
+| `packages/playwright` | User-facing Dart API. | yes |
+| `packages/playwright_core` | Browser registry, process transport, and engine-specific implementations for Chromium, Firefox, and WebKit. | yes, as a dependency of `playwright` |
+| `packages/playwright_protocol` | Shared protocol types, transport types, errors, and event utilities. | yes, as a dependency of the two above |
+| `packages/playwright_mcp` | Model Context Protocol server backed by this Playwright Dart implementation. | no — see below |
+
+`playwright_mcp` stays inside this repository (`publish_to: none`). It has no
+public library at all (everything is under `lib/src/`, reachable only through
+its `bin/` entry point), it has no tests of its own, and its six tools are an
+experiment on top of an API that is still moving. Publishing it would mean
+committing to a surface nothing verifies. Run it from a git dependency or from
+a checkout until that changes.
 
 ## Current Capabilities
 
@@ -61,7 +69,7 @@ Run the test suite:
 
 ```bash
 dart analyze packages
-dart test packages/playwright/test/integration/browser_parity_test.dart
+dart test packages/playwright/test packages/playwright_core/test --timeout 120s
 ```
 
 Test an unpacked Chromium extension:
@@ -144,12 +152,44 @@ official Node driver. This project's strongest point is ownership of the Dart
 runtime path: fewer moving pieces outside Dart, deeper control of browser
 transport, and a foundation for Dart-native automation tooling.
 
-## Status
+## Status: milestone 2 of 5
 
-This project is under active development. The current implementation already
-covers the essential browser automation path across the three Playwright engines,
-with cross-platform CI and parity tests. Some advanced Playwright APIs may still
-be missing or intentionally deferred while the native core stabilizes.
+This port is **not at parity with Playwright for Node**, and it is worth being
+blunt about it before anyone builds on it.
+
+What works is the core automation path, proven end to end on all three engines:
+launch, contexts and pages, navigation and history, frames with per-frame
+execution contexts, the full `Locator` surface with `getBy*` and auto-waiting
+actionability, trusted mouse and keyboard input, network events and request
+interception, cookies and `storageState`, and the page/context/browser event
+model with its waiters.
+
+What is missing:
+
+| Missing | Milestone |
+| --- | --- |
+| Downloads, uploads (`setInputFiles`), `FileChooser` | 3 |
+| `APIRequestContext` / `playwright.request` | 3 |
+| Tracing, video recording, `page.pdf` | 3 |
+| Screenshot options (`fullPage`, `clip`, `mask`, `scale`), `Locator.screenshot` | 3 |
+| `WebSocket`, `WebSocketRoute`, `Worker` | 3 |
+| Context options: `locale`, `timezoneId`, `geolocation`, `permissions`, `colorScheme`, `deviceScaleFactor`, `hasTouch`, proxy, HTTP credentials, offline | 4 |
+| `devices` catalogue, `Touchscreen`, `Locator.tap` | 4 |
+| `Clock`, `Coverage`, `Selectors.register` | 4 |
+| `addInitScript`, `exposeFunction`, `exposeBinding` | 4 |
+| `BrowserType.connect`, `connectOverCDP`, `launchPersistentContext`, `launchServer` | 4 |
+| A test runner, `expect`, `LocatorAssertions`, reporters, `ariaSnapshot` | 5 |
+| Codegen, UI mode, trace viewer, inspector | not planned yet |
+| Android, Electron, WebView | not planned yet |
+
+Deliberately partial: the `css` selector engine uses the browser's native
+`querySelectorAll`, so it neither pierces shadow DOM nor understands
+Playwright's CSS extensions (`:has-text()`, `:visible`, layout selectors); the
+`text`, `label` and `role` engines do enter open shadow roots. Actionability
+checks `visible`, `stable`, `enabled` and `editable` but not
+`receivesPointerEvents`, so an element covered by another is still clicked.
+
+`doc/11_RELATORIO_GAPS_PLAYWRIGHT_ORIGINAL.md` tracks the gap in detail.
 
 ## Development Notes
 
@@ -159,11 +199,67 @@ Useful commands:
 dart pub get
 dart analyze packages
 dart run playwright install chromium firefox webkit
-dart test packages/playwright/test/integration/browser_parity_test.dart --reporter expanded --timeout 120s
+dart test packages/playwright/test packages/playwright_core/test --timeout 120s
 ```
 
-The CI workflow runs analysis and browser parity tests on Ubuntu, Windows, and
-macOS.
+From the workspace root a bare `dart test` does not pick the packages up; name
+the test directories, as above.
+
+### What CI actually runs
+
+Being precise, because "CI is green" means different things in different
+repositories:
+
+- `dart analyze packages` on Ubuntu.
+- `dart format --output=none --set-exit-if-changed` on Ubuntu only. The
+  formatter changes between Dart releases, so this gate is pinned to one SDK.
+- `dart doc` for each published package, on Ubuntu, failing unless the output
+  says `Found 0 warnings and 0 errors` — `dart doc` exits 0 even when it warns,
+  so the exit code alone would prove nothing.
+- `dart pub publish --dry-run` for each published package, on Ubuntu.
+- **The full parity suite — all 276 tests, on Chromium, Firefox and WebKit — on
+  Ubuntu, Windows and macOS.** All three engines really are launched on all
+  three operating systems; the browsers come from this repository's own Dart
+  registry, not from an npm install.
+
+What CI does not cover: headful mode (everything runs headless), architectures
+other than x64, and the `playwright_mcp` package, which has no tests.
+
+## How this package was built
+
+Parts of the code, the tests and the documentation were written with the help
+of LLM tooling. Everything in the package goes through the test suite
+(`dart test`), the analyzer (`dart analyze`) and `dart pub publish --dry-run`
+before it lands, and the person who commits it is responsible for it. Treat the
+disclosure as information about how the work was produced, not as a disclaimer
+about its quality: the checks are the same either way, and so is the
+accountability.
+
+## License and attribution
+
+Apache License 2.0 — see `LICENSE`.
+
+This is a derivative work of [Playwright](https://github.com/microsoft/playwright),
+Copyright (c) Microsoft Corporation, under Apache 2.0, which is itself derived
+from Puppeteer, Copyright 2017 Google Inc. `NOTICE` lists the files ported from
+upstream and how each was modified, and a copy of both files travels inside
+every published package, as Apache 2.0 section 4 requires.
+
+`referencias/` holds read-only clones of the upstream projects used while
+porting — `playwright-typescript` (Apache 2.0, 107 MB) and `playwright-dotnet`
+(MIT, 19 MB). Both are gitignored and outside every package, so they are in
+neither the repository nor the published archives.
+
+This project is not produced, endorsed or supported by Microsoft. "Playwright"
+is a trademark of Microsoft Corporation; Apache 2.0 section 6 grants no
+trademark rights, and the name is used here only to say what this is
+compatible with.
+
+The browser binaries downloaded by `dart run playwright install` are not
+covered by this license. Each carries its own: Chromium is BSD-3-Clause plus
+third-party licenses, Firefox is MPL-2.0, WebKit is LGPL-2.1/BSD, and the
+optional ffmpeg build is LGPL or GPL depending on its configuration. Nothing is
+bundled — they are fetched at install time.
 
 ## Reference
 

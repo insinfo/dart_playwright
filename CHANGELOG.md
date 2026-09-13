@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.5.0] - Eventos P0, e preparacao para publicacao
+
+### Added
+- **Eventos de `Page`**: `onConsole`, `onPageError`, `onPopup`, `onCrash` e `onDialog` (agora um `Stream<Dialog>`), somados aos que ja existiam. Mais `opener()`, `context()` e `isClosed()`.
+- **Eventos de `BrowserContext`**: `onPage`, `onClose`, `onConsole`, `onPageError`, `onDialog`, `onRequest`, `onResponse`, `onRequestFinished`, `onRequestFailed`.
+- **Esperas**: `page.waitForPopup`, `page.waitForConsoleMessage`, `page.waitForDialog`, `context.waitForPage`, `context.waitForConsoleMessage`, `context.waitForEvent`. Todas desistem no timeout, no fechamento do alvo e — nas de pagina — no crash, com o mesmo texto de erro do upstream.
+- **Rastreamento de targets por motor**: Chromium por `Target.setAutoAttach` achatado, Firefox por `Browser.attachedToTarget`, WebKit por `Playwright.pageProxyCreated`. `newPage` passa pelo mesmo caminho do popup, entao `context.pages()` nunca diverge do evento `page`.
+- **`page.setViewportSize` e `page.setExtraHTTPHeaders`** nos tres motores.
+- **Wrappers publicos unicos por objeto do nucleo**, para que `context.pages()`, `popup.opener()` e o evento `page` devolvam a mesma instancia.
+- **67 testes novos** de paridade de eventos: 276 no total, verdes em Chromium, Firefox e WebKit.
+- **Preparacao para publicacao**: `LICENSE` (Apache 2.0) e `NOTICE` na raiz e em cada pacote publicavel, `README.md` em ingles e `CHANGELOG.md` proprios por pacote, `.gitignore` e `.pubignore` por pacote, e CI com `dart doc` (verificando a linha `Found 0 warnings and 0 errors`, porque `dart doc` sai com 0 mesmo avisando) e `dart pub publish --dry-run`. O CI de teste passa a rodar a suite inteira, e nao so um arquivo.
+- `playwright`, `playwright_core` e `playwright_protocol` ficam publicaveis; `playwright_mcp` continua com `publish_to: none`.
+
+### Fixed
+- **`EventEmitter.stream` registrava um listener permanente a cada leitura do getter** e criava um controller novo por chamada, entao `listenerCount` mentia e a regra do upstream de dispensar um dialog que ninguem observa nao tinha como funcionar. Agora ha um controller por evento e o listener so existe enquanto houver assinante.
+- **Eventos sem payload nao chegavam a quem usava stream**: `page.onLoad`, `onClose` e `onDomContentLoaded` estouravam `NoSuchMethodError` no dispatch.
+- **Chromium e Firefox nunca fechavam a sessao de uma pagina no detach**, entao o evento `close` so existia quando a conexao inteira caia.
+- **Chromium: `Runtime.runIfWaitingForDebugger` faltava no fim da inicializacao da pagina.** Sem ele, com auto-attach ligado, o renderer do opener fica preso dentro de `window.open` e o `evaluate` ou o clique que abriu o popup nunca retorna.
+- **`playwright_core` importava `package:win32` e `package:ffi` sem declara-los** no proprio pubspec; funcionava no workspace e quebraria no pacote publicado.
+- **`browsers_json.dart` tinha perdido a linha de procedencia** que o `browsers.json` da raiz carrega. Restaurada, e os arquivos portados do upstream ganharam cabecalho de atribuicao Apache 2.0.
+
 ## [0.4.0] - Frames, FrameLocator, getBy* e actionability
 
 ### Added
