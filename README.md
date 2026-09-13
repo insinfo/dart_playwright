@@ -152,7 +152,7 @@ official Node driver. This project's strongest point is ownership of the Dart
 runtime path: fewer moving pieces outside Dart, deeper control of browser
 transport, and a foundation for Dart-native automation tooling.
 
-## Status: milestone 2 of 5
+## Status: milestone 3 of 5
 
 This port is **not at parity with Playwright for Node**, and it is worth being
 blunt about it before anyone builds on it.
@@ -162,16 +162,18 @@ launch, contexts and pages, navigation and history, frames with per-frame
 execution contexts, the full `Locator` surface with `getBy*` and auto-waiting
 actionability, trusted mouse and keyboard input, network events and request
 interception, cookies and `storageState`, and the page/context/browser event
-model with its waiters.
+model with its waiters. Milestone 3 added the rest of
+`Request`/`Response`/`Route`, file uploads and the file chooser, downloads,
+screenshot options with per-element capture, `page.pdf` on Chromium, and an
+`APIRequestContext` sharing the browser context's cookie jar.
 
 What is missing:
 
 | Missing | Milestone |
 | --- | --- |
-| Downloads, uploads (`setInputFiles`), `FileChooser` | 3 |
-| `APIRequestContext` / `playwright.request` | 3 |
-| Tracing, video recording, `page.pdf` | 3 |
-| Screenshot options (`fullPage`, `clip`, `mask`, `scale`), `Locator.screenshot` | 3 |
+| Tracing and video recording | 3 |
+| Screenshot `mask`, `caret`, `animations`, `omitBackground`, `style` | 3 |
+| Multipart uploads and `storageState` on `APIRequestContext` | 3 |
 | `WebSocket`, `WebSocketRoute`, `Worker` | 3 |
 | Context options: `locale`, `timezoneId`, `geolocation`, `permissions`, `colorScheme`, `deviceScaleFactor`, `hasTouch`, proxy, HTTP credentials, offline | 4 |
 | `devices` catalogue, `Touchscreen`, `Locator.tap` | 4 |

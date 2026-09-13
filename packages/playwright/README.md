@@ -15,7 +15,7 @@ Node as its control plane.
 
 ## Read this before you install
 
-**This port is at milestone 2 of 5. It is not at parity with Playwright for
+**This port is at milestone 3 of 5. It is not at parity with Playwright for
 Node, and installing it expecting parity will disappoint you.**
 
 What works today is the core automation path, proven end to end on all three
@@ -24,15 +24,18 @@ frames and frame locators, the full `Locator` surface with `getBy*` and
 auto-waiting actionability, real protocol-level mouse and keyboard input,
 network events and request interception, cookies and `storageState`, dialogs,
 console messages, page errors, popups and the events and waiters around them.
+Milestone 3 added the rest of `Request`/`Response`/`Route`, file uploads and
+the file chooser, downloads, screenshot options with per-element capture,
+`page.pdf` on Chromium, and an `APIRequestContext` that shares the browser
+context's cookie jar.
 
 What is **missing**, and will stay missing until later milestones:
 
 | Missing | Milestone |
 | --- | --- |
-| Downloads, uploads (`setInputFiles`), `FileChooser` | 3 |
-| `APIRequestContext` / `playwright.request` | 3 |
-| Tracing, video recording, `page.pdf` | 3 |
-| Screenshot options (`fullPage`, `clip`, `mask`, `scale`), `Locator.screenshot` | 3 |
+| Tracing and video recording | 3 |
+| Screenshot `mask`, `caret`, `animations`, `omitBackground`, `style` | 3 |
+| Multipart uploads and `storageState` on `APIRequestContext` | 3 |
 | `WebSocket`, `WebSocketRoute`, `Worker` | 3 |
 | Context options: `locale`, `timezoneId`, `geolocation`, `permissions`, `colorScheme`, `deviceScaleFactor`, `hasTouch`, proxy, HTTP credentials, offline | 4 |
 | `devices` catalogue, `Touchscreen`, `Locator.tap` | 4 |

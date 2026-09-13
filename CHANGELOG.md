@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.6.0] - Milestone 3: network, artifacts and the API request context
+
+### Added
+- **`Route`**: `continue_` now rewrites the URL, method, headers and body on the way out; `fallback()` hands the route to the next matching handler (they run newest first, as upstream orders them); `abort()` takes the documented error codes and maps them per engine.
+- **`Request`**: `resourceType`, `isNavigationRequest`, `failure`, `response`, `redirectedFrom`/`redirectedTo`, `allHeaders`/`headersArray`/`headerValue`, `postDataBuffer`, `postDataJSON`, `timing` and `sizes`.
+- **`Response`**: `headers`, `allHeaders`, `headersArray`, `headerValue`, `headerValues`, `serverAddr`, `securityDetails`, `fromServiceWorker` and `finished`.
+- **Uploads**: `Locator.setInputFiles` and `Page.setInputFiles`, plus `FileChooser` with `Page.onFileChooser` and `Page.waitForFileChooser`.
+- **Downloads**: `Download` with `path`, `saveAs`, `failure`, `cancel` and `delete`; `Page.onDownload`, `Page.waitForDownload`, `BrowserContext.onDownload`, and the `acceptDownloads` and `downloadsPath` context options.
+- **Screenshots**: `type`, `quality`, `fullPage`, `clip` and `scale` on `Page.screenshot`, and `Locator.screenshot` capturing exactly the element's box.
+- **`Page.pdf`** on Chromium, with paper formats, margins, header/footer templates and page ranges, read back through the `IO` stream.
+- **`APIRequestContext`**: `playwright.request.newContext()` for standalone HTTP, and `context.request` sharing the browser context's cookie jar in both directions.
+
+### Fixed
+- **An element covered by another was still clicked.** Actionability now includes hit-target testing (`receivesEvents`), and the timeout names what intercepted the click.
+- Firefox could not link a redirect whose previous hop had already finished, because the finished request was dropped from the map first.
+- Chromium's `DOM.setFileInputFiles` ignores an empty file list, so clearing an input goes through the DOM instead and now works on all three engines.
+- File paths are normalized to absolute, native-separator form before reaching an engine: Firefox builds an `nsIFile` from each one and rejects a Windows path containing forward slashes.
+
 ## [0.5.0] - P0 events, and getting ready to publish
 
 ### Added

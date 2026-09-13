@@ -49,9 +49,30 @@ missing and when it is planned.
 
 ### Network
 
-- `page.route` / `unroute` / `unrouteAll`, with `Route.continue_`, `fulfill`
-  (status, headers, body, `json`, `contentType`) and `abort`.
-- `Request.postData`, `Response.body` / `text` / `json`.
+- `page.route` / `unroute` / `unrouteAll`, with `Route.continue_` (including
+  URL, method, header and body overrides), `fallback` into the next matching
+  handler, `fulfill` (status, headers, body, `json`, `contentType`) and
+  `abort` with the documented error codes.
+- `Request`: `resourceType`, `isNavigationRequest`, `failure`, `response`,
+  `redirectedFrom`/`redirectedTo`, `allHeaders`/`headersArray`/`headerValue`,
+  `postData`/`postDataBuffer`/`postDataJSON`, `timing`, `sizes`.
+- `Response`: `headers`, `allHeaders`, `headersArray`, `headerValue`,
+  `headerValues`, `serverAddr`, `securityDetails`, `fromServiceWorker`,
+  `finished`, `body`/`text`/`json`.
+- `APIRequestContext`: `playwright.request.newContext()` for standalone HTTP,
+  and `context.request` sharing the browser context's cookie jar both ways.
+
+### Artifacts
+
+- Uploads: `Locator.setInputFiles`, `Page.setInputFiles`, and `FileChooser`
+  with `Page.onFileChooser` / `Page.waitForFileChooser`.
+- Downloads: `Download` with `path`, `saveAs`, `failure`, `cancel`, `delete`;
+  `Page.onDownload`, `Page.waitForDownload`, `BrowserContext.onDownload`, and
+  the `acceptDownloads` / `downloadsPath` context options.
+- Screenshots with `type`, `quality`, `fullPage`, `clip` and `scale`, plus
+  `Locator.screenshot` capturing exactly the element's box.
+- `Page.pdf` on Chromium, with paper formats, margins, header and footer
+  templates and page ranges.
 
 ### Storage
 
@@ -60,4 +81,4 @@ missing and when it is planned.
 
 ### Verified on
 
-276 end-to-end parity tests run on Chromium, Firefox and WebKit.
+341 end-to-end parity tests run on Chromium, Firefox and WebKit.
