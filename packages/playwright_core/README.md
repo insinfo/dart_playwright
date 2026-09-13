@@ -60,6 +60,14 @@ This project is not produced, endorsed or supported by Microsoft. "Playwright"
 is a trademark of Microsoft Corporation, used here only to say what this is
 compatible with.
 
+One dependency is copyleft and it is worth naming: **`stdlibc` is MPL-2.0**,
+used here for the POSIX FIFO pair behind the fd3/fd4 browser transport.
+MPL-2.0 is file-level copyleft — its own files stay under MPL-2.0 if modified,
+but section 3.3 allows a larger work built on it to be distributed under other
+terms, so it does not change this package's license. No `stdlibc` source is
+copied or vendored; it is an ordinary pub dependency. Everything else resolves
+to BSD-3-Clause or MIT.
+
 The browser binaries this package downloads are **not** covered by its license.
 Each carries its own terms: Chromium is BSD-3-Clause plus third-party licenses,
 Firefox is MPL-2.0, WebKit is LGPL-2.1/BSD, and the optional ffmpeg build is

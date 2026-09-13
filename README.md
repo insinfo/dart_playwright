@@ -255,6 +255,25 @@ is a trademark of Microsoft Corporation; Apache 2.0 section 6 grants no
 trademark rights, and the name is used here only to say what this is
 compatible with.
 
+### Dependency licenses
+
+Read from the local pub cache, not guessed:
+
+| Dependency | License |
+| --- | --- |
+| `path`, `crypto`, `logging`, `collection`, `async`, `meta`, `args`, `http`, `web_socket_channel`, `ffi` | BSD-3-Clause (Dart project authors) |
+| `archive` | MIT |
+| `win32` | BSD-3-Clause |
+| **`stdlibc`** | **MPL-2.0 — weak copyleft** |
+
+`stdlibc` is the only copyleft dependency, and it is worth being explicit about
+it. It is used by `playwright_core` for the POSIX FIFO pair behind the fd3/fd4
+browser transport. MPL-2.0 is file-level copyleft: its own files stay under
+MPL-2.0 if modified, but section 3.3 allows a larger work built on it to be
+distributed under other terms, so it does not change this project's license. No
+`stdlibc` source is copied or vendored here — it is an ordinary pub dependency
+resolved at install time.
+
 The browser binaries downloaded by `dart run playwright install` are not
 covered by this license. Each carries its own: Chromium is BSD-3-Clause plus
 third-party licenses, Firefox is MPL-2.0, WebKit is LGPL-2.1/BSD, and the
