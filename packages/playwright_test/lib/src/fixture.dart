@@ -76,6 +76,18 @@ class Fixture<T> {
   /// coletor de erros de console, por exemplo.
   FixtureRegistration get asAuto => FixtureRegistration._(this, auto: true);
 
+  /// O teardown desta fixture ja amarrado a [value], ou null quando nao ha.
+  ///
+  /// Existe para que a leitura de `_tearDown` aconteca aqui dentro, onde `T` e
+  /// o tipo de verdade. Lida de fora por uma referencia `Fixture<Object?>`, a
+  /// funcao seria checada contra `Function(Object?)` e quebraria em tempo de
+  /// execucao — parametro de funcao em Dart nao e contravariante.
+  Future<void> Function()? teardownFor(Object? value) {
+    final tearDown = _tearDown;
+    if (tearDown == null) return null;
+    return () => tearDown(value as T);
+  }
+
   @override
   String toString() => 'Fixture("$name", ${scope.name})';
 }
@@ -243,8 +255,8 @@ class FixtureResolver implements FixtureContext {
       final value = await setUp(this);
       // O teardown entra depois do setup e so se ele deu certo: desfazer o que
       // nunca foi feito costuma dar um segundo erro que esconde o primeiro.
-      final tearDown = fixture._tearDown;
-      if (tearDown != null) _teardowns.add(() => tearDown(value));
+      final tearDown = fixture.teardownFor(value);
+      if (tearDown != null) _teardowns.add(tearDown);
       return value;
     } finally {
       _resolving.remove(fixture);
