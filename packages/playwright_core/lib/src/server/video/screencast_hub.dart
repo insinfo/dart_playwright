@@ -44,6 +44,25 @@ class ScreencastHub {
   Future<void>? _starting;
   int _clients = 0;
 
+  /// Frames that arrived before anybody was listening to [_fanout].
+  ///
+  /// `addClient` has to await the engine's `start` before it can return the
+  /// handle the caller then listens to, so there is a window in which the
+  /// screencast is running and the broadcast controller has no listener — and
+  /// a broadcast controller drops what it cannot deliver.
+  ///
+  /// That window is invisible on a page that keeps painting and fatal on one
+  /// that does not: measured on this port, three seconds of Chromium on a
+  /// static page yields exactly **one** frame, against 179 on an animating
+  /// one. Losing that single frame is the difference between a video and a
+  /// zero-byte file, which is how this was found.
+  final List<VideoFrame> _pending = [];
+  bool _everListened = false;
+
+  /// Ceiling on [_pending], so a screencast nobody ever listens to cannot
+  /// grow without bound. Two seconds of a busy page at 30 fps.
+  static const int _maxPending = 60;
+
   ScreencastHub._(this._page);
 
   /// The backend's kind, once it has been created.
@@ -96,13 +115,35 @@ class ScreencastHub {
     _screencast = screencast;
     _size = size;
     if (screencast.kind == ScreencastKind.frames) {
-      final fanout = StreamController<VideoFrame>.broadcast();
+      late final StreamController<VideoFrame> fanout;
+      fanout = StreamController<VideoFrame>.broadcast(onListen: () {
+        if (_everListened) return;
+        _everListened = true;
+        if (_pending.isEmpty) return;
+        // Not inline: `onListen` runs while `listen()` is still on the stack,
+        // and adding there would deliver to a subscription that does not exist
+        // yet.
+        final buffered = List<VideoFrame>.of(_pending);
+        _pending.clear();
+        scheduleMicrotask(() {
+          for (final frame in buffered) {
+            if (fanout.isClosed) return;
+            fanout.add(frame);
+          }
+        });
+      });
       _fanout = fanout;
       // Listening before `start` and not after: the backends release the
       // protocol acknowledgement on `onListen`, so a hub that subscribed late
       // would stall the first frames behind an ack nobody had asked for yet.
       _source = screencast.frames.listen(
-        fanout.add,
+        (frame) {
+          if (_everListened) {
+            fanout.add(frame);
+          } else if (_pending.length < _maxPending) {
+            _pending.add(frame);
+          }
+        },
         onError: fanout.addError,
         onDone: () {
           if (!fanout.isClosed) fanout.close();
@@ -125,6 +166,8 @@ class ScreencastHub {
     _fanout = null;
     _starting = null;
     _size = null;
+    _pending.clear();
+    _everListened = false;
     if (screencast == null) return null;
     final file = await screencast.stop();
     // After the backend has stopped, not before: cancelling the source first

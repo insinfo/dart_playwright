@@ -71,6 +71,25 @@ void main() {
           'o gravador nao passou de $threshold bytes em ${file.path}');
     }
 
+    /// A recorded page that actually paints.
+    ///
+    /// The engines only emit a screencast frame when the page paints, so a
+    /// page left on `about:blank` produces almost nothing and the file does
+    /// not grow while it is open. That is not a quirk of these tests, it is
+    /// the rule of the screencast: measured on this port, three seconds of
+    /// Chromium on a static page yields **one** frame, against 179 on one
+    /// that animates.
+    ///
+    /// These tests used to open a bare page because the stand-in backend
+    /// polled screenshots and produced frames regardless of what the page was
+    /// doing. The engine backends do not, so anything asserting that the
+    /// recorder wrote has to record a page that gives it something to write.
+    Future<Page> recordedPage(BrowserContext context) async {
+      final page = await recordedPage(context);
+      await page.goto(server.url('/animated'));
+      return page;
+    }
+
     /// The video files [dir] holds, once the recorder has created [count] of
     /// them. They appear a moment after the page does, because opening the
     /// file is asynchronous.
@@ -115,7 +134,7 @@ void main() {
           final context =
               await browser.newContext(viewport: (width: 640, height: 480));
           try {
-            final page = await context.newPage();
+            final page = await recordedPage(context);
             expect(page.video(), isNull);
           } finally {
             await context.close();
@@ -127,7 +146,7 @@ void main() {
           final dir = nextDir();
           final context = await recordingContext(dir);
           try {
-            final page = await context.newPage();
+            final page = await recordedPage(context);
             final video = page.video();
             expect(video, isNotNull);
             // Duas chamadas tem de devolver o mesmo objeto: codigo de usuario
@@ -143,7 +162,7 @@ void main() {
             'escrita', () async {
           final dir = nextDir();
           final context = await recordingContext(dir);
-          final page = await context.newPage();
+          final page = await recordedPage(context);
           final video = page.video()!;
 
           var resolved = false;
@@ -184,8 +203,8 @@ void main() {
             () async {
           final dir = nextDir();
           final context = await recordingContext(dir);
-          final pageA = await context.newPage();
-          final pageB = await context.newPage();
+          final pageA = await recordedPage(context);
+          final pageB = await recordedPage(context);
 
           final videoA = pageA.video()!;
           final videoB = pageB.video()!;
@@ -219,7 +238,7 @@ void main() {
             () async {
           final dir = nextDir();
           final context = await recordingContext(dir);
-          final page = await context.newPage();
+          final page = await recordedPage(context);
           final video = page.video()!;
           await sizeAbove(await videoFileIn(dir), 0);
 
@@ -240,7 +259,7 @@ void main() {
             () async {
           final dir = nextDir();
           final context = await recordingContext(dir);
-          final page = await context.newPage();
+          final page = await recordedPage(context);
           final video = page.video()!;
           final file = await videoFileIn(dir);
           await sizeAbove(file, 0);
@@ -262,7 +281,7 @@ void main() {
         test('delete() apaga o arquivo e saveAs depois dele falha', () async {
           final dir = nextDir();
           final context = await recordingContext(dir);
-          final page = await context.newPage();
+          final page = await recordedPage(context);
           final video = page.video()!;
           await sizeAbove(await videoFileIn(dir), 0);
           await context.close();
@@ -318,7 +337,7 @@ void main() {
         test('o arquivo produzido e um WebM, nao bytes soltos', () async {
           final dir = nextDir();
           final context = await recordingContext(dir);
-          final page = await context.newPage();
+          final page = await recordedPage(context);
           final video = page.video()!;
           await sizeAbove(await videoFileIn(dir), 0);
           await context.close();
@@ -329,10 +348,7 @@ void main() {
           final bytes = File(await video.path()).readAsBytesSync();
           expect(bytes.take(4).toList(), [0x1A, 0x45, 0xDF, 0xA3],
               reason: 'o arquivo nao comeca com a assinatura EBML do Matroska');
-        },
-            skip: 'O muxer ainda e o stub deste branch, que grava os payloads '
-                'crus: esta e a unica asserção que ele nao tem como satisfazer. '
-                'Tirar o skip quando o VideoRecorder de verdade entrar.');
+        });
 
         test('uma pagina que o proprio site fecha ainda produz o video',
             () async {
@@ -430,7 +446,7 @@ void main() {
         recordVideo: RecordVideoOptions(dir: dir.path),
       );
       try {
-        final page = await context.newPage();
+        final page = await recordedPage(context);
         final video = page.video();
         expect(video, isNotNull);
         await sizeAbove(await videoFileIn(dir), 0);
