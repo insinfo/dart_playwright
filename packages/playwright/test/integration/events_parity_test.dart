@@ -309,14 +309,19 @@ void main() {
     test('[chromium] page.onCrash deve disparar quando o renderer morre',
         () async {
       final browser = await playwright.chromium.launch(headless: true);
+      // Close through a tear-down, not at the end of the body: if the wait
+      // below ever times out, the browser has to go away anyway.
+      addTearDown(browser.close);
       final context = await browser.newContext();
       final page = await context.newPage();
       final crashed = page.onCrash.first;
       // The navigation never completes: the renderer dies serving it.
       unawaited(page.goto('chrome://crash').catchError((Object _) {}));
-      await crashed.timeout(const Duration(seconds: 20));
-      await browser.close();
-    });
+      // Generous on purpose. This test launches its own browser while the
+      // three engine groups are still busy, and a loaded machine has made
+      // the whole thing miss a 20s budget before.
+      await crashed.timeout(const Duration(seconds: 60));
+    }, timeout: const Timeout(Duration(minutes: 3)));
 
     // ------------------------------------------------------- disconnected
 
