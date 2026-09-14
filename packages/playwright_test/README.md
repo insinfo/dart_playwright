@@ -100,6 +100,85 @@ When a test fails, a full-page screenshot is written under `artifactsPath`
 Video and trace on failure are **not** here: the port does not record either
 yet. When it does, they will land in this package.
 
+## Web server
+
+Testing a Dart web app means having it **served and compiled** on a known port
+before the first test. `PlaywrightWebServer` starts that server, waits for it,
+and kills it afterwards.
+
+```dart
+late PlaywrightWebServer server;
+
+setUpAll(() async {
+  server = await PlaywrightWebServer.start(
+    command: 'webdev serve web:8080 --release',
+    url: 'http://127.0.0.1:8080/',
+    readyUrl: 'http://127.0.0.1:8080/main.dart.js',
+  );
+});
+
+tearDownAll(() => server.stop());
+```
+
+Three things separate this from the process spawn everybody writes by hand:
+
+- **It waits for the build, not for the socket.** `webdev serve` and
+  `dart run build_runner serve` open the port and serve the static
+  `index.html` *before* the first dart2js compile finishes. A test that runs in
+  that window gets a 404 on the bundle, or the bundle from the previous run.
+  Point `readyUrl` at the artifact that only exists after the build —
+  usually `main.dart.js` — and the wait measures the build. `readyBody`
+  tightens it one more notch by requiring the response body to match, for a
+  server that answers 200 with a "compiling" placeholder. `waitForStdout` and
+  `waitForStderr` are upstream's `wait`, for servers that announce themselves.
+- **It kills the process tree.** The command runs under a shell, and tools like
+  `webdev` launch the real server in a child of their own. Killing only the
+  process the command created leaves the grandchild holding the port, and the
+  next run fails on a busy port — on Windows there is no process group to
+  signal, so this uses `taskkill /T`. `stop()` does not return until the port
+  is actually free.
+- **When it does not come up, it says so.** The timeout message carries the
+  command, what the probe was looking for, what to try, and the server's own
+  stdout and stderr.
+
+`reuseExistingServer` follows upstream's default: outside CI a server already
+on the port is reused (that is the development flow, with `webdev` open in
+another terminal) and `stop()` leaves it alone; on CI a busy port is an error,
+because it is usually a leaked process from the previous run serving stale
+code.
+
+Pass `port:` instead of `url:` for upstream's port-only check. It is the weak
+mode, and the reason `readyUrl` exists.
+
+## Dart stack traces from the browser
+
+When a Dart app throws in the browser, the error points at
+`main.dart.js:4821:3`. The compiler writes `main.dart.js.map` next to the
+bundle, and this package uses it:
+
+```
+Erro nao capturado na pagina:
+Error
+dart:_internal  Object.wrapException
+main.dart 11:3  Object.explodeDeliberadamente
+main.dart 16:3  main.<fn>
+```
+
+This runs automatically: a failing `playwrightTest` gets the page's uncaught
+errors appended, already translated, and any compiled-JS frames inside the
+failure message itself are rewritten too. Turn it off with
+`PlaywrightTestOptions(translateDartStackTraces: false)`.
+
+Use it directly with `translateDartStackTrace(stack)`, or keep your own
+`DartSourceMapResolver` (`terse: false` keeps the runtime frames that
+`Trace.terse` folds away).
+
+- Source maps are **cached per URL**. They are megabytes in a real app, and an
+  error that costs a download is an error nobody attaches.
+- A missing source map (a release build compiled with `--no-source-maps`) is
+  **never a failure**: the original trace comes back with a note saying why.
+- Frames from scripts that are not dart2js output are left alone.
+
 ## What is missing
 
 Compared to `@playwright/test`:
@@ -110,9 +189,9 @@ Compared to `@playwright/test`:
   which is a project of its own.
 - **`ariaSnapshot` assertions** — need the ARIA snapshot the port has not
   finished.
-- **Projects, sharding, global setup/teardown, web server management** —
-  `dart test` covers parallelism and filtering; the rest is configuration this
-  package deliberately does not own.
+- **Projects, sharding, global setup/teardown** — `dart test` covers
+  parallelism and filtering; the rest is configuration this package
+  deliberately does not own.
 - **Custom fixtures** — `PlaywrightFixtures` is a fixed set, not an
   extensible dependency-injected one.
 
