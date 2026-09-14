@@ -392,7 +392,10 @@ abstract class Page {
   Video? get video;
   
   // === Accessibility ===
-  Future<AccessibilitySnapshot> accessibility({String? root});
+  // Implementado com outra assinatura: o upstream 1.62 nao tem mais a classe
+  // `Accessibility`, e a arvore e calculada na pagina pelo script injetado.
+  Future<AccessibilitySnapshot> accessibilitySnapshot({bool interestingOnly});
+  Future<String> ariaSnapshot();
 }
 ```
 

@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.8.1] - A real accessibility tree on all three engines
+
+### Added
+- **`page.accessibilitySnapshot()` answers on Firefox and WebKit**, and answers the same thing Chromium does. It used to be Chromium-only: the other two returned a single empty `WebArea` node, so the method had the right shape and false content on two of three engines.
+- **`page.ariaSnapshot()` and `Locator.ariaSnapshot()`**: the aria snapshot YAML, upstream's format for accessibility assertions.
+- **`AccessibilityNode` carries state**: `checked`, `disabled`, `expanded`, `invalid`, `level`, `pressed`, `selected` and `props` (a link's `url`, a textbox's `placeholder`), next to the role, name, value and description it already had.
+- **`interestingOnly`** on `accessibilitySnapshot`, defaulting to `true`: `false` keeps the `generic` wrappers that are otherwise skipped.
+
+### Changed
+- **Roles are ARIA roles now, not platform roles.** Chromium used to hand back the raw CDP tree — `RootWebArea`, `StaticText`, `InlineTextBox`, `LabelText`, names with unnormalized whitespace, no pruning. That was not upstream's format either. Code reading `role == 'WebArea'` needs updating: the root is a synthetic node with role `fragment`, and text is a node with role `text`.
+
+Upstream Playwright removed the `Accessibility` class in favour of a tree its
+injected script computes from the DOM, because the three browsers' own
+accessibility trees disagreed about the same page. This port follows: the tree
+is built in the page, by the same code everywhere. The consequence is stated in
+the method's own documentation rather than left for the caller to discover —
+what a platform screen reader would announce is not available here, on any
+engine.
+
+Not ported, all from upstream's `ai` mode: `[ref=...]` element anchors,
+`[active]`, `[box=...]`, `depth`, and descending into iframes.
+
 ## [0.8.0] - Milestone 5: fixtures and assertions
 
 ### Added
