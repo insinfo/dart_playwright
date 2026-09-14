@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.8.0] - Milestone 5: fixtures and assertions
+
+### Added
+- **New package `playwright_test`**: browser fixtures and retrying assertions on top of `package:test`. `playwrightTest` runs a body once per engine, each as its own `dart test` case, with a browser shared per file and a fresh context and page per test; `playwrightGroup` closes them.
+- **Assertions that retry**: `toBeVisible`, `toBeHidden`, `toBeAttached`, `toBeEnabled`, `toBeDisabled`, `toBeEditable`, `toBeChecked`, `toBeFocused`, `toBeEmpty`, `toHaveText`, `toContainText`, `toHaveValue`, `toHaveAttribute`, `toHaveClass`, `toHaveCount` on a locator; `toHaveTitle` and `toHaveURL` on a page; `toBeOK` on an API response. All of them take `.not`, and a failure reports both what was expected and what was last seen.
+- **Screenshot on failure**, written under `artifactsPath` with its path added to the error.
+
+This is deliberately a layer over `package:test`, not a runner of its own:
+`dart test` keeps its CLI, its reporters, its filtering and its parallelism.
+Video and trace on failure are missing because the port does not record either
+yet.
+
+### Fixed
+- **The library wrote diagnostics to stdout.** The POSIX launcher printed `[browser stdout]`, `[browser stderr]` and `[browser exit]` with `print`, which for a stdio protocol server — our own `playwright_mcp`, for one — corrupts the protocol channel. Everything now goes to stderr. It only showed up on Linux and macOS, and only with `PLAYWRIGHT_DEBUG=1`, which is exactly what CI sets.
+
 ## [0.7.0] - Milestone 4: context emulation, touch and devices
 
 ### Added

@@ -27,8 +27,9 @@ the runtime control plane.
 | `packages/playwright_core` | Browser registry, process transport, and engine-specific implementations for Chromium, Firefox, and WebKit. | yes, as a dependency of `playwright` |
 | `packages/playwright_protocol` | Shared protocol types, transport types, errors, and event utilities. | yes, as a dependency of the two above |
 | `packages/playwright_mcp` | Model Context Protocol server backed by this Playwright Dart implementation. | yes |
+| `packages/playwright_test` | Browser fixtures and retrying assertions on top of `package:test`. | yes |
 
-All four are published. `playwright_mcp` was internal for a while — it had no
+All five are published. `playwright_mcp` was internal for a while — it had no
 public library, no tests, and six tools sitting on an API that was still
 moving. It now has a public library, twenty-two tools, dual-era MCP version
 negotiation, and protocol tests that run the server as a real process and
@@ -68,7 +69,7 @@ Run the test suite:
 
 ```bash
 dart analyze packages
-dart test packages/playwright/test packages/playwright_core/test packages/playwright_mcp/test --timeout 180s
+dart test packages/playwright/test packages/playwright_core/test packages/playwright_mcp/test packages/playwright_test/test --timeout 180s
 ```
 
 Test an unpacked Chromium extension:
@@ -151,7 +152,7 @@ official Node driver. This project's strongest point is ownership of the Dart
 runtime path: fewer moving pieces outside Dart, deeper control of browser
 transport, and a foundation for Dart-native automation tooling.
 
-## Status: milestone 4 of 5
+## Status: milestone 5 of 5
 
 This port is **not at parity with Playwright for Node**, and it is worth being
 blunt about it before anyone builds on it.
@@ -178,7 +179,7 @@ What is missing:
 | `Clock`, `Coverage`, `Selectors.register` | 4 |
 | `addInitScript`, `exposeFunction`, `exposeBinding` | 4 |
 | `BrowserType.connect`, `connectOverCDP`, `launchPersistentContext`, `launchServer` | 4 |
-| A test runner, `expect`, `LocatorAssertions`, reporters, `ariaSnapshot` | 5 |
+| Snapshot and screenshot assertions, `ariaSnapshot` | 5 |
 | Codegen, UI mode, trace viewer, inspector | not planned yet |
 | Android, Electron, WebView | not planned yet |
 
@@ -205,7 +206,7 @@ Useful commands:
 dart pub get
 dart analyze packages
 dart run playwright install chromium firefox webkit
-dart test packages/playwright/test packages/playwright_core/test packages/playwright_mcp/test --timeout 180s
+dart test packages/playwright/test packages/playwright_core/test packages/playwright_mcp/test packages/playwright_test/test --timeout 180s
 ```
 
 From the workspace root a bare `dart test` does not pick the packages up; name
@@ -223,7 +224,7 @@ repositories:
   says `Found 0 warnings and 0 errors` — `dart doc` exits 0 even when it warns,
   so the exit code alone would prove nothing.
 - `dart pub publish --dry-run` for each published package, on Ubuntu.
-- **The full parity suite — 347 tests, on Chromium, Firefox and WebKit — on
+- **The full parity suite — 410 tests, on Chromium, Firefox and WebKit — on
   Ubuntu, Windows and macOS**, plus the MCP protocol tests, which start the
   server as a real process and drive a browser through it. All three engines
   really are launched on all three operating systems; the browsers come from

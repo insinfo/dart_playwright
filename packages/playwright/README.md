@@ -15,7 +15,7 @@ Node as its control plane.
 
 ## Read this before you install
 
-**This port is at milestone 4 of 5. It is not at parity with Playwright for
+**This port is at milestone 5 of 5. It is not at parity with Playwright for
 Node, and installing it expecting parity will disappoint you.**
 
 What works today is the core automation path, proven end to end on all three
@@ -46,7 +46,7 @@ What is **missing**, and will stay missing until later milestones:
 | `Clock`, `Coverage`, `Selectors.register` | 4 |
 | `addInitScript`, `exposeFunction`, `exposeBinding` | 4 |
 | `BrowserType.connect`, `connectOverCDP`, `launchPersistentContext`, `launchServer` | 4 |
-| A test runner, `expect`, `LocatorAssertions`, reporters, `ariaSnapshot` | 5 |
+| Snapshot and screenshot assertions, `ariaSnapshot` | 5 |
 | Codegen, UI mode, trace viewer, inspector | not planned yet |
 | Android, Electron, WebView | not planned yet |
 
@@ -120,6 +120,8 @@ Future<void> main() async {
 | `playwright` | This one. The API you write against. |
 | `playwright_core` | Browser registry, transport and the three engine drivers. A dependency, not something you import directly. |
 | `playwright_protocol` | Protocol envelopes, errors and the event emitter shared by both. |
+| `playwright_test` | Browser fixtures and retrying assertions on top of `package:test`. |
+| `playwright_mcp` | A Model Context Protocol server that drives this port. |
 
 ## How this package was built
 
