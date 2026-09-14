@@ -28,7 +28,13 @@ class FfExecutionContext implements CoreExecutionContext {
       if (executionContextId != null) 'executionContextId': executionContextId,
     });
     _checkException(result);
-    return result['result']?['value'];
+    final remote = result['result'] as Map<String, dynamic>?;
+    if (remote != null && remote['subtype'] == 'promise') {
+      return callFunction('(promise) => promise', [
+        {'objectId': remote['objectId']}
+      ]);
+    }
+    return remote?['value'];
   }
 
   @override
