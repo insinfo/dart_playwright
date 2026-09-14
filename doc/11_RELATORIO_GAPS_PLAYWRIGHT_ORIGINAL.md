@@ -13,9 +13,21 @@ Referências locais usadas:
 
 Fecha a lacuna que a rodada anterior apontou como a primeira a atacar:
 `accessibilitySnapshot` respondia de verdade só no Chromium, e o Firefox e o
-WebKit devolviam um esqueleto de um nó. A suíte saiu de 410 para **500 testes
-verdes**, todos rodados nos três motores nesta máquina (mais 25 de unidade,
-sem navegador, para o parser de template).
+WebKit devolviam um esqueleto de um nó.
+
+Contagem medida nesta máquina, com `dart test -j1`: **559 testes verdes** —
+493 em `packages/playwright/test`, 32 em `packages/playwright_core/test`
+(dos quais 25 são os de unidade do parser de template, sem navegador) e 34 em
+`packages/playwright_test/test`. Tudo o que precisa de navegador rodou nos
+três motores.
+
+Duas falhas continuam de pé, e **não são desta rodada**: `timezoneId inválido
+deve ser recusado` estoura o timeout de 30 s no Chromium e no WebKit. Foi
+conferido rodando o mesmo teste no commit anterior a esta rodada
+(`ecbf547`), onde falha igual. O teste não aguarda o `expect(..., throwsA)`
+que devolve um `Future`, e o motor que rejeita cedo demais deixa a rejeição
+sem ninguém escutando — o mesmo padrão que já mordeu o CI deste repositório
+antes. Fica registrado aqui em vez de corrigido de passagem: é outro assunto.
 
 ### O upstream mudou de estratégia, e isso muda o alvo
 
