@@ -15,7 +15,7 @@ Node as its control plane.
 
 ## Read this before you install
 
-**This port is at milestone 3 of 5. It is not at parity with Playwright for
+**This port is at milestone 4 of 5. It is not at parity with Playwright for
 Node, and installing it expecting parity will disappoint you.**
 
 What works today is the core automation path, proven end to end on all three
@@ -28,6 +28,11 @@ Milestone 3 added the rest of `Request`/`Response`/`Route`, file uploads and
 the file chooser, downloads, screenshot options with per-element capture,
 `page.pdf` on Chromium, and an `APIRequestContext` that shares the browser
 context's cookie jar.
+Milestone 4 added the context emulation options (`locale`, `timezoneId`,
+`colorScheme`, `reducedMotion`, `forcedColors`, `deviceScaleFactor`,
+`isMobile`, `hasTouch`, `offline`, `extraHTTPHeaders`, `httpCredentials`,
+`geolocation`, `permissions`), the touchscreen with `tap`, a `devices`
+catalogue and `setTestIdAttribute`.
 
 What is **missing**, and will stay missing until later milestones:
 
@@ -37,14 +42,19 @@ What is **missing**, and will stay missing until later milestones:
 | Screenshot `mask`, `caret`, `animations`, `omitBackground`, `style` | 3 |
 | Multipart uploads and `storageState` on `APIRequestContext` | 3 |
 | `WebSocket`, `WebSocketRoute`, `Worker` | 3 |
-| Context options: `locale`, `timezoneId`, `geolocation`, `permissions`, `colorScheme`, `deviceScaleFactor`, `hasTouch`, proxy, HTTP credentials, offline | 4 |
-| `devices` catalogue, `Touchscreen`, `Locator.tap` | 4 |
+| Context options: proxy, `forcedColors` on Chromium's older builds, `screen`, `videosPath` | 4 |
 | `Clock`, `Coverage`, `Selectors.register` | 4 |
 | `addInitScript`, `exposeFunction`, `exposeBinding` | 4 |
 | `BrowserType.connect`, `connectOverCDP`, `launchPersistentContext`, `launchServer` | 4 |
 | A test runner, `expect`, `LocatorAssertions`, reporters, `ariaSnapshot` | 5 |
 | Codegen, UI mode, trace viewer, inspector | not planned yet |
 | Android, Electron, WebView | not planned yet |
+
+One protocol limitation worth knowing: `page.evaluate` of an expression that
+returns a promise resolves it on Chromium and WebKit, but **not on Firefox**
+— Juggler's `Runtime.evaluate` has no `awaitPromise` flag and no equivalent
+command. On Firefox, have the page store the result and poll for it with
+`waitForFunction`.
 
 Also deliberately partial: the `css` selector engine uses the browser's native
 `querySelectorAll`, so it does not pierce shadow DOM and does not understand

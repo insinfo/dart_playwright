@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.7.0] - Milestone 4: context emulation, touch and devices
+
+### Added
+- **Context options**: `locale`, `timezoneId`, `colorScheme`, `reducedMotion`, `forcedColors`, `deviceScaleFactor`, `isMobile`, `hasTouch`, `offline`, `extraHTTPHeaders`, `httpCredentials`, `geolocation` and `permissions` on `Browser.newContext`, applied per engine at whichever layer that engine wants them.
+- **Touch**: `Page.touchscreen`, `Page.tap` and `Locator.tap`, which need `hasTouch: true` on the context — without it the engines discard the event.
+- **`devices`**: a catalogue of ready-made emulation presets (desktop browsers, iPhone, iPad, Pixel, Galaxy). A subset of upstream's 207, transcribed with attribution.
+- **`setTestIdAttribute`**: changes the attribute `getByTestId` looks at, process-wide, as upstream does.
+- **Permission name tables per engine**, with the sizes the engines actually have: Chromium seventeen, WebKit six, Firefox five. Asking for one an engine does not know throws instead of passing for the wrong reason.
+- 38 emulation parity tests across the three engines.
+
+### Fixed
+- **`page.evaluate` did not resolve promises on WebKit.** Only Chromium passed `awaitPromise`; WebKit's `Runtime.evaluate` has no such flag, so an async function came back as an empty object. It now resolves through `Runtime.awaitPromise`. Firefox cannot do this at all — Juggler has no equivalent — and that is documented rather than papered over.
+- WebKit validates permission names when the context is created instead of when the first page appears, so a bad name fails at the call that caused it.
+
 ## [0.6.0] - Milestone 3: network, artifacts and the API request context
 
 ### Added

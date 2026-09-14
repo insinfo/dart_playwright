@@ -79,6 +79,23 @@ missing and when it is planned.
 - `cookies`, `addCookies`, `clearCookies`, `storageState` with cookies and
   per-origin localStorage.
 
+### Emulation
+
+- Context options: `locale`, `timezoneId`, `colorScheme`, `reducedMotion`,
+  `forcedColors`, `deviceScaleFactor`, `isMobile`, `hasTouch`, `offline`,
+  `extraHTTPHeaders`, `httpCredentials`, `geolocation` and `permissions`.
+- `Page.touchscreen`, `Page.tap` and `Locator.tap`, which need
+  `hasTouch: true`.
+- A `devices` catalogue of ready-made presets, and `setTestIdAttribute`.
+
+### Known limitation
+
+`page.evaluate` of an expression returning a promise resolves it on Chromium
+and WebKit but not on Firefox: Juggler's `Runtime.evaluate` has no
+`awaitPromise` flag and no equivalent command. Store the result on the page
+and poll for it with `waitForFunction` when you need this on Firefox.
+
 ### Verified on
 
-341 end-to-end parity tests run on Chromium, Firefox and WebKit.
+391 end-to-end parity tests run on Chromium, Firefox and WebKit, plus the
+MCP protocol tests.
