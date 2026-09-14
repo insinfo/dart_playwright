@@ -13,6 +13,9 @@ import 'package:path/path.dart' as p;
 
 import '../core_browser.dart';
 import '../core_page.dart';
+import '../video/page_screencast.dart';
+import '../video/screencast_hub.dart';
+import '../video/video_frame.dart';
 import 'har_tracer.dart';
 import 'instrumentation.dart';
 import 'serialized_fs.dart';
@@ -29,14 +32,22 @@ class CoreTracingOptions {
   /// used when omitted.
   final String? name;
 
-  /// Capture a PNG of the page around each action.
+  /// Record the screencast filmstrip: the strip of frames the viewer runs
+  /// along the top of its timeline, and the image it shows while you scrub.
   ///
-  /// This is upstream's `snapshots: { screen: true }`, **not** its
-  /// `screenshots: true`: upstream's `screenshots` turns on the screencast
-  /// filmstrip that runs along the top of the viewer, which needs
-  /// `Page.startScreencast` and is not ported. See [CoreTracing] for what the
-  /// viewer does with these.
+  /// This is upstream's `screenshots: true`. The frames come from the page's
+  /// screencast, shared with video recording when both are on, and are written
+  /// as `screencast/<page>-<n>.jpeg` resources referenced by `screencast-frame`
+  /// events.
   final bool screenshots;
+
+  /// Capture a PNG of the page before, during and after each action.
+  ///
+  /// This is upstream's internal `snapshots: { screen: true }`, which its own
+  /// test runner uses and its public `Tracing.start` does not expose. It is
+  /// not the filmstrip — that is [screenshots] — and the two are independent:
+  /// this one is tied to actions, the filmstrip to wall time.
+  final bool actionScreenshots;
 
   /// Capture the DOM of every frame around each action, which is what makes
   /// the viewer show the page as it was. See [Snapshotter] for the two ways
@@ -51,6 +62,7 @@ class CoreTracingOptions {
   const CoreTracingOptions({
     this.name,
     this.screenshots = false,
+    this.actionScreenshots = false,
     this.snapshots = false,
     this.sources = false,
   });
@@ -114,6 +126,7 @@ class CoreTracing
   final _allResources = <String>{};
   final _listeners = <({String event, Function listener})>[];
   final _pageCloseListeners = <CorePage, Function>{};
+  final _filmstrips = <CorePage, _PageFilmstrip>{};
 
   CoreTracing(this._context);
 
@@ -136,7 +149,10 @@ class CoreTracing
       networkFile: p.join(tracesDir, '$traceName.network'),
     );
     _fs.mkdir(p.join(tracesDir, 'resources'));
-    if (options.screenshots) _fs.mkdir(p.join(tracesDir, 'screenshots'));
+    if (options.actionScreenshots) {
+      _fs.mkdir(p.join(tracesDir, 'screenshots'));
+    }
+    if (options.screenshots) _fs.mkdir(p.join(tracesDir, 'screencast'));
     _fs.writeText(_state!.networkFile, '');
     _harTracer.start();
     _started = true;
@@ -210,6 +226,7 @@ class CoreTracing
 
       _detachListeners();
       _snapshotter.stop();
+      await _stopFilmstrips();
 
       // The response bodies still in flight belong to this chunk, and each one
       // that lands adds a `resources/` file. The archive can only be listed
@@ -281,6 +298,10 @@ class CoreTracing
   void dispose() {
     if (!_started) return;
     _started = false;
+    for (final filmstrip in _filmstrips.values) {
+      unawaited(filmstrip.dispose());
+    }
+    _filmstrips.clear();
     _detachListeners();
     _harTracer.stop();
     final tmpDir = _tracesTmpDir;
@@ -368,6 +389,7 @@ class CoreTracing
         if (page.opener != null) 'openerPageId': page.opener!.guid,
       },
     ));
+    if (_state?.options.screenshots ?? false) _startFilmstrip(page);
     if (_pageCloseListeners.containsKey(page)) return;
     void onClose([dynamic _]) => onPageClose(page);
     _pageCloseListeners[page] = onClose;
@@ -376,6 +398,7 @@ class CoreTracing
 
   void onPageClose(CorePage page) {
     _pageCloseListeners.remove(page);
+    unawaited(_filmstrips.remove(page)?.dispose());
     _appendTraceEvent(EventTraceEvent(
       time: TraceClock.monotonicTime(),
       klass: 'BrowserContext',
@@ -517,7 +540,9 @@ class CoreTracing
       CoreCallMetadata metadata, String phase) async {
     final state = _state;
     final page = metadata.page;
-    if (state == null || page == null || !state.options.screenshots) return;
+    if (state == null || page == null || !state.options.actionScreenshots) {
+      return;
+    }
     List<int> bytes;
     try {
       bytes = await page.screenshot(
@@ -537,6 +562,51 @@ class CoreTracing
       pageId: page.guid,
       timestamp: TraceClock.monotonicTime(),
       file: file,
+    ));
+  }
+
+  // ------------------------------------------------------------- filmstrip
+
+  /// Subscribes to [page]'s screencast and turns every frame into a
+  /// `screencast-frame` event plus the resource it points at.
+  ///
+  /// The screencast is shared with video recording through [ScreencastHub]:
+  /// the engines run one per page, and a trace taken while `recordVideo` is on
+  /// must not fight the recorder for it.
+  void _startFilmstrip(CorePage page) {
+    if (_filmstrips.containsKey(page)) return;
+    final filmstrip = _PageFilmstrip(page, _onScreencastFrame);
+    _filmstrips[page] = filmstrip;
+    unawaited(filmstrip.start());
+  }
+
+  Future<void> _stopFilmstrips() async {
+    if (_filmstrips.isEmpty) return;
+    final filmstrips = _filmstrips.values.toList();
+    _filmstrips.clear();
+    await Future.wait([for (final f in filmstrips) f.dispose()]);
+  }
+
+  void _onScreencastFrame(
+      CorePage page, VideoFrame frame, int ordinal, double timestamp) {
+    final state = _state;
+    if (state == null || !state.recording) return;
+    // The engines' screencasts deliver JPEG, which is also the only still
+    // format the bundled ffmpeg can decode; a PNG here would mean the
+    // screencast backend is feeding the muxer something it cannot use, and
+    // silently writing it into the trace would hide that.
+    if (frame.format != VideoFrameFormat.jpeg) return;
+    final file = 'screencast/${page.guid}-$ordinal.jpeg';
+    // Write the frame before the event that references it: a viewer reading a
+    // live trace must never see a reference to a file that is not there yet.
+    state.chunkFiles.add(file);
+    _appendResource(file, frame.data);
+    _appendTraceEvent(ScreencastFrameTraceEvent(
+      pageId: page.guid,
+      file: file,
+      width: frame.width,
+      height: frame.height,
+      timestamp: timestamp,
     ));
   }
 
@@ -605,5 +675,73 @@ class CoreTracing
     if (Platform.isMacOS) return 'darwin';
     if (Platform.isLinux) return 'linux';
     return Platform.operatingSystem;
+  }
+}
+
+/// One page's contribution to the filmstrip.
+///
+/// Throttled to one frame every [_throttleMs]: upstream does the same, by
+/// withholding the frame acknowledgement, because a trace that keeps every
+/// repaint of an animated page is mostly duplicate JPEGs. Without an ack
+/// channel in the contract the surplus frames are simply dropped here, which
+/// costs the same frames and none of the plumbing.
+///
+/// The throttle reads the trace clock, not [VideoFrame.timestamp], and hands
+/// the reading on to be written into the event. Those are two different
+/// clocks — when the engine painted, and when the recorder saw it — and
+/// throttling on one while writing the other let frames land 114 ms apart in
+/// the trace on Firefox.
+class _PageFilmstrip {
+  static const _throttleMs = 200.0;
+
+  final CorePage _page;
+  final void Function(
+      CorePage page, VideoFrame frame, int ordinal, double timestamp) _onFrame;
+
+  ScreencastSubscription? _subscription;
+  StreamSubscription<VideoFrame>? _frames;
+  double _lastKept = double.negativeInfinity;
+  int _ordinal = 0;
+  bool _disposed = false;
+
+  _PageFilmstrip(this._page, this._onFrame);
+
+  Future<void> start() async {
+    try {
+      final subscription = await ScreencastHub.forPage(_page)
+          .addClient(size: ScreencastHub.defaultSizeFor(_page));
+      if (_disposed) {
+        await subscription.close();
+        return;
+      }
+      _subscription = subscription;
+      if (subscription.kind != ScreencastKind.frames) {
+        // WebKit's screencast records straight to a file and hands out no
+        // frames, so there is nothing to build a filmstrip from. The rest of
+        // the trace is unaffected.
+        return;
+      }
+      _frames = subscription.frames.listen(_accept);
+    } catch (_) {
+      // A filmstrip is an extra, not the trace: a page that cannot be filmed
+      // still gets actions, snapshots and network.
+    }
+  }
+
+  void _accept(VideoFrame frame) {
+    if (_disposed) return;
+    final now = TraceClock.monotonicTime();
+    if (now - _lastKept < _throttleMs) return;
+    _lastKept = now;
+    _onFrame(_page, frame, _ordinal++, now);
+  }
+
+  Future<void> dispose() async {
+    if (_disposed) return;
+    _disposed = true;
+    await _frames?.cancel();
+    _frames = null;
+    await _subscription?.close();
+    _subscription = null;
   }
 }

@@ -353,6 +353,46 @@ class ScreenshotTraceEvent extends TraceEvent {
       };
 }
 
+/// `screencast-frame`: one frame of the filmstrip that runs along the top of
+/// the viewer.
+///
+/// [file] names a resource inside the archive — a JPEG, because that is what
+/// the engines' screencast domains produce and what upstream writes. The
+/// viewer draws the strip from these and picks the frame nearest the cursor
+/// by [timestamp], so the times have to come from the same monotonic clock as
+/// the actions.
+class ScreencastFrameTraceEvent extends TraceEvent {
+  final String pageId;
+  final String file;
+  final int width;
+  final int height;
+  final double timestamp;
+
+  /// When the browser swapped the frame, in wall-clock milliseconds. Only the
+  /// engines that report it fill this in; the viewer treats it as optional.
+  final int? frameSwapWallTime;
+
+  const ScreencastFrameTraceEvent({
+    required this.pageId,
+    required this.file,
+    required this.width,
+    required this.height,
+    required this.timestamp,
+    this.frameSwapWallTime,
+  });
+
+  @override
+  Map<String, dynamic> toJson() => _compact({
+        'type': 'screencast-frame',
+        'pageId': pageId,
+        'file': file,
+        'width': width,
+        'height': height,
+        'timestamp': timestamp,
+        'frameSwapWallTime': frameSwapWallTime,
+      });
+}
+
 /// `resource-snapshot`: one HAR entry, written to `trace.network`.
 class ResourceSnapshotTraceEvent extends TraceEvent {
   final Map<String, dynamic> snapshot;

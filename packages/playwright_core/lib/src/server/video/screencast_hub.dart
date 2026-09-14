@@ -42,6 +42,26 @@ class ScreencastHub {
   ({int width, int height})? get size => _size;
   ({int width, int height})? _size;
 
+  /// The size a screencast of [page] runs at when nobody asked for one.
+  ///
+  /// Upstream's rule, in `Screencast._startScreencast`: the context viewport
+  /// scaled down to fit in 800 pixels, then both sides rounded down to even
+  /// numbers, because vp8 refuses odd ones.
+  static ({int width, int height}) defaultSizeFor(CorePage page,
+      {({int width, int height})? requested}) {
+    var size =
+        requested ?? page.browserContext?.options.viewport ?? (width: 800, height: 600);
+    if (requested == null) {
+      final longest = size.width > size.height ? size.width : size.height;
+      final scale = longest > 800 ? 800 / longest : 1.0;
+      size = (
+        width: (size.width * scale).floor(),
+        height: (size.height * scale).floor()
+      );
+    }
+    return (width: size.width & ~1, height: size.height & ~1);
+  }
+
   /// Subscribes to the frames of [_page], starting the screencast when this is
   /// the first subscriber.
   Future<ScreencastSubscription> addClient({

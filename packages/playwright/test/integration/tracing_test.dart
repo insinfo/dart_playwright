@@ -236,6 +236,97 @@ void main() {
               contains('__playwright_target__'));
         });
 
+        test('screenshots deve gravar a tira de filme em screencast-frame',
+            () async {
+          await context.tracing.start(screenshots: true);
+          page = await context.newPage();
+          await page.goto(server.url('/hello'));
+
+          // A tira segue o relógio, não as ações: é preciso que o tempo passe
+          // com a página aberta para haver mais de um quadro.
+          await _idleForFilmstrip(page);
+
+          final path = nextPath();
+          await context.tracing.stop(path: path);
+
+          final trace = _Trace.read(path);
+          final pageId = trace
+              .ofType('event')
+              .firstWhere((e) => e['method'] == 'page')['params']['pageId'];
+          final events = trace.ofType('screencast-frame').toList();
+          expect(events, isNotEmpty);
+          expect(events.length, greaterThanOrEqualTo(2));
+
+          for (final event in events) {
+            expect(event['pageId'], pageId);
+            expect(event['width'], isA<int>());
+            expect(event['height'], isA<int>());
+            expect(event['width'], greaterThan(0));
+            expect(event['height'], greaterThan(0));
+            expect(event['timestamp'], isA<num>());
+            // O visualizador pega o recurso pelo nome do arquivo: se ele não
+            // estiver no zip, a tira fica com buracos pretos.
+            final file = event['file'] as String;
+            expect(file, startsWith('screencast/'));
+            expect(file, endsWith('.jpeg'));
+            expect(trace.files.keys, contains(file));
+            final bytes = trace.files[file]!;
+            // SOI de JPEG. O ffmpeg empacotado só decodifica mjpeg, então um
+            // PNG aqui seria um quadro que nem a tira nem o vídeo aproveitam.
+            expect(bytes.take(3).toList(), [0xFF, 0xD8, 0xFF]);
+          }
+
+          // Os tempos são do mesmo relógio monotônico das ações, e crescem.
+          final times = events.map((e) => e['timestamp'] as num).toList();
+          expect(times, orderedEquals(List.of(times)..sort()));
+          final firstAction = trace.ofType('before').first['startTime'] as num;
+          expect(times.last, greaterThan(firstAction));
+
+          // Estrangulado: o upstream segura um quadro a cada 200 ms.
+          for (var i = 1; i < times.length; i++) {
+            expect(times[i] - times[i - 1], greaterThanOrEqualTo(200));
+          }
+        });
+
+        test('sem screenshots não há tira de filme nem recursos dela',
+            () async {
+          await context.tracing.start();
+          page = await context.newPage();
+          await page.goto(server.url('/hello'));
+          await _idleForFilmstrip(page);
+          final path = nextPath();
+          await context.tracing.stop(path: path);
+
+          final trace = _Trace.read(path);
+          expect(trace.ofType('screencast-frame'), isEmpty);
+          expect(trace.files.keys.where((f) => f.startsWith('screencast/')),
+              isEmpty);
+        });
+
+        test('actionScreenshots é outra coisa: um PNG por fase da ação',
+            () async {
+          await context.tracing.start(actionScreenshots: true);
+          page = await context.newPage();
+          await page.goto(server.url('/hello'));
+          final path = nextPath();
+          await context.tracing.stop(path: path);
+
+          final trace = _Trace.read(path);
+          final shots = trace.ofType('screenshot').toList();
+          expect(shots, isNotEmpty);
+          expect(shots.map((s) => s['phase']).toSet(),
+              containsAll(<String>['before', 'after']));
+          for (final shot in shots) {
+            final file = shot['file'] as String;
+            expect(file, startsWith('screenshots/'));
+            expect(trace.files.keys, contains(file));
+            // Assinatura de PNG.
+            expect(trace.files[file]!.take(4).toList(), [0x89, 0x50, 0x4E, 0x47]);
+          }
+          // E nenhuma tira de filme: as duas opções são independentes.
+          expect(trace.ofType('screencast-frame'), isEmpty);
+        });
+
         test('Deve registrar o erro de uma ação que falhou', () async {
           await context.tracing.start();
           page = await context.newPage();
@@ -424,4 +515,18 @@ void main() {
       });
     });
   });
+}
+
+/// Leaves [page] open and idle long enough for the screencast to deliver
+/// several throttled frames.
+///
+/// This is one of the few places where waiting on the clock is the subject
+/// rather than a shortcut: the filmstrip is driven by wall time, not by
+/// actions, so a trace that navigates once and stops legitimately holds a
+/// single frame. The page is left *idle* on purpose — the stand-in screencast
+/// samples screenshots, and a navigation in flight holds a screenshot up.
+Future<void> _idleForFilmstrip(Page page) async {
+  for (var i = 0; i < 12; i++) {
+    await page.waitForTimeout(const Duration(milliseconds: 250));
+  }
 }

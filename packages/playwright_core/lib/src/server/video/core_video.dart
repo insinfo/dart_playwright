@@ -14,7 +14,6 @@ import 'package:path/path.dart' as p;
 
 import '../core_page.dart';
 import 'page_screencast.dart';
-import 'record_video_options.dart';
 import 'screencast_hub.dart';
 import 'video_recorder.dart';
 
@@ -173,32 +172,13 @@ class VideoRecording {
   static VideoRecording? maybeStart(CorePage page) {
     final options = page.browserContext?.options.recordVideo;
     if (options == null) return null;
-    final size = _videoSize(page, options);
+    final size =
+        ScreencastHub.defaultSizeFor(page, requested: options.size);
     // Upstream names the file after the page and nothing else, so two videos
     // of the same URL in the same directory cannot collide.
     final video = CoreVideo(p.join(options.dir, '${page.guid}.webm'));
     page.video = video;
     return VideoRecording._(page, video, size);
-  }
-
-  /// Upstream's rule, in `Screencast._startScreencast`: the viewport scaled
-  /// down to fit in 800 pixels, then both sides rounded down to even numbers
-  /// because vp8 refuses odd ones.
-  static ({int width, int height}) _videoSize(
-      CorePage page, CoreRecordVideoOptions options) {
-    var size = options.size ??
-        page.browserContext?.options.viewport ??
-        (width: 800, height: 600);
-    if (options.size == null) {
-      final longest =
-          size.width > size.height ? size.width : size.height;
-      final scale = longest > 800 ? 800 / longest : 1.0;
-      size = (
-        width: (size.width * scale).floor(),
-        height: (size.height * scale).floor()
-      );
-    }
-    return (width: size.width & ~1, height: size.height & ~1);
   }
 
   Future<void> _start() async {
