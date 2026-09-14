@@ -40,6 +40,30 @@
 - Argumento invalido (um `toHaveValues` sobre um `<select>` sem `multiple`)
   sobe na hora em vez de esperar o prazo inteiro.
 
+### Web server
+
+- `PlaywrightWebServer.start(...)` starts the server that serves the app under
+  test and `stop()` takes it down. Port-only and URL probes follow upstream's
+  `webServer` plugin; `readyUrl` and `readyBody` add what upstream has no
+  reason to: a wait that measures the dart2js build instead of the socket.
+- Shutdown kills the whole process tree (`taskkill /T` on Windows, children
+  first on POSIX) and does not return until the port is free.
+- `reuseExistingServer` defaults to upstream's rule: reuse outside CI, refuse
+  on CI.
+- `playwrightGroup(..., webServer: ...)` starts one for the group and hands it
+  to the bodies as `PlaywrightFixtures.webServer`, stopping it after the
+  browsers close.
+
+### Dart stack traces from the browser
+
+- `translateDartStackTrace` / `DartSourceMapResolver` rewrite dart2js frames
+  (`main.dart.js:4821:3`) to `main.dart:11:3` using the source map the
+  compiler emits, folding runtime frames with `Trace.terse`.
+- Source maps are cached per URL, and a missing or unreadable one degrades to
+  the original trace with a note instead of failing.
+- A failing `playwrightTest` gets the page's uncaught errors appended already
+  translated. `PlaywrightTestOptions.translateDartStackTraces` turns it off.
+
 ## 0.1.0
 
 First release.

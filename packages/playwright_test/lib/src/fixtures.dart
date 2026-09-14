@@ -7,8 +7,10 @@ import 'package:test/test.dart';
 
 import 'fixture.dart';
 import 'soft_failures.dart';
+import 'source_maps.dart';
 import 'step.dart';
 import 'storage_state.dart';
+import 'web_server.dart';
 
 /// What a Playwright test body receives.
 ///
@@ -33,12 +35,19 @@ class PlaywrightFixtures implements FixtureContext {
 
   final FixtureResolver _resolver;
 
+  /// O servidor que [playwrightGroup] subiu para este grupo, se houver.
+  ///
+  /// Nulo quando o grupo nao pediu nenhum -- o caso de uma suite que testa um
+  /// site que ja esta no ar.
+  final PlaywrightWebServer? webServer;
+
   PlaywrightFixtures({
     required this.browserName,
     required this.browser,
     required this.context,
     required this.page,
     FixtureResolver? resolver,
+    this.webServer,
   }) : _resolver = resolver ??
             FixtureResolver.test(
               worker: FixtureResolver.worker(
@@ -99,6 +108,14 @@ class PlaywrightTestOptions {
   /// de cada teste antes de a pagina abrir. Ver [StorageState].
   final StorageState? storageState;
 
+  /// Reescreve, na mensagem de falha, os stack traces que vierem do navegador
+  /// em JavaScript compilado pelo dart2js.
+  ///
+  /// Ligado por padrao: `main.dart.js:4821:3` nao diz nada a ninguem, e o
+  /// source map que o compilador emite ao lado do bundle transforma isso em
+  /// `main.dart 11:3`. Desligue se o app sob teste nao for Dart.
+  final bool translateDartStackTraces;
+
   const PlaywrightTestOptions({
     this.browsers = const ['chromium'],
     this.headless = true,
@@ -111,6 +128,7 @@ class PlaywrightTestOptions {
     this.artifactsPath = 'test-results',
     this.fixtures = const [],
     this.storageState,
+    this.translateDartStackTraces = true,
   });
 }
 
@@ -185,16 +203,61 @@ void playwrightTest(
 ///
 /// Call this once per test file, around the `playwrightTest` calls, or the
 /// browsers stay open until the process exits.
-void playwrightGroup(String description, void Function() body) {
+///
+/// [webServer], quando dado, sobe o servidor no `setUpAll` do grupo, entrega-o
+/// aos testes em `PlaywrightFixtures.webServer` e o derruba no fim. E opcional
+/// porque nem toda suite serve a propria aplicacao; quem prefere controlar o
+/// ciclo de vida a mao chama [PlaywrightWebServer.start] no seu proprio
+/// `setUpAll`.
+///
+/// ```dart
+/// playwrightGroup(
+///   'meu app',
+///   webServer: () => PlaywrightWebServer.start(
+///     command: 'webdev serve web:8080',
+///     url: 'http://127.0.0.1:8080/',
+///   ),
+///   () {
+///     playwrightTest('abre', (t) async {
+///       await t.page.goto(t.webServer!.baseURL);
+///     });
+///   },
+/// );
+/// ```
+void playwrightGroup(
+  String description,
+  void Function() body, {
+  Future<PlaywrightWebServer> Function()? webServer,
+}) {
   group(description, () {
-    // Ordem importa: `tearDownAll` roda na ordem inversa do registro, e as
-    // fixtures de worker podem guardar contextos deste navegador — desfaze-las
-    // depois de fecha-lo daria um erro em cima de cada uma.
+    // Ordem importa em todo este bloco: `tearDownAll` roda na ordem inversa
+    // do registro.
+    if (webServer != null) {
+      setUpAll(() async => _grupoWebServer = await webServer());
+      // Registrado antes do fechamento dos navegadores e portanto executado
+      // depois dele: derrubar o servidor com paginas ainda abertas encheria o
+      // log de erros de rede que nao sao a falha de ninguem.
+      tearDownAll(() async {
+        final servidor = _grupoWebServer;
+        _grupoWebServer = null;
+        await servidor?.stop();
+      });
+    }
+    // As fixtures de worker podem guardar contextos deste navegador:
+    // desfaze-las depois de fecha-lo daria um erro em cima de cada uma. Por
+    // isso o pool e registrado antes delas, e portanto fechado depois.
     tearDownAll(_BrowserPool.closeAll);
     tearDownAll(WorkerFixtureScopes.tearDownAll);
     body();
   });
 }
+
+/// O servidor do grupo em execucao, entre o `setUpAll` e o `tearDownAll`.
+///
+/// Estado de escopo, como o proprio `package:test` faz com os seus ganchos: um
+/// grupo de cada vez roda, porque `dart test` executa um arquivo por isolate e
+/// os grupos de um arquivo em sequencia.
+PlaywrightWebServer? _grupoWebServer;
 
 Future<void> _runOne(
   String description,
@@ -234,12 +297,19 @@ Future<void> _runOne(
     page: page,
     registrations: options.fixtures,
   );
+
+  // Coletados durante o teste porque depois da falha a pagina ja foi fechada.
+  final errosDaPagina = <PageError>[];
+  final assinatura = options.translateDartStackTraces
+      ? page.onPageError.listen(errosDaPagina.add)
+      : null;
   final fixtures = PlaywrightFixtures(
     browserName: browserName,
     browser: browser,
     context: context,
     page: page,
     resolver: resolver,
+    webServer: _grupoWebServer,
   );
 
   try {
@@ -253,13 +323,22 @@ Future<void> _runOne(
       if (soft != null) noteSoftFailureArtifact(soft);
     }
   } catch (error) {
+    final detalhe = options.translateDartStackTraces
+        ? await _traduzirErrosDart(error, errosDaPagina)
+        : '$error';
     final shot = await _captureFailure(
         page, description, browserName, options.artifactsPath);
-    if (shot == null) rethrow;
+    if (shot == null) {
+      // Sem traducao e sem screenshot nao ha o que acrescentar: preserva o
+      // erro original, com o tipo e o stack que ele ja tinha.
+      if (detalhe == '$error') rethrow;
+      throw StateError(detalhe);
+    }
     // Keep the original error first: the screenshot is a hint, not the
     // failure.
-    throw StateError('$error\n\nScreenshot of the failure: $shot');
+    throw StateError('$detalhe\n\nScreenshot of the failure: $shot');
   } finally {
+    await assinatura?.cancel();
     // As fixtures do teste saem antes do contexto: uma delas pode guardar uma
     // pagina, e fechar o contexto primeiro faria o teardown falhar em cima de
     // um recurso ja morto.
@@ -268,6 +347,37 @@ Future<void> _runOne(
     } finally {
       await context.close();
     }
+  }
+}
+
+/// Devolve a falha com os stack traces do navegador reescritos para `.dart`.
+///
+/// A traducao acontece so aqui, depois que o teste ja falhou: baixar e parsear
+/// um source map de megabytes durante um teste que esta passando seria pagar
+/// caro por nada.
+///
+/// Nunca lanca. Se o source map nao existir ou nao puder ser lido, volta o
+/// texto original -- trocar a falha de verdade por uma falha da traducao seria
+/// a pior troca possivel.
+Future<String> _traduzirErrosDart(
+    Object error, List<PageError> errosDaPagina) async {
+  try {
+    final buffer = StringBuffer(await translateDartStackTracesIn('$error'));
+    for (final erro in errosDaPagina) {
+      final traduzido = await translateDartStackTrace(erro.stack);
+      // O proprio stack ja comeca pela linha `Nome: mensagem` que a engine
+      // reportou; repeti-la aqui so duplicaria. Sem stack, ela e tudo o que ha.
+      final corpo = traduzido.translated.trim().isEmpty
+          ? '${erro.name.isEmpty ? 'Error' : erro.name}: ${erro.message}'
+          : traduzido.translated;
+      buffer.write('\n\nErro nao capturado na pagina:\n$corpo');
+      if (!traduzido.didTranslate && traduzido.note != null) {
+        buffer.write('\n(stack nao traduzido: ${traduzido.note})');
+      }
+    }
+    return buffer.toString();
+  } catch (_) {
+    return '$error';
   }
 }
 

@@ -253,6 +253,110 @@ Video on failure is **not** here: the port does not record video yet. Trace
 recording exists (`context.tracing`, and `step` writes into it), but turning it
 on and keeping only the failing runs is still something you wire yourself.
 
+## Web server
+
+Testing a Dart web app means having it **served and compiled** on a known port
+before the first test. `PlaywrightWebServer` starts that server, waits for it,
+and kills it afterwards.
+
+```dart
+late PlaywrightWebServer server;
+
+setUpAll(() async {
+  server = await PlaywrightWebServer.start(
+    command: 'webdev serve web:8080 --release',
+    url: 'http://127.0.0.1:8080/',
+    readyUrl: 'http://127.0.0.1:8080/main.dart.js',
+  );
+});
+
+tearDownAll(() => server.stop());
+```
+
+Or let the group own it, which also guarantees the server outlives the
+browsers it was serving:
+
+```dart
+playwrightGroup(
+  'my app',
+  webServer: () => PlaywrightWebServer.start(
+    command: 'webdev serve web:8080',
+    url: 'http://127.0.0.1:8080/',
+  ),
+  () {
+    playwrightTest('opens', (t) async {
+      await t.page.goto(t.webServer!.baseURL);
+    });
+  },
+);
+```
+
+Three things separate this from the process spawn everybody writes by hand:
+
+- **It waits for the build, not for the socket.** Measured here against
+  `webdev serve` 3.7.1: the port opens **7.8 s before** the first successful
+  HTTP request on a cold build (15.2 s vs 23.0 s), and 0.6 s before it on a
+  warm one. So upstream's port-only mode returns far too early, while its
+  `url` mode returns at the right moment — `build_runner` holds requests
+  until the build finishes, so a 200 from it already means "compiled".
+  `readyUrl` is for the other way to serve a Dart app: a plain file server in
+  front of `dart compile js` output, which answers `index.html` immediately
+  and 404s the bundle while the compiler runs. Point it at the artifact that
+  only exists after the build. `readyBody` tightens it one more notch by
+  requiring the response body to match, for a server that answers 200 with a
+  "compiling" placeholder. `waitForStdout` and `waitForStderr` are upstream's
+  `wait`, for servers that announce themselves.
+
+  With `webdev` in debug mode, note that `main.dart.js` is a small DDC
+  bootstrap; the app code is in `main.ddc.js`, with its own `.map`.
+- **It kills the process tree.** The command runs under a shell, and tools like
+  `webdev` launch the real server in a child of their own. Killing only the
+  process the command created leaves the grandchild holding the port, and the
+  next run fails on a busy port — on Windows there is no process group to
+  signal, so this uses `taskkill /T`. `stop()` does not return until the port
+  is actually free.
+- **When it does not come up, it says so.** The timeout message carries the
+  command, what the probe was looking for, what to try, and the server's own
+  stdout and stderr.
+
+`reuseExistingServer` follows upstream's default: outside CI a server already
+on the port is reused (that is the development flow, with `webdev` open in
+another terminal) and `stop()` leaves it alone; on CI a busy port is an error,
+because it is usually a leaked process from the previous run serving stale
+code.
+
+Pass `port:` instead of `url:` for upstream's port-only check. It is the weak
+mode, and the reason `readyUrl` exists.
+
+## Dart stack traces from the browser
+
+When a Dart app throws in the browser, the error points at
+`main.dart.js:4821:3`. The compiler writes `main.dart.js.map` next to the
+bundle, and this package uses it:
+
+```
+Erro nao capturado na pagina:
+Error
+dart:_internal  Object.wrapException
+main.dart 11:3  Object.explodeDeliberadamente
+main.dart 16:3  main.<fn>
+```
+
+This runs automatically: a failing `playwrightTest` gets the page's uncaught
+errors appended, already translated, and any compiled-JS frames inside the
+failure message itself are rewritten too. Turn it off with
+`PlaywrightTestOptions(translateDartStackTraces: false)`.
+
+Use it directly with `translateDartStackTrace(stack)`, or keep your own
+`DartSourceMapResolver` (`terse: false` keeps the runtime frames that
+`Trace.terse` folds away).
+
+- Source maps are **cached per URL**. They are megabytes in a real app, and an
+  error that costs a download is an error nobody attaches.
+- A missing source map (a release build compiled with `--no-source-maps`) is
+  **never a failure**: the original trace comes back with a note saying why.
+- Frames from scripts that are not dart2js output are left alone.
+
 ## What is missing
 
 Compared to `@playwright/test`:
@@ -263,9 +367,9 @@ Compared to `@playwright/test`:
 - **Snapshot and screenshot assertions** (`toMatchSnapshot`,
   `toHaveScreenshot`) — they need an image comparator and a baseline story,
   which is a project of its own.
-- **Projects, sharding, global setup/teardown, web server management** —
-  `dart test` covers parallelism and filtering; the rest is configuration this
-  package deliberately does not own.
+- **Projects, sharding and global setup/teardown** — `dart test` covers
+  parallelism and filtering; the rest is configuration this package
+  deliberately does not own.
 - **`test.step.skip`, boxed steps and per-step timeouts** — `step` records the
   step and nests it; the reporting knobs around it are upstream's runner, not
   this layer.

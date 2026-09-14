@@ -25,3 +25,8 @@ referencias/
 # Local debug artifacts
 scratch/
 /test_win32.dart
+
+# Saida de `dart compile js` do app de fixture: o proprio teste a gera.
+# O .deps ainda carrega caminhos absolutos desta maquina e do SDK.
+packages/playwright_test/test/fixtures/web_app/main.dart.js
+packages/playwright_test/test/fixtures/web_app/main.dart.js.*
