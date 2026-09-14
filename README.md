@@ -47,6 +47,9 @@ speak JSON-RPC over the pipe.
   click/input events, special keys, chords, and `ControlOrMeta`.
 - Intercept network routes with continue, fulfill, and abort support.
 - Manage cookies and capture `storageState()` with cookies plus localStorage.
+- Record a trace the official viewer opens: `context.tracing.start(...)`,
+  then `npx playwright show-trace trace.zip`. Actions, network, console, DOM
+  snapshots of every frame, and the Dart source of each call.
 - Run browser parity tests across Chromium, Firefox, and WebKit.
 - Exercise CI on Linux, Windows, and macOS.
 
@@ -171,7 +174,7 @@ What is missing:
 
 | Missing | Milestone |
 | --- | --- |
-| Tracing and video recording | 3 |
+| Video recording, and the screencast filmstrip of the trace viewer | 3 |
 | Screenshot `mask`, `caret`, `animations`, `omitBackground`, `style` | 3 |
 | Multipart uploads and `storageState` on `APIRequestContext` | 3 |
 | `WebSocket`, `WebSocketRoute`, `Worker` | 3 |
@@ -179,7 +182,7 @@ What is missing:
 | `Selectors.register` | 4 |
 | `BrowserType.connect`, `connectOverCDP`, `launchPersistentContext`, `launchServer` | 4 |
 | Screenshot assertions (`toHaveScreenshot`) | 5 |
-| Codegen, UI mode, trace viewer, inspector | not planned yet |
+| Codegen, UI mode, inspector | not planned yet |
 | Android, Electron, WebView | not planned yet |
 
 Milestone 6 added `addInitScript`, `exposeFunction`/`exposeBinding`, the
@@ -226,6 +229,16 @@ Playwright's CSS extensions (`:has-text()`, `:text()`, `:text-is()`,
 upstream. Deliberately partial: actionability
 checks `visible`, `stable`, `enabled` and `editable` but not
 `receivesPointerEvents`, so an element covered by another is still clicked.
+
+Tracing records into upstream's own format, so `npx playwright show-trace`
+opens what this port writes — there is no viewer here, and there should not be
+one. Two differences are worth knowing before you rely on it: `screenshots:
+true` captures a PNG per action phase rather than upstream's screencast
+filmstrip (that needs `Page.startScreencast`, which is not ported), and the DOM
+snapshot streamer is installed on first capture instead of before the page's
+own scripts, because `addInitScript` is not ported yet — so a stylesheet edited
+through `insertRule`/`replaceSync` before the first capture is not overridden
+in the snapshot. See `doc/07_API_PUBLICA.md`.
 
 `doc/11_RELATORIO_GAPS_PLAYWRIGHT_ORIGINAL.md` tracks the gap in detail.
 

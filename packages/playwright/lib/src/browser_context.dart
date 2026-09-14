@@ -13,8 +13,10 @@ import 'console_message.dart';
 import 'dialog.dart';
 import 'download.dart';
 import 'network.dart';
+import 'instrumented.dart';
 import 'page.dart';
 import 'page_error.dart';
+import 'tracing.dart';
 import 'waiter.dart';
 
 /// An isolated browser context.
@@ -81,6 +83,9 @@ abstract class BrowserContext {
   /// through the API is visible to the pages and the other way round.
   APIRequestContext get request;
 
+  /// Records a trace of this context that `npx playwright show-trace` opens.
+  Tracing get tracing;
+
   /// Event emitted when a page is opened in this context.
   Stream<Page> get onPage;
 
@@ -142,10 +147,15 @@ class BrowserContextImpl implements BrowserContext {
       _contextWrappers[coreContext] ??= BrowserContextImpl(coreContext);
 
   @override
-  Future<Page> newPage() async {
-    final corePage = await _coreContext.newPage();
-    return PageImpl.forCore(corePage);
-  }
+  Future<Page> newPage() => instrumentedOnContext(
+        instrumentation: _coreContext.instrumentation,
+        type: 'BrowserContext',
+        method: 'newPage',
+        body: () async {
+          final corePage = await _coreContext.newPage();
+          return PageImpl.forCore(corePage);
+        },
+      );
 
   @override
   List<Page> pages() => _coreContext.pages.map(PageImpl.forCore).toList();
@@ -155,17 +165,37 @@ class BrowserContextImpl implements BrowserContext {
 
   @override
   Future<List<Map<String, dynamic>>> cookies([List<String>? urls]) =>
-      _coreContext.cookies(urls);
+      instrumentedOnContext(
+        instrumentation: _coreContext.instrumentation,
+        type: 'BrowserContext',
+        method: 'cookies',
+        body: () => _coreContext.cookies(urls),
+      );
 
   @override
   Future<void> addCookies(List<Map<String, dynamic>> cookies) =>
-      _coreContext.addCookies(cookies);
+      instrumentedOnContext(
+        instrumentation: _coreContext.instrumentation,
+        type: 'BrowserContext',
+        method: 'addCookies',
+        body: () => _coreContext.addCookies(cookies),
+      );
 
   @override
-  Future<void> clearCookies() => _coreContext.clearCookies();
+  Future<void> clearCookies() => instrumentedOnContext(
+        instrumentation: _coreContext.instrumentation,
+        type: 'BrowserContext',
+        method: 'clearCookies',
+        body: () => _coreContext.clearCookies(),
+      );
 
   @override
-  Future<Map<String, dynamic>> storageState() => _coreContext.storageState();
+  Future<Map<String, dynamic>> storageState() => instrumentedOnContext(
+        instrumentation: _coreContext.instrumentation,
+        type: 'BrowserContext',
+        method: 'storageState',
+        body: () => _coreContext.storageState(),
+      );
 
   @override
   Future<void> addInitScript(String script, {Object? arg}) async {
@@ -188,7 +218,15 @@ class BrowserContextImpl implements BrowserContext {
   Clock get clock => _clock;
 
   @override
-  Future<void> close() => _coreContext.close();
+  Future<void> close() => instrumentedOnContext(
+        instrumentation: _coreContext.instrumentation,
+        type: 'BrowserContext',
+        method: 'close',
+        body: () => _coreContext.close(),
+      );
+
+  @override
+  late final Tracing tracing = TracingImpl(_coreContext);
 
   late final APIRequestContext _request =
       APIRequestContextImpl(cookieOwner: this);

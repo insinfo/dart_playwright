@@ -44,6 +44,19 @@ been modified:
       ariaSnapshot.ts, plus the `value` and `description` fields this port
       has carried since before upstream's aria snapshots existed.
 
+  packages/playwright_core/lib/src/server/trace/
+      Port of the trace recorder: tracing.ts (the recorder), harTracer.ts and
+      the har.ts entry shape (the network stream), serializedFS.ts (the
+      ordered writer) and instrumentation.ts (the call metadata), all from
+      packages/playwright-core/src/server. trace_events.dart reproduces the
+      event shapes of packages/isomorphic/trace/versions/traceV9.ts. The DOM
+      DOM snapshotter is ported too: snapshotter_injected.dart is
+      snapshotterInjected.ts with the TypeScript removed and the class fields
+      moved into the constructor, and snapshotter.dart is snapshotter.ts with
+      the streamer installed on first capture instead of through an init
+      script, and with a deadline instead of a non-stalling evaluation. The
+      screencast recorder is not ported.
+
   packages/playwright_core/lib/src/server/us_keyboard_layout.dart
       Port of packages/playwright-core/src/server/usKeyboardLayout.ts.
 

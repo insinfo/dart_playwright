@@ -1,13 +1,161 @@
 # Relatório de gaps para paridade com o Playwright original
 
 Data da análise: 2026-07-19
-Última atualização: 2026-09-14 — ver "Progresso da rodada de 2026-09-14 (árvore de acessibilidade)".
+Última atualização: 2026-09-14 — ver "Progresso da rodada de 2026-09-14 (tracing)".
 
 Referências locais usadas:
 
 - `referencias/playwright-typescript` - Playwright upstream TypeScript, versão `1.62.0-next`.
 - `referencias/playwright-dotnet` - binding .NET, usado como referência auxiliar de API fortemente tipada.
 - `packages/playwright`, `packages/playwright_core`, `packages/playwright_protocol` e `packages/playwright_mcp` - port Dart atual.
+
+## Progresso da rodada de 2026-09-14 (tracing)
+
+Fecha a lacuna de maior valor que restava: uma falha de integração que não
+reproduz local agora se resolve abrindo o trace no visualizador oficial.
+
+`context.tracing.start/startChunk/stopChunk/stop` grava um zip com
+`trace.trace`, `trace.network` e `resources/<sha1>.<ext>`, e
+**`npx playwright show-trace` abre o arquivo**. Não há visualizador próprio
+neste porte, e não deve haver — o custo inteiro está no gravador, e o
+retorno de escrever o formato do upstream é justamente poder usar o
+visualizador dele.
+
+### O que foi portado
+
+De `packages/playwright-core/src/server`:
+
+- `trace/recorder/tracing.ts` para `server/trace/tracing.dart`: o gravador, o
+  estado por trecho, os arquivos de recurso por sha1 e o zip;
+- `trace/recorder/snapshotter.ts` e `snapshotterInjected.ts` para
+  `server/trace/snapshotter.dart` e `snapshotter_injected.dart`: o snapshot
+  de DOM, com o cache de sub-árvore (`[[n, i]]`) que faz um trace de cem
+  ações não guardar cem cópias da mesma página;
+- `har/harTracer.ts` e o formato de `versions/har.ts` para
+  `server/trace/har_tracer.dart`: as entradas de rede, com o corpo da
+  resposta anexado por sha1;
+- `utils/serializedFS.ts` para `server/trace/serialized_fs.dart`;
+- `instrumentation.ts` para `server/trace/instrumentation.dart`.
+
+De `packages/isomorphic/trace/versions/traceV9.ts`:
+`server/trace/trace_events.dart`, que é o contrato — as formas exatas de
+`context-options`, `before`, `input`, `after`, `log`, `event`, `console`,
+`screenshot`, `frame-snapshot` e `resource-snapshot`.
+
+### De onde vêm as ações
+
+O upstream cunha um `CallMetadata` por mensagem de protocolo, porque lá toda
+chamada atravessa um fio. Aqui as chamadas são Dart puro, então a camada
+pública é o único lugar que sabe que uma chamada aconteceu, e é de lá que
+ela é anunciada (`instrumented.dart`). Os nomes de classe e método gravados
+são os do **protocolo do upstream** (`Frame.click`, `Page.reload`), não os
+nomes Dart, porque é por esse par que o visualizador decide como rotular a
+linha; o seletor viaja em `params['selector']` na sintaxe do Playwright e
+o visualizador o renderiza como locator.
+
+Com nada gravando, a instrumentação custa uma verificação booleana por
+chamada.
+
+### O que grava
+
+Ações de `Page`, `Locator` e `BrowserContext` como pares `before`/`after`,
+com `error` quando a chamada falhou e `parentId` quando uma chamada pública
+chamou outra; requisições como entradas HAR com o corpo; mensagens de
+console; erros de página; diálogos; downloads; abertura e fechamento de
+página; o DOM de cada frame antes e depois de cada ação, com o elemento
+alvo marcado; e, com `sources`, a pilha Dart de cada ação mais os arquivos
+`.dart` que ela aponta.
+
+### O que não grava, e por quê
+
+- **Screencast (o filmstrip do topo do visualizador).** Precisa de
+  `Page.startScreencast` e dos equivalentes nos outros dois motores, que
+  este porte não tem. A opção `screenshots` existe mas é o
+  `snapshots: { screen: true }` do upstream — um PNG por fase de ação —,
+  não o filmstrip; está dito na documentação do método e aqui.
+- **Vídeo** (`recordVideo`), que é outro assunto e outro caminho.
+- **`tracing.group`/`groupEnd`**, `startHar`/`stopHar` e o modo `live` da UI.
+- **`aria-snapshot` por ação.** O `ariaSnapshot` existe no porte desde a
+  rodada anterior; o que falta é gravá-lo no trace e o modo do visualizador
+  que o consome junto com o screenshot.
+- **Anexos** (`attachments`) nos eventos `after`, que no upstream vêm do
+  test runner.
+
+### Duas diferenças no snapshot, por falta de primitiva
+
+- **O streamer é instalado na primeira captura de cada documento**, não
+  antes dos scripts da página, porque `addInitScript` ainda não existe neste
+  porte (está em andamento em outro ramo). A captura é uma travessia
+  completa, então o que ela vê é o mesmo; o que se perde é a interceptação
+  do CSSOM na janela entre o documento carregar e a primeira captura — uma
+  folha de estilo editada por `insertRule`/`replaceSync` nesse intervalo não
+  é sobrescrita no snapshot. Folha servida pela rede não é afetada: vem do
+  próprio `trace.network`. Quando `addInitScript` entrar, trocar é questão
+  de poucas linhas.
+- **A captura é uma avaliação com prazo, não uma que não trava.** O upstream
+  avalia sem travar para que uma página parada num `alert()` ou num XHR
+  síncrono não segure a captura. Aqui a página parada perde o snapshot em
+  cinco segundos em vez de segurar a ação.
+
+### A versão de formato é a 9, e isso é deliberado
+
+O formato é versionado com modernizador (`traceV3..V10` mais
+`traceModernizer.ts`), o que fixa o **piso**, não o teto: um visualizador
+recusa, com `TraceVersionError`, um trace cuja versão ele não conhece. A 10
+só existe na árvore não publicada do upstream (`1.64.0-next`); o
+visualizador mais novo que dá para instalar do npm é o `1.63.0`, e o
+`latestVersion` dele é 9 — conferido no `sw.bundle.js` do pacote instalado.
+
+Não é downgrade: o `_modernize_9_to_10` só reescreve o `stepId` que o test
+runner cunhava, e este gravador nunca emite `stepId`. O 9 que sai daqui
+passa pelo modernizador de um visualizador que conheça a 10 sem mudar nada.
+
+### A armadilha de sempre, multiplicada
+
+O gravador é todo movido a evento, e `EventEmitter.emit` descarta o future
+que um listener devolve — um erro nascido ali sumiria com o erro dentro.
+Então **nada que roda em manipulador de evento aqui é assíncrono**: as
+escritas entram numa fila serializada (`SerializedFs`, porte do
+`serializedFS.ts`) e a falha reaparece no `stopChunk`, que tem quem a
+espere. O único trabalho que realmente precisa da rede — ler o corpo de uma
+resposta — vira um future que não pode falhar, estacionado num conjunto de
+barreiras que o `stopChunk` aguarda.
+
+Um defeito real desse desenho foi encontrado pelo teste e corrigido: o
+`stopChunk` listava as entradas do zip **antes** de esperar os corpos, e
+todo corpo que chegasse depois ficava fora do arquivo embora referenciado
+pelo `trace.network`. O teste de rede pegou isso no Chromium e no WebKit.
+
+### Como isto foi conferido
+
+Não por inspeção do zip: **o visualizador oficial foi aberto**. O
+`playwright@1.63.0` do npm serve o trace com
+`show-trace --host 127.0.0.1 --port`, e o `tool/open_trace_in_viewer.dart`
+abre essa URL com o Chromium deste porte e lê de volta o que a interface
+renderizou. Nos três motores a lista de ações apareceu ("Create page",
+"Navigate", "Click", "Wait for selector", com os locators renderizados), a
+aba *Network* contou as requisições, a aba *Console* mostrou a mensagem da
+página, a aba *Source* mostrou o arquivo `.dart` com a linha da ação
+destacada, e o painel de snapshot renderizou a página — com o elemento alvo
+destacado e o conteúdo do `<iframe>` desenhado dentro dele.
+
+### Cobertura de teste desta rodada
+
+`packages/playwright/test/integration/tracing_test.dart`, 24 testes: a
+estrutura do zip, o nome sha1 de cada recurso conferido contra o conteúdo,
+a linha `context-options` campo a campo, o casamento de `before`/`after`, o
+seletor em `params`, a entrada HAR com o corpo, o console, o erro de uma
+ação que falhou, o DOM antes e depois com `__playwright_value_` e
+`__playwright_target__`, o `<iframe>` apontando para o snapshot do filho,
+`sources` com o `src/<sha1-do-caminho>.dart` e a pilha, os trechos de
+`startChunk`/`stopChunk` com a rede compartilhada entre eles, e a remoção
+do diretório temporário no `stop`. Os seis primeiros rodam nos três
+motores; o resto roda no Chromium, porque não depende do motor e esta
+máquina não tem memória para provar a mesma coisa três vezes.
+
+Suíte inteira medida nesta máquina com `dart test -j1`, por pacote: **648
+testes verdes, 1 pulado** — 582 em `packages/playwright`, 32 em
+`packages/playwright_core` e 34 em `packages/playwright_test`.
 
 ## Progresso da rodada de 2026-09-14 (árvore de acessibilidade)
 
@@ -1075,7 +1223,7 @@ Faltam recursos completos de serialização entre Dart e runtime da página:
 - Implementar downloads e file chooser.
 - Implementar upload.
 - Implementar `APIRequestContext`.
-- Implementar tracing e video.
+- ~~Implementar tracing~~ FEITO em 2026-09-14, menos screencast. Vídeo continua aberto.
 - Implementar `page.pdf` para Chromium.
 
 ### Milestone 4 - Paridade de contexto e configuração
