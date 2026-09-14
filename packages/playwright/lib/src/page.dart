@@ -1133,3 +1133,12 @@ class PageImpl implements Page {
     return _corePage.waitForEvent<T>(event, timeout: timeout);
   }
 }
+
+/// A pagina do core por tras do wrapper publico [page].
+///
+/// O screencast vive no core e ainda nao tem API publica propria; sem esta
+/// ponte nao ha como chegar na pagina do core a partir de um [Page], porque
+/// o campo do wrapper e privado desta biblioteca. Quando a API publica de
+/// video existir, ela passa a ser o caminho normal e isto vira detalhe de
+/// teste.
+CorePage corePageOf(Page page) => (page as PageImpl)._corePage;
