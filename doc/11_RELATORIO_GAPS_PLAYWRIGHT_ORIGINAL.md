@@ -462,7 +462,6 @@ valores, sem âncoras para agir depois.
 - **`BrowserType.connect`, `connectOverCDP`, `launchPersistentContext`,
   `launchServer`.**
 - **Proxy por contexto.**
-<<<<<<< HEAD
 - ~~**Extensões CSS do Playwright** (`:has-text()`, `:visible`, seletores de
   layout) e shadow-piercing no motor `css`~~ — FEITO em 2026-09-13:
   `cssTokenizer.ts`, `cssParser.ts`, `layoutSelectorUtils.ts` e
@@ -473,7 +472,6 @@ valores, sem âncoras para agir depois.
   responde; os outros dois devolvem um esqueleto. O `playwright_mcp` contorna
   isso com um snapshot próprio, mas a API pública continua mentindo nesses
   dois motores — é a lacuna que eu atacaria primeiro na próxima rodada.
-=======
 - **Extensões CSS do Playwright** (`:has-text()`, `:visible`, seletores de
   layout) e shadow-piercing no motor `css`: continuam exigindo portar
   `selectorEvaluator.ts` + `cssParser.ts` + `cssTokenizer.ts`.
@@ -484,7 +482,6 @@ valores, sem âncoras para agir depois.
   2026-09-14, e não do jeito que esta linha imaginava: o upstream removeu os
   três backends por protocolo, e o porte seguiu a árvore injetada que os
   substituiu.
->>>>>>> feat/a11y-snapshot
 
 ## Progresso da rodada de 2026-09-13 (eventos P0)
 

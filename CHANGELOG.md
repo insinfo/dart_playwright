@@ -1,6 +1,5 @@
 # Changelog
 
-<<<<<<< HEAD
 ## Unreleased
 
 ### Added
@@ -11,8 +10,8 @@
 
 ### Fixed
 - **A malformed selector timed out instead of failing.** A selector that does not parse, or an extension used with the wrong arguments, reached the locator retry loop as a generic error and became a `TimeoutException` after 30s. It now raises `InvalidSelectorError` at once, as upstream does.
-=======
-## [0.8.1] - A real accessibility tree on all three engines
+
+### A real accessibility tree on all three engines
 
 ### Added
 - **`page.accessibilitySnapshot()` answers on Firefox and WebKit**, and answers the same thing Chromium does. It used to be Chromium-only: the other two returned a single empty `WebArea` node, so the method had the right shape and false content on two of three engines.
@@ -36,7 +35,6 @@ engine.
 
 Not ported, all from upstream's `ai` mode: `[ref=...]` element anchors,
 `[active]`, `[box=...]`, `depth`, and descending into iframes.
->>>>>>> feat/a11y-snapshot
 
 ## [0.8.0] - Milestone 5: fixtures and assertions
 
