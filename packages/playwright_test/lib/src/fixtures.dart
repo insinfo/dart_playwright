@@ -5,6 +5,8 @@ import 'package:path/path.dart' as p;
 import 'package:playwright/playwright.dart';
 import 'package:test/test.dart';
 
+import 'source_maps.dart';
+
 /// What a Playwright test body receives.
 ///
 /// The page is fresh for every test, in a context of its own, so nothing
@@ -47,6 +49,14 @@ class PlaywrightTestOptions {
   /// Where a failure screenshot is written. Null turns the capture off.
   final String? artifactsPath;
 
+  /// Reescreve, na mensagem de falha, os stack traces que vierem do navegador
+  /// em JavaScript compilado pelo dart2js.
+  ///
+  /// Ligado por padrao: `main.dart.js:4821:3` nao diz nada a ninguem, e o
+  /// source map que o compilador emite ao lado do bundle transforma isso em
+  /// `main.dart 11:3`. Desligue se o app sob teste nao for Dart.
+  final bool translateDartStackTraces;
+
   const PlaywrightTestOptions({
     this.browsers = const ['chromium'],
     this.headless = true,
@@ -57,6 +67,7 @@ class PlaywrightTestOptions {
     this.hasTouch = false,
     this.baseURL,
     this.artifactsPath = 'test-results',
+    this.translateDartStackTraces = true,
   });
 }
 
@@ -154,6 +165,11 @@ Future<void> _runOne(
     hasTouch: options.hasTouch,
   );
   final page = await context.newPage();
+  // Coletados durante o teste porque depois da falha a pagina ja foi fechada.
+  final errosDaPagina = <PageError>[];
+  final assinatura = options.translateDartStackTraces
+      ? page.onPageError.listen(errosDaPagina.add)
+      : null;
   final fixtures = PlaywrightFixtures(
     browserName: browserName,
     browser: browser,
@@ -164,14 +180,54 @@ Future<void> _runOne(
   try {
     await body(fixtures);
   } catch (error) {
+    final detalhe = options.translateDartStackTraces
+        ? await _traduzirErrosDart(error, errosDaPagina)
+        : '$error';
     final shot = await _captureFailure(
         page, description, browserName, options.artifactsPath);
-    if (shot == null) rethrow;
+    if (shot == null) {
+      // Sem traducao e sem screenshot nao ha o que acrescentar: preserva o
+      // erro original, com o tipo e o stack que ele ja tinha.
+      if (detalhe == '$error') rethrow;
+      throw StateError(detalhe);
+    }
     // Keep the original error first: the screenshot is a hint, not the
     // failure.
-    throw StateError('$error\n\nScreenshot of the failure: $shot');
+    throw StateError('$detalhe\n\nScreenshot of the failure: $shot');
   } finally {
+    await assinatura?.cancel();
     await context.close();
+  }
+}
+
+/// Devolve a falha com os stack traces do navegador reescritos para `.dart`.
+///
+/// A traducao acontece so aqui, depois que o teste ja falhou: baixar e parsear
+/// um source map de megabytes durante um teste que esta passando seria pagar
+/// caro por nada.
+///
+/// Nunca lanca. Se o source map nao existir ou nao puder ser lido, volta o
+/// texto original -- trocar a falha de verdade por uma falha da traducao seria
+/// a pior troca possivel.
+Future<String> _traduzirErrosDart(
+    Object error, List<PageError> errosDaPagina) async {
+  try {
+    final buffer = StringBuffer(await translateDartStackTracesIn('$error'));
+    for (final erro in errosDaPagina) {
+      final traduzido = await translateDartStackTrace(erro.stack);
+      // O proprio stack ja comeca pela linha `Nome: mensagem` que a engine
+      // reportou; repeti-la aqui so duplicaria. Sem stack, ela e tudo o que ha.
+      final corpo = traduzido.translated.trim().isEmpty
+          ? '${erro.name.isEmpty ? 'Error' : erro.name}: ${erro.message}'
+          : traduzido.translated;
+      buffer.write('\n\nErro nao capturado na pagina:\n$corpo');
+      if (!traduzido.didTranslate && traduzido.note != null) {
+        buffer.write('\n(stack nao traduzido: ${traduzido.note})');
+      }
+    }
+    return buffer.toString();
+  } catch (_) {
+    return '$error';
   }
 }
 
