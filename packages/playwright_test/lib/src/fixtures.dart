@@ -6,6 +6,7 @@ import 'package:playwright/playwright.dart';
 import 'package:test/test.dart';
 
 import 'source_maps.dart';
+import 'web_server.dart';
 
 /// What a Playwright test body receives.
 ///
@@ -24,11 +25,18 @@ class PlaywrightFixtures {
   /// A page created for this test alone.
   final Page page;
 
+  /// O servidor que [playwrightGroup] subiu para este grupo, se houver.
+  ///
+  /// Nulo quando o grupo nao pediu nenhum -- o caso de uma suite que testa um
+  /// site que ja esta no ar.
+  final PlaywrightWebServer? webServer;
+
   PlaywrightFixtures({
     required this.browserName,
     required this.browser,
     required this.context,
     required this.page,
+    this.webServer,
   });
 }
 
@@ -142,12 +150,55 @@ void playwrightTest(
 ///
 /// Call this once per test file, around the `playwrightTest` calls, or the
 /// browsers stay open until the process exits.
-void playwrightGroup(String description, void Function() body) {
+///
+/// [webServer], quando dado, sobe o servidor no `setUpAll` do grupo, entrega-o
+/// aos testes em `PlaywrightFixtures.webServer` e o derruba no fim. E opcional
+/// porque nem toda suite serve a propria aplicacao; quem prefere controlar o
+/// ciclo de vida a mao chama [PlaywrightWebServer.start] no seu proprio
+/// `setUpAll`.
+///
+/// ```dart
+/// playwrightGroup(
+///   'meu app',
+///   webServer: () => PlaywrightWebServer.start(
+///     command: 'webdev serve web:8080',
+///     url: 'http://127.0.0.1:8080/',
+///   ),
+///   () {
+///     playwrightTest('abre', (t) async {
+///       await t.page.goto(t.webServer!.baseURL);
+///     });
+///   },
+/// );
+/// ```
+void playwrightGroup(
+  String description,
+  void Function() body, {
+  Future<PlaywrightWebServer> Function()? webServer,
+}) {
   group(description, () {
+    if (webServer != null) {
+      setUpAll(() async => _grupoWebServer = await webServer());
+      // Registrado antes do fechamento dos navegadores e portanto executado
+      // depois dele: derrubar o servidor com paginas ainda abertas encheria o
+      // log de erros de rede que nao sao a falha de ninguem.
+      tearDownAll(() async {
+        final servidor = _grupoWebServer;
+        _grupoWebServer = null;
+        await servidor?.stop();
+      });
+    }
     tearDownAll(_BrowserPool.closeAll);
     body();
   });
 }
+
+/// O servidor do grupo em execucao, entre o `setUpAll` e o `tearDownAll`.
+///
+/// Estado de escopo, como o proprio `package:test` faz com os seus ganchos: um
+/// grupo de cada vez roda, porque `dart test` executa um arquivo por isolate e
+/// os grupos de um arquivo em sequencia.
+PlaywrightWebServer? _grupoWebServer;
 
 Future<void> _runOne(
   String description,
@@ -175,6 +226,7 @@ Future<void> _runOne(
     browser: browser,
     context: context,
     page: page,
+    webServer: _grupoWebServer,
   );
 
   try {

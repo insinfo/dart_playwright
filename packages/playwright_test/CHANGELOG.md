@@ -12,6 +12,9 @@
   first on POSIX) and does not return until the port is free.
 - `reuseExistingServer` defaults to upstream's rule: reuse outside CI, refuse
   on CI.
+- `playwrightGroup(..., webServer: ...)` starts one for the group and hands it
+  to the bodies as `PlaywrightFixtures.webServer`, stopping it after the
+  browsers close.
 
 ### Dart stack traces from the browser
 

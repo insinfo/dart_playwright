@@ -165,32 +165,31 @@ void main() {
     });
   });
 
-  group('traducao do app Dart compilado, no navegador', () {
-    late PlaywrightWebServer servidor;
-
-    setUpAll(() async {
+  // O servidor sobe pelo proprio `playwrightGroup`, que e a integracao
+  // opcional que o pacote oferece; o corpo do teste o alcanca por
+  // `t.webServer`.
+  playwrightGroup(
+    'traducao do app Dart compilado, no navegador',
+    webServer: () async {
       await garantirAppCompilado();
       final porta = await _portaLivre();
-      servidor = await PlaywrightWebServer.start(
+      return PlaywrightWebServer.start(
         command: '"${Platform.resolvedExecutable}" run '
             'test/fixtures/serve_app.dart --port=$porta',
         url: 'http://127.0.0.1:$porta/',
         readyUrl: 'http://127.0.0.1:$porta/main.dart.js',
         readyBody: 'explodeDeliberadamente',
-        timeout: const Duration(seconds: 60),
+        timeout: const Duration(seconds: 90),
       );
-    });
-
-    tearDownAll(() async => servidor.stop());
-
-    playwrightGroup('source maps', () {
+    },
+    () {
       playwrightTest(
           'o trace do navegador volta apontando para o main.dart '
           'na linha do throw', (t) async {
         final erros = <PageError>[];
         final sub = t.page.onPageError.listen(erros.add);
 
-        await t.page.goto(servidor.baseURL);
+        await t.page.goto(t.webServer!.baseURL);
         await expectLocator(t.page.locator('#pronto')).toBeVisible();
         await t.page.click('#estoura');
         await _esperar(() => erros.isNotEmpty);
@@ -212,7 +211,7 @@ void main() {
       playwrightTest('dobra os quadros de runtime do Dart', (t) async {
         final erros = <PageError>[];
         final sub = t.page.onPageError.listen(erros.add);
-        await t.page.goto(servidor.baseURL);
+        await t.page.goto(t.webServer!.baseURL);
         await expectLocator(t.page.locator('#pronto')).toBeVisible();
         await t.page.click('#estoura');
         await _esperar(() => erros.isNotEmpty);
@@ -228,8 +227,8 @@ void main() {
             reason: 'com terse, eles saem da frente');
         expect(dobrado.translated, contains('main.dart'));
       }, options: const PlaywrightTestOptions(artifactsPath: null));
-    });
-  });
+    },
+  );
 }
 
 Future<int> _portaLivre() async {

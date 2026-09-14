@@ -120,6 +120,24 @@ setUpAll(() async {
 tearDownAll(() => server.stop());
 ```
 
+Or let the group own it, which also guarantees the server outlives the
+browsers it was serving:
+
+```dart
+playwrightGroup(
+  'my app',
+  webServer: () => PlaywrightWebServer.start(
+    command: 'webdev serve web:8080',
+    url: 'http://127.0.0.1:8080/',
+  ),
+  () {
+    playwrightTest('opens', (t) async {
+      await t.page.goto(t.webServer!.baseURL);
+    });
+  },
+);
+```
+
 Three things separate this from the process spawn everybody writes by hand:
 
 - **It waits for the build, not for the socket.** Measured here against
