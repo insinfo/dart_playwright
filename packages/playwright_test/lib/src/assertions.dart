@@ -209,8 +209,54 @@ class LocatorAssertions {
         return (ok: actual == count, actual: '$actual');
       });
 
+  /// The element's accessibility tree matches the aria snapshot [template].
+  ///
+  /// ```dart
+  /// await expectLocator(page.locator('nav')).toMatchAriaSnapshot('''
+  ///   - navigation "Menu":
+  ///     - link "Home"
+  ///     - link "About"
+  /// ''');
+  /// ```
+  ///
+  /// The template is upstream's aria snapshot YAML, and matching follows
+  /// upstream: children are *contained* in document order unless the template
+  /// says `- /children: equal` or `deep-equal`, a bare role matches any name,
+  /// and a name written as `/pattern/` is a regular expression. On failure the
+  /// error carries the page's actual snapshot, which is what you paste back
+  /// into the template.
+  ///
+  /// Upstream's `[active]` is rejected rather than ignored: this port does not
+  /// compute the focused node, and quietly dropping the attribute would make
+  /// the assertion pass on any node.
+  Future<void> toMatchAriaSnapshot(String template) =>
+      _check('match the aria snapshot',
+          _ariaSnapshotProbe(template, _locator.accessibilitySnapshot,
+              _locator.ariaSnapshot));
+
   static String _normalize(String value) =>
       value.replaceAll(RegExp(r'\s+'), ' ').trim();
+}
+
+
+/// Shared body of `toMatchAriaSnapshot`.
+///
+/// The template is parsed once, up front: a typo in the YAML is the author's
+/// mistake and should fail immediately, not retry for five seconds and then
+/// report "the page never matched".
+Future<({bool ok, String actual})> Function() _ariaSnapshotProbe(
+  String template,
+  Future<AccessibilitySnapshot> Function() snapshot,
+  Future<String> Function() rendered,
+) {
+  final parsed = parseAriaTemplate(template);
+  return () async {
+    final tree = await snapshot();
+    if (ariaTemplateMatches(tree.root, parsed)) {
+      return (ok: true, actual: '(matched)');
+    }
+    return (ok: false, actual: await rendered());
+  };
 }
 
 /// Retrying assertions about a [Page].
@@ -249,6 +295,15 @@ class PageAssertions {
         final url = await _page.url();
         return (ok: _matches(expected, url), actual: '"$url"');
       });
+
+  /// The page body's accessibility tree matches the aria snapshot [template].
+  ///
+  /// See [LocatorAssertions.toMatchAriaSnapshot] for the format and the
+  /// matching rules.
+  Future<void> toMatchAriaSnapshot(String template) =>
+      _check('match the aria snapshot',
+          _ariaSnapshotProbe(template, _page.accessibilitySnapshot,
+              _page.ariaSnapshot));
 }
 
 /// Assertions about an [APIResponse]. These do not retry: a response is

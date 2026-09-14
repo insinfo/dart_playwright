@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:playwright_protocol/playwright_protocol.dart'
     show PlaywrightException, TimeoutException;
+import 'package:playwright_core/src/accessibility.dart';
 import 'package:playwright_core/src/server/core_js_handle.dart';
 import 'package:playwright_core/src/server/core_element_handle.dart';
 import 'package:playwright_core/src/server/core_page.dart';
@@ -351,6 +352,13 @@ abstract class Locator with LocatorFactory {
   /// element's own role. See [Page.ariaSnapshot] for the format and for what
   /// this port leaves out.
   Future<String> ariaSnapshot({Duration? timeout, bool strict = true});
+
+  /// The element's subtree as an accessibility tree.
+  ///
+  /// Same tree as [Page.accessibilitySnapshot], rooted at this element
+  /// instead of at the page body.
+  Future<AccessibilitySnapshot> accessibilitySnapshot(
+      {bool interestingOnly = true, Duration? timeout, bool strict = true});
 
   // ------------------------------------------------------------ evaluation
 
@@ -1089,6 +1097,20 @@ class LocatorImpl extends Locator {
         timeout: timeout,
         strict: strict);
     return result?.toString() ?? '';
+  }
+
+  @override
+  Future<AccessibilitySnapshot> accessibilitySnapshot(
+      {bool interestingOnly = true,
+      Duration? timeout,
+      bool strict = true}) async {
+    final options = jsonEncode({'includeGenericRole': !interestingOnly});
+    final raw = await _run('return window.__pwDart.ariaTree(el, $options);',
+        timeout: timeout, strict: strict);
+    return AccessibilitySnapshot(
+      title: await _frame.title(),
+      root: AccessibilityNode.fromInjectedJson(raw, AccessibilityRefCounter()),
+    );
   }
 
   // ------------------------------------------------------------ evaluation

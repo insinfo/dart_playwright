@@ -7,6 +7,9 @@
 - **`page.ariaSnapshot()` and `Locator.ariaSnapshot()`**: the aria snapshot YAML, upstream's format for accessibility assertions.
 - **`AccessibilityNode` carries state**: `checked`, `disabled`, `expanded`, `invalid`, `level`, `pressed`, `selected` and `props` (a link's `url`, a textbox's `placeholder`), next to the role, name, value and description it already had.
 - **`interestingOnly`** on `accessibilitySnapshot`, defaulting to `true`: `false` keeps the `generic` wrappers that are otherwise skipped.
+- **`Locator.accessibilitySnapshot()` and `Locator.ariaSnapshot()`**, rooted at the element instead of at the page body.
+- **`toMatchAriaSnapshot`** on `expectPage` and `expectLocator` in `playwright_test`, with upstream's template syntax: `- role "name" [state]`, `/pattern/` names, `- /url:` properties and `- /children: equal`. A template that does not parse fails at once instead of retrying until the timeout and then blaming the page. `[active]` is rejected rather than ignored, because this port does not compute the focused node and silently dropping it would let the assertion pass on anything.
+- **`parseAriaTemplate`, `ariaTemplateMatches` and `ariaTemplateMatchAll`** are public, for matching a template against a tree you already hold.
 
 ### Changed
 - **Roles are ARIA roles now, not platform roles.** Chromium used to hand back the raw CDP tree — `RootWebArea`, `StaticText`, `InlineTextBox`, `LabelText`, names with unnormalized whitespace, no pruning. That was not upstream's format either. Code reading `role == 'WebArea'` needs updating: the root is a synthetic node with role `fragment`, and text is a node with role `text`.

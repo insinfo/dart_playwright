@@ -179,7 +179,7 @@ What is missing:
 | `Clock`, `Coverage`, `Selectors.register` | 4 |
 | `addInitScript`, `exposeFunction`, `exposeBinding` | 4 |
 | `BrowserType.connect`, `connectOverCDP`, `launchPersistentContext`, `launchServer` | 4 |
-| Snapshot and screenshot assertions (`toMatchAriaSnapshot`) | 5 |
+| Screenshot assertions (`toHaveScreenshot`) | 5 |
 | Codegen, UI mode, trace viewer, inspector | not planned yet |
 | Android, Electron, WebView | not planned yet |
 

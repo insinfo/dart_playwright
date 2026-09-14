@@ -14,7 +14,8 @@ Referências locais usadas:
 Fecha a lacuna que a rodada anterior apontou como a primeira a atacar:
 `accessibilitySnapshot` respondia de verdade só no Chromium, e o Firefox e o
 WebKit devolviam um esqueleto de um nó. A suíte saiu de 410 para **500 testes
-verdes**, todos rodados nos três motores nesta máquina.
+verdes**, todos rodados nos três motores nesta máquina (mais 25 de unidade,
+sem navegador, para o parser de template).
 
 ### O upstream mudou de estratégia, e isso muda o alvo
 
@@ -83,8 +84,32 @@ textarea, table, `aria-pressed=mixed`, `indeterminate`, `<search>`,
 inclusive no rótulo "Choose File" do input de arquivo, que vem do `roleUtils`
 do upstream e não do navegador.
 
+### `toMatchAriaSnapshot`
+
+O `ariaSnapshot` só ganha sentido pleno com a assertion que o consome, então
+ela veio junto. `packages/playwright_core/lib/src/aria_template.dart` porta o
+`parseAriaSnapshot` e o `KeyParser` do `isomorphic/ariaSnapshot.ts` mais o
+casador (`matchesNode`, `listEqual`, `containsList`, `matchesNodeDeep`) do
+`injected/ariaSnapshot.ts`. Duas diferenças deliberadas:
+
+- o casamento roda em Dart sobre a árvore já trazida, não dentro da página. O
+  upstream casa na página porque precisa devolver os elementos casados para o
+  seletor `aria-ref`; aqui não há refs, então não há motivo;
+- `[active]` é **recusado** com erro, não ignorado. Este porte não calcula o nó
+  focado; aceitar o atributo e não conferi-lo faria a assertion passar em
+  qualquer nó, que é a falha silenciosa que esta rodada inteira existe para
+  evitar.
+
+Um template que não parseia falha na hora, sem consumir o timeout: erro de
+sintaxe é bug de quem escreveu o teste, e relatá-lo como "a página nunca
+casou" depois de cinco segundos manda a pessoa depurar o lugar errado.
+
 ### Cobertura de teste desta rodada
 
+- `packages/playwright_core/test/aria_template_test.dart`: 25 testes de
+  unidade, sem navegador, sobre o parser e o casador.
+- `packages/playwright_test/test/playwright_test_test.dart`: 15 testes de
+  `toMatchAriaSnapshot` (5 casos × 3 motores).
 - `packages/playwright/test/integration/accessibility_parity_test.dart`: 24
   testes. Papéis, nomes acessíveis das três origens (`aria-label`,
   `<label for>`, `<label>` envolvente), `checked`/`disabled`/`expanded`,
@@ -280,10 +305,9 @@ valores, sem âncoras para agir depois.
 - **Extensões CSS do Playwright** (`:has-text()`, `:visible`, seletores de
   layout) e shadow-piercing no motor `css`: continuam exigindo portar
   `selectorEvaluator.ts` + `cssParser.ts` + `cssTokenizer.ts`.
-- ~~**`ariaSnapshot`**~~ FEITO em 2026-09-14. As assertions de
-  snapshot/screenshot do `playwright_test` (`toMatchAriaSnapshot`) continuam
-  faltando: exigem o parser do YAML de template e o casador
-  `matchesExpectAriaTemplate`, que é outra metade do arquivo.
+- ~~**`ariaSnapshot`** e a assertion `toMatchAriaSnapshot`~~ FEITOS em
+  2026-09-14. Falta `toHaveScreenshot`, que depende de baseline em disco e de
+  comparação de imagem.
 - ~~**`accessibilitySnapshot` real no Firefox e no WebKit.**~~ FEITO em
   2026-09-14, e não do jeito que esta linha imaginava: o upstream removeu os
   três backends por protocolo, e o porte seguiu a árvore injetada que os

@@ -803,10 +803,9 @@ mixin CorePageAccessibility on CorePageFrameEvaluation {
     final options = jsonEncode({'includeGenericRole': !interestingOnly});
     final raw = await evaluateInjected(
         frame ?? mainFrame, '() => window.__pwDart.ariaTree(null, $options)');
-    final counter = _RefCounter();
     return AccessibilitySnapshot(
       title: await title(),
-      root: _toAccessibilityNode(raw, counter),
+      root: AccessibilityNode.fromInjectedJson(raw, AccessibilityRefCounter()),
     );
   }
 
@@ -821,56 +820,6 @@ mixin CorePageAccessibility on CorePageFrameEvaluation {
         '() => window.__pwDart.ariaSnapshot($root, {})');
     return result as String? ?? '';
   }
-
-  /// Converts one node of the injected script's JSON tree.
-  ///
-  /// Upstream models a run of text as a bare string child; this tree has one
-  /// node type, so those become nodes with role `text`.
-  AccessibilityNode _toAccessibilityNode(Object? data, _RefCounter counter) {
-    final ref = counter.next();
-    if (data is String) {
-      return AccessibilityNode(role: 'text', name: data, ref: ref);
-    }
-    final map = (data as Map).cast<String, dynamic>();
-    return AccessibilityNode(
-      role: map['role'] as String? ?? '',
-      name: map['name'] as String? ?? '',
-      value: map['value'] as String?,
-      description: map['description'] as String?,
-      checked: _ariaTristate(map['checked']),
-      disabled: map['disabled'] as bool?,
-      expanded: map['expanded'] as bool?,
-      invalid: _ariaTristate(map['invalid']),
-      level: (map['level'] as num?)?.toInt(),
-      pressed: _ariaTristate(map['pressed']),
-      selected: map['selected'] as bool?,
-      props: {
-        for (final entry in ((map['props'] as Map?) ?? const {}).entries)
-          entry.key.toString(): entry.value.toString(),
-      },
-      children: [
-        for (final child in (map['children'] as List? ?? const []))
-          _toAccessibilityNode(child, counter),
-      ],
-      ref: ref,
-    );
-  }
-
-  /// `aria-checked`, `aria-pressed` and `aria-invalid` are booleans that also
-  /// have named states (`mixed`, `grammar`, `spelling`), so they cross the
-  /// bridge as `true`/`false` or as the name. Keep both as the string the
-  /// spec uses instead of flattening the named states into `true`.
-  static String? _ariaTristate(Object? value) {
-    if (value == null) return null;
-    if (value is bool) return value ? 'true' : 'false';
-    return value.toString();
-  }
-}
-
-/// Hands out the pre-order `node_N` addresses of a single snapshot.
-class _RefCounter {
-  int _next = 0;
-  String next() => 'node_${_next++}';
 }
 
 /// Content and script-polling helpers shared by the engine pages.

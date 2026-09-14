@@ -131,6 +131,52 @@ class AccessibilityNode {
   /// Whether this node stands for a run of text rather than an element.
   bool get isText => role == 'text';
 
+  /// Builds a node from the JSON the injected script's `ariaTree` returns.
+  ///
+  /// Upstream models a run of text as a bare string child; this tree has one
+  /// node type, so those become nodes with role `text`. [counter] hands out
+  /// the pre-order `node_N` addresses and must be shared across one tree.
+  static AccessibilityNode fromInjectedJson(
+      Object? data, AccessibilityRefCounter counter) {
+    final ref = counter.next();
+    if (data is String) {
+      return AccessibilityNode(role: 'text', name: data, ref: ref);
+    }
+    final map = (data as Map).cast<String, dynamic>();
+    return AccessibilityNode(
+      role: map['role'] as String? ?? '',
+      name: map['name'] as String? ?? '',
+      value: map['value'] as String?,
+      description: map['description'] as String?,
+      checked: _ariaTristate(map['checked']),
+      disabled: map['disabled'] as bool?,
+      expanded: map['expanded'] as bool?,
+      invalid: _ariaTristate(map['invalid']),
+      level: (map['level'] as num?)?.toInt(),
+      pressed: _ariaTristate(map['pressed']),
+      selected: map['selected'] as bool?,
+      props: {
+        for (final entry in ((map['props'] as Map?) ?? const {}).entries)
+          entry.key.toString(): entry.value.toString(),
+      },
+      children: [
+        for (final child in (map['children'] as List? ?? const []))
+          AccessibilityNode.fromInjectedJson(child, counter),
+      ],
+      ref: ref,
+    );
+  }
+
+  /// `aria-checked`, `aria-pressed` and `aria-invalid` are booleans that also
+  /// have named states (`mixed`, `grammar`, `spelling`), so they cross the
+  /// bridge as `true`/`false` or as the name. Keep both as the string the
+  /// spec uses instead of flattening the named states into `true`.
+  static String? _ariaTristate(Object? value) {
+    if (value == null) return null;
+    if (value is bool) return value ? 'true' : 'false';
+    return value.toString();
+  }
+
   @override
   String toString() {
     final buffer = StringBuffer(role);
@@ -143,6 +189,12 @@ class AccessibilityNode {
     if (selected != null) buffer.write(' [selected=$selected]');
     return buffer.toString();
   }
+}
+
+/// Hands out the pre-order `node_N` addresses of a single snapshot.
+class AccessibilityRefCounter {
+  int _next = 0;
+  String next() => 'node_${_next++}';
 }
 
 /// The accessibility tree of a page or of one element.
