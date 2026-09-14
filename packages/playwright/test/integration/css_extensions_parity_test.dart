@@ -194,6 +194,16 @@ void main() {
               equals(1));
         });
 
+        test('Os getBy* por atributo tambem devem entrar no shadow aberto',
+            () async {
+          expect(await page.getByTestId('sd-testid').textContent(),
+              equals('Shadow Open'));
+          expect(await page.getByPlaceholder('sombra').count(), equals(1));
+          expect(await page.getByTitle('titulo na sombra').count(), equals(1));
+          // A sombra fechada continua invisivel tambem por aqui.
+          expect(await page.getByTestId('sd-closed-testid').count(), equals(0));
+        });
+
         // ------------------------------------------------- casos degenerados
 
         test('Deve dar erro claro em seletor malformado', () async {
@@ -272,12 +282,14 @@ const String _fixture = r'''
   <div id="host-closed"></div>
   <script>
     var open = document.getElementById('host-open').attachShadow({ mode: 'open' });
-    open.innerHTML = '<div class="sd" id="sd-open">Shadow Open</div><div id="inner-host"></div>';
+    open.innerHTML = '<div class="sd" id="sd-open" data-testid="sd-testid" title="titulo na sombra">Shadow Open</div>' +
+        '<input id="sd-input" placeholder="sombra">' +
+        '<div id="inner-host"></div>';
     var inner = open.getElementById ? open.getElementById('inner-host') : open.querySelector('#inner-host');
     var deep = inner.attachShadow({ mode: 'open' });
     deep.innerHTML = '<div class="sd-deep" id="sd-deep">Deep Shadow</div>';
     var closed = document.getElementById('host-closed').attachShadow({ mode: 'closed' });
-    closed.innerHTML = '<div class="sd sd-closed-class" id="sd-closed">Shadow Closed</div>';
+    closed.innerHTML = '<div class="sd sd-closed-class" id="sd-closed" data-testid="sd-closed-testid">Shadow Closed</div>';
   </script>
 </body>
 </html>

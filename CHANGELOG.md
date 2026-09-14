@@ -4,6 +4,7 @@
 
 ### Added
 - **Playwright's CSS extensions in the `css` engine**: `:has-text()`, `:text()`, `:text-is()`, `:text-matches()`, `:visible`, `:has()`, `:is()`/`:where()`, `:not()`, `:scope`, `:nth-match()`, `:left-of()`, `:right-of()`, `:above()`, `:below()`, `:near()` and `:light()`, plus the `css:light=` prefix. Upstream's `cssTokenizer.ts`, `cssParser.ts`, `layoutSelectorUtils.ts` and `selectorEvaluator.ts` are ported into the injected script, so the semantics — whitespace normalisation, the exact/substring split between `:text-is()` and `:text()`, and the proximity ordering of the layout selectors — are upstream's.
+- **The attribute engines pierce open shadow roots too**: `getByTestId`, `getByPlaceholder`, `getByAltText` and `getByTitle` queried the light DOM only, while `getByText`, `getByLabel` and `getByRole` already descended. Upstream builds all of them on the same piercing query.
 - **The `css` engine pierces open shadow roots**, like the `text`, `label` and `role` engines already did. Combinators cross the boundary too, so `#host .inside` matches. Closed shadow roots stay invisible, as upstream; `:light()` opts a subtree out.
 
 ### Fixed

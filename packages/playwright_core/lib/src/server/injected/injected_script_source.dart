@@ -92,6 +92,19 @@ function queryCSS(root, body) {
   return cssEvaluator.query({ scope: root, pierceShadow: true }, parseCSSCached(body));
 }
 
+// A plain CSS query that descends into open shadow roots, for the engines that
+// upstream builds on _queryCSS with pierceShadow: true. begin()/end() bracket
+// the call the way upstream's InjectedScript does: without it the evaluator's
+// cache would never be dropped and a second query would see a stale DOM.
+function queryCSSPiercing(root, body) {
+  cssEvaluator.begin();
+  try {
+    return cssEvaluator._queryCSS({ scope: root, pierceShadow: true }, body);
+  } finally {
+    cssEvaluator.end();
+  }
+}
+
 function queryXPath(root, body) {
   const document = root.nodeType === 9 ? root : root.ownerDocument;
   const result = [];
@@ -131,14 +144,14 @@ function queryLabel(cache, root, spec) {
 
 function queryAttr(root, name, spec) {
   const matcher = createAttributeMatcher(spec);
-  return [...root.querySelectorAll('[' + name + ']')]
+  return queryCSSPiercing(root, '[' + name + ']')
       .filter(e => matcher(e.getAttribute(name)));
 }
 
 function queryTestId(root, names, spec) {
   const matcher = createAttributeMatcher(spec);
   const cssQuery = names.map(n => '[' + n + ']').join(',');
-  return [...root.querySelectorAll(cssQuery)].filter(e => names.some(n => {
+  return queryCSSPiercing(root, cssQuery).filter(e => names.some(n => {
     const actual = e.getAttribute(n);
     return actual !== null && matcher(actual);
   }));
