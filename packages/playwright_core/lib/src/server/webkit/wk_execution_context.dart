@@ -21,9 +21,14 @@ class WkExecutionContext implements CoreExecutionContext {
 
   @override
   Future<dynamic> rawEvaluate(String expression) async {
-    // WebKit's Runtime.evaluate has no awaitPromise flag, so a promise comes
-    // back as an object. Resolve it explicitly, or `evaluate` of an async
-    // function would hand back an empty map instead of the value.
+    // WebKit's `Runtime.evaluate` has no awaitPromise flag, and it does not
+    // tag a promise with `subtype: 'promise'` either, so asking for the value
+    // straight away hands back `{}` for anything asynchronous. The way out is
+    // the one upstream takes (wkExecutionContext.ts): get a handle, then ask
+    // for it by value through `Runtime.callFunctionOn`, which *does* have
+    // awaitPromise — `this` is the promise, and the flag settles it. A
+    // rejected promise comes back as `wasThrown`, which is how an async
+    // function that throws surfaces as an error here instead of as a value.
     final result = await session.sendToTarget('Runtime.evaluate', {
       'expression': expression,
       'returnByValue': false,
@@ -31,21 +36,13 @@ class WkExecutionContext implements CoreExecutionContext {
     });
     _checkThrown(result);
     final remote = result['result'] as Map<String, dynamic>?;
-    if (remote != null && remote['subtype'] == 'promise') {
-      final settled = await session.sendToTarget('Runtime.awaitPromise', {
-        'promiseObjectId': remote['objectId'],
-        'returnByValue': true,
-      });
-      _checkThrown(settled);
-      return (settled['result'] as Map<String, dynamic>?)?['value'];
-    }
-    // Not a promise: ask for it by value now that we know it is safe.
     final objectId = remote?['objectId'] as String?;
     if (objectId == null) return remote?['value'];
     final byValue = await session.sendToTarget('Runtime.callFunctionOn', {
       'functionDeclaration': '(function() { return this; })',
       'objectId': objectId,
       'returnByValue': true,
+      'awaitPromise': true,
     });
     _checkThrown(byValue);
     return (byValue['result'] as Map<String, dynamic>?)?['value'];
