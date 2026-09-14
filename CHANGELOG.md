@@ -1,5 +1,6 @@
 # Changelog
 
+<<<<<<< HEAD
 ## Unreleased
 
 ### Added
@@ -9,6 +10,32 @@
 
 ### Fixed
 - **A malformed selector timed out instead of failing.** A selector that does not parse, or an extension used with the wrong arguments, reached the locator retry loop as a generic error and became a `TimeoutException` after 30s. It now raises `InvalidSelectorError` at once, as upstream does.
+=======
+## [0.8.1] - A real accessibility tree on all three engines
+
+### Added
+- **`page.accessibilitySnapshot()` answers on Firefox and WebKit**, and answers the same thing Chromium does. It used to be Chromium-only: the other two returned a single empty `WebArea` node, so the method had the right shape and false content on two of three engines.
+- **`page.ariaSnapshot()` and `Locator.ariaSnapshot()`**: the aria snapshot YAML, upstream's format for accessibility assertions.
+- **`AccessibilityNode` carries state**: `checked`, `disabled`, `expanded`, `invalid`, `level`, `pressed`, `selected` and `props` (a link's `url`, a textbox's `placeholder`), next to the role, name, value and description it already had.
+- **`interestingOnly`** on `accessibilitySnapshot`, defaulting to `true`: `false` keeps the `generic` wrappers that are otherwise skipped.
+- **`Locator.accessibilitySnapshot()` and `Locator.ariaSnapshot()`**, rooted at the element instead of at the page body.
+- **`toMatchAriaSnapshot`** on `expectPage` and `expectLocator` in `playwright_test`, with upstream's template syntax: `- role "name" [state]`, `/pattern/` names, `- /url:` properties and `- /children: equal`. A template that does not parse fails at once instead of retrying until the timeout and then blaming the page. `[active]` is rejected rather than ignored, because this port does not compute the focused node and silently dropping it would let the assertion pass on anything.
+- **`parseAriaTemplate`, `ariaTemplateMatches` and `ariaTemplateMatchAll`** are public, for matching a template against a tree you already hold.
+
+### Changed
+- **Roles are ARIA roles now, not platform roles.** Chromium used to hand back the raw CDP tree — `RootWebArea`, `StaticText`, `InlineTextBox`, `LabelText`, names with unnormalized whitespace, no pruning. That was not upstream's format either. Code reading `role == 'WebArea'` needs updating: the root is a synthetic node with role `fragment`, and text is a node with role `text`.
+
+Upstream Playwright removed the `Accessibility` class in favour of a tree its
+injected script computes from the DOM, because the three browsers' own
+accessibility trees disagreed about the same page. This port follows: the tree
+is built in the page, by the same code everywhere. The consequence is stated in
+the method's own documentation rather than left for the caller to discover —
+what a platform screen reader would announce is not available here, on any
+engine.
+
+Not ported, all from upstream's `ai` mode: `[ref=...]` element anchors,
+`[active]`, `[box=...]`, `depth`, and descending into iframes.
+>>>>>>> feat/a11y-snapshot
 
 ## [0.8.0] - Milestone 5: fixtures and assertions
 

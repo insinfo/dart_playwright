@@ -217,7 +217,7 @@ Future<void> main() async {
     check('focus survives ~60 presents', before != null && before == after,
         'before=$before after=$after');
 
-    // ---- 6. the browser's own accessibility tree -------------------------
+    // ---- 6. the accessibility tree ---------------------------------------
     final AccessibilitySnapshot ax = await page.accessibilitySnapshot();
     final List<String> roles = <String>[];
     void walk(AccessibilityNode node) {
@@ -226,11 +226,11 @@ Future<void> main() async {
     }
 
     walk(ax.root);
-    check('the accessibility tree has more than a web area', roles.length > 1,
-        '${roles.length} nodes');
+    check('the accessibility tree has more than the root fragment',
+        roles.length > 1, '${roles.length} nodes');
     check(
       'it contains named controls',
-      roles.any((String r) => r.contains('=') && !r.startsWith('WebArea')),
+      roles.any((String r) => r.contains('=') && !r.startsWith('fragment')),
       roles.take(20).join(', '),
     );
 

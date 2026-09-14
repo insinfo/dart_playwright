@@ -1,13 +1,145 @@
 # Relatório de gaps para paridade com o Playwright original
 
 Data da análise: 2026-07-19
-Última atualização: 2026-09-14 — ver "Progresso da rodada de 2026-09-14 (Milestones 3, 4 e 5)".
+Última atualização: 2026-09-14 — ver "Progresso da rodada de 2026-09-14 (árvore de acessibilidade)".
 
 Referências locais usadas:
 
 - `referencias/playwright-typescript` - Playwright upstream TypeScript, versão `1.62.0-next`.
 - `referencias/playwright-dotnet` - binding .NET, usado como referência auxiliar de API fortemente tipada.
 - `packages/playwright`, `packages/playwright_core`, `packages/playwright_protocol` e `packages/playwright_mcp` - port Dart atual.
+
+## Progresso da rodada de 2026-09-14 (árvore de acessibilidade)
+
+Fecha a lacuna que a rodada anterior apontou como a primeira a atacar:
+`accessibilitySnapshot` respondia de verdade só no Chromium, e o Firefox e o
+WebKit devolviam um esqueleto de um nó.
+
+Contagem medida nesta máquina, com `dart test -j1`: **559 testes verdes** —
+493 em `packages/playwright/test`, 32 em `packages/playwright_core/test`
+(dos quais 25 são os de unidade do parser de template, sem navegador) e 34 em
+`packages/playwright_test/test`. Tudo o que precisa de navegador rodou nos
+três motores.
+
+Duas falhas continuam de pé, e **não são desta rodada**: `timezoneId inválido
+deve ser recusado` estoura o timeout de 30 s no Chromium e no WebKit. Foi
+conferido rodando o mesmo teste no commit anterior a esta rodada
+(`ecbf547`), onde falha igual. O teste não aguarda o `expect(..., throwsA)`
+que devolve um `Future`, e o motor que rejeita cedo demais deixa a rejeição
+sem ninguém escutando — o mesmo padrão que já mordeu o CI deste repositório
+antes. Fica registrado aqui em vez de corrigido de passagem: é outro assunto.
+
+### O upstream mudou de estratégia, e isso muda o alvo
+
+A tarefa pedia para seguir o upstream "em cada motor": Chromium por
+`Accessibility.getFullAXTree` do CDP, Firefox pelo Juggler, WebKit pelo
+protocolo do inspetor. **Esses três caminhos não existem mais.** No
+`referencias/playwright-typescript` em `1.62.0-next` não há
+`crAccessibility.ts`, `ffAccessibility.ts` nem `wkAccessibility.ts`, não há
+`docs/src/api/class-accessibility.md`, e `Accessibility.getFullAXTree` só
+aparece no `protocol.d.ts` gerado — nenhum código do servidor o chama. A
+classe `Accessibility` inteira foi removida.
+
+O que o upstream tem no lugar é `packages/injected/src/ariaSnapshot.ts`: uma
+árvore ARIA calculada **dentro da página**, a partir do DOM, pelo script
+injetado, com os papéis e nomes de `roleUtils.ts`. O mesmo código nos três
+motores. Foi essa a troca: a árvore de acessibilidade de cada navegador dava
+três respostas diferentes para a mesma página, e o upstream parou de expor
+isso.
+
+Logo, o porte fiel aqui não é escrever três backends de protocolo — seria
+reconstruir de memória código que o upstream apagou, que é exatamente o
+"inventar formato" que a tarefa proíbe. É portar a árvore injetada. É o que
+esta rodada fez, e é por isso que os três motores concordam.
+
+### O que foi portado
+
+- `injected/ariaSnapshot.ts`: `generateAriaTree` e `renderAriaTree`, no modo
+  `default`.
+- `injected/ariaSnapshotDistiller.ts`: os `normalizePlugins`
+  (`mergeStringChildren` e `unwrapSingleChildGenerics`).
+- `isomorphic/yaml.ts`: `yamlEscapeKeyIfNeeded` e `yamlEscapeValueIfNeeded`.
+- De `roleUtils.ts`, o que faltava: `kAriaInvalidRoles`, `getAriaInvalid` e
+  `truncateDataUrl`. O resto (papéis implícitos e explícitos, nome acessível,
+  `checked`/`disabled`/`expanded`/`level`/`pressed`/`selected`,
+  `getCSSContent`, `isElementHiddenForAria`) já estava portado desde o
+  Milestone 2, o que é a razão de isto ter cabido numa rodada.
+
+`CorePageAccessibility`, um mixin só, substituiu as três implementações por
+motor. `AccessibilityNode` ganhou os estados e `props`; os papéis agora são
+ARIA (`heading`, `textbox`, `checkbox`) e não mais o vocabulário de plataforma
+do CDP (`RootWebArea`, `StaticText`, `InlineTextBox`, `LabelText`).
+`page.ariaSnapshot()` e `Locator.ariaSnapshot()` entregam o YAML.
+
+### O que os motores legitimamente não entregam
+
+A pergunta "o que o leitor de tela anunciaria" **não tem resposta aqui, em
+motor nenhum**, e agora está dito na documentação do método em vez de
+preenchido por aproximação. A árvore diz o que a marcação significa segundo a
+WAI-ARIA e a HTML-AAM; a árvore interna do navegador pode divergir disso, e é
+justamente essa divergência que o upstream deixou de expor.
+
+Ficaram de fora, por serem do modo `ai` do upstream e não do formato de
+snapshot: `[ref=e1]` (as âncoras que permitem clicar no que se leu),
+`[active]`, `[box=x,y,w,h]`, `depth`, descida em iframes e os cinco
+`aiPlugins` do destilador. O `playwright_mcp` continua com o passeio de DOM
+próprio por causa exatamente disso: ele precisa carimbar `data-pw-ref`, e a
+árvore ARIA portada é de valores, não de handles.
+
+Uma divergência real entre motores foi encontrada e está registrada num teste
+em vez de escondida: `<input type=color>` começa com `value` `"#000000"` no
+Chromium e no Firefox e vazio no WebKit. Não é diferença de acessibilidade —
+a árvore pergunta o `value` ao DOM. Nos outros widgets nativos que foram
+sondados (file, range, number, date, time, progress, meter, select múltiplo,
+textarea, table, `aria-pressed=mixed`, `indeterminate`, `<search>`,
+`<dialog>`, `<hgroup>`, `<fieldset>`, `<output>`) os três concordam —
+inclusive no rótulo "Choose File" do input de arquivo, que vem do `roleUtils`
+do upstream e não do navegador.
+
+### `toMatchAriaSnapshot`
+
+O `ariaSnapshot` só ganha sentido pleno com a assertion que o consome, então
+ela veio junto. `packages/playwright_core/lib/src/aria_template.dart` porta o
+`parseAriaSnapshot` e o `KeyParser` do `isomorphic/ariaSnapshot.ts` mais o
+casador (`matchesNode`, `listEqual`, `containsList`, `matchesNodeDeep`) do
+`injected/ariaSnapshot.ts`. Duas diferenças deliberadas:
+
+- o casamento roda em Dart sobre a árvore já trazida, não dentro da página. O
+  upstream casa na página porque precisa devolver os elementos casados para o
+  seletor `aria-ref`; aqui não há refs, então não há motivo;
+- `[active]` é **recusado** com erro, não ignorado. Este porte não calcula o nó
+  focado; aceitar o atributo e não conferi-lo faria a assertion passar em
+  qualquer nó, que é a falha silenciosa que esta rodada inteira existe para
+  evitar.
+
+Um template que não parseia falha na hora, sem consumir o timeout: erro de
+sintaxe é bug de quem escreveu o teste, e relatá-lo como "a página nunca
+casou" depois de cinco segundos manda a pessoa depurar o lugar errado.
+
+### Cobertura de teste desta rodada
+
+- `packages/playwright_core/test/aria_template_test.dart`: 25 testes de
+  unidade, sem navegador, sobre o parser e o casador.
+- `packages/playwright_test/test/playwright_test_test.dart`: 15 testes de
+  `toMatchAriaSnapshot` (5 casos × 3 motores).
+- `packages/playwright/test/integration/accessibility_parity_test.dart`: 24
+  testes. Papéis, nomes acessíveis das três origens (`aria-label`,
+  `<label for>`, `<label>` envolvente), `checked`/`disabled`/`expanded`,
+  `level`, `value`, `description`, `props['url']`, aninhamento,
+  `interestingOnly: false`, a comparação direta das três árvores e a
+  divergência do `type=color`.
+- `packages/playwright/test/integration/aria_snapshot_parity_test.dart`: 93
+  testes (31 casos × 3 motores) com os fixtures e o YAML esperado **do próprio
+  upstream**, transcritos de `tests/page/page-aria-snapshot.spec.ts`: escape
+  de YAML, normalização de espaço, `aria-owns` com ciclo, slots e shadow DOM,
+  pseudo-elementos `::before`/`::after` (inline, `display:none`,
+  `visibility:hidden`, `display:block`), `presentation`/`none`, textarea,
+  filhos visíveis de pais escondidos, placeholder e iframes.
+
+O teste que provou a lacuna antes da correção está no commit
+`test: provar que accessibilitySnapshot mente no Firefox e no WebKit`: 1 nó no
+Firefox, 1 nó no WebKit, e no Chromium uma árvore crua do CDP que também não
+era a do upstream.
 
 ## Progresso da rodada de 2026-07-19
 
@@ -127,9 +259,11 @@ anteriores), 22 ferramentas, biblioteca pública e 6 testes que sobem o servidor
 como processo e falam JSON-RPC pelo pipe.
 
 `browser_snapshot` percorre o DOM na página em vez de usar
-`page.accessibilitySnapshot()`: essa só o Chromium responde de verdade, o
-Firefox e o WebKit devolvem um esqueleto. É uma lacuna do porte que vale
-registrar aqui.
+`page.accessibilitySnapshot()`. Quando isto foi escrito o motivo era que só o
+Chromium respondia de verdade; **isso foi corrigido na rodada de 2026-09-14** e
+os três motores respondem. O passeio próprio continua por outro motivo: ele
+carimba `data-pw-ref` em cada elemento listado, e a árvore ARIA portada é de
+valores, sem âncoras para agir depois.
 
 ### Defeitos encontrados e corrigidos
 
@@ -180,6 +314,7 @@ registrar aqui.
 - **`BrowserType.connect`, `connectOverCDP`, `launchPersistentContext`,
   `launchServer`.**
 - **Proxy por contexto.**
+<<<<<<< HEAD
 - ~~**Extensões CSS do Playwright** (`:has-text()`, `:visible`, seletores de
   layout) e shadow-piercing no motor `css`~~ — FEITO em 2026-09-13:
   `cssTokenizer.ts`, `cssParser.ts`, `layoutSelectorUtils.ts` e
@@ -190,6 +325,18 @@ registrar aqui.
   responde; os outros dois devolvem um esqueleto. O `playwright_mcp` contorna
   isso com um snapshot próprio, mas a API pública continua mentindo nesses
   dois motores — é a lacuna que eu atacaria primeiro na próxima rodada.
+=======
+- **Extensões CSS do Playwright** (`:has-text()`, `:visible`, seletores de
+  layout) e shadow-piercing no motor `css`: continuam exigindo portar
+  `selectorEvaluator.ts` + `cssParser.ts` + `cssTokenizer.ts`.
+- ~~**`ariaSnapshot`** e a assertion `toMatchAriaSnapshot`~~ FEITOS em
+  2026-09-14. Falta `toHaveScreenshot`, que depende de baseline em disco e de
+  comparação de imagem.
+- ~~**`accessibilitySnapshot` real no Firefox e no WebKit.**~~ FEITO em
+  2026-09-14, e não do jeito que esta linha imaginava: o upstream removeu os
+  três backends por protocolo, e o porte seguiu a árvore injetada que os
+  substituiu.
+>>>>>>> feat/a11y-snapshot
 
 ## Progresso da rodada de 2026-09-13 (eventos P0)
 

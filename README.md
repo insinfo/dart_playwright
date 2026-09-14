@@ -165,7 +165,7 @@ interception, cookies and `storageState`, and the page/context/browser event
 model with its waiters. Milestone 3 added the rest of
 `Request`/`Response`/`Route`, file uploads and the file chooser, downloads,
 screenshot options with per-element capture, `page.pdf` on Chromium, and an
-`APIRequestContext` sharing the browser context's cookie jar. Milestone 4 added the context emulation options (`locale`, `timezoneId`, `colorScheme`, `reducedMotion`, `forcedColors`, `deviceScaleFactor`, `isMobile`, `hasTouch`, `offline`, `extraHTTPHeaders`, `httpCredentials`, `geolocation`, `permissions`), the touchscreen with `tap`, a `devices` catalogue and `setTestIdAttribute`.
+`APIRequestContext` sharing the browser context's cookie jar. Milestone 4 added the context emulation options (`locale`, `timezoneId`, `colorScheme`, `reducedMotion`, `forcedColors`, `deviceScaleFactor`, `isMobile`, `hasTouch`, `offline`, `extraHTTPHeaders`, `httpCredentials`, `geolocation`, `permissions`), the touchscreen with `tap`, a `devices` catalogue and `setTestIdAttribute`. Milestone 5 added the `playwright_test` package and a real accessibility tree: `page.accessibilitySnapshot()` and `page.ariaSnapshot()` answer on all three engines with the same ARIA roles, accessible names and states, computed in the page by the injected script — the two upstream ports to check it are `injected/ariaSnapshot.ts` and the `normalizePlugins` of `ariaSnapshotDistiller.ts`.
 
 What is missing:
 
@@ -179,9 +179,18 @@ What is missing:
 | `Clock`, `Coverage`, `Selectors.register` | 4 |
 | `addInitScript`, `exposeFunction`, `exposeBinding` | 4 |
 | `BrowserType.connect`, `connectOverCDP`, `launchPersistentContext`, `launchServer` | 4 |
-| Snapshot and screenshot assertions, `ariaSnapshot` | 5 |
+| Screenshot assertions (`toHaveScreenshot`) | 5 |
 | Codegen, UI mode, trace viewer, inspector | not planned yet |
 | Android, Electron, WebView | not planned yet |
+
+One thing the accessibility tree does **not** give you, on any engine: the
+browser's own accessibility tree. `page.accessibilitySnapshot()` and
+`page.ariaSnapshot()` compute ARIA roles and accessible names from the DOM, in
+the page, with the same injected code everywhere — which is how the three
+engines agree, and is what upstream Playwright does since it removed
+`page.accessibility.snapshot()` and its three per-engine protocol backends. If
+you need to know what a platform screen reader would announce, that question
+is outside what any Playwright, this one included, answers.
 
 One protocol limitation worth knowing: `page.evaluate` of an expression that
 returns a promise resolves it on Chromium and WebKit, but **not on Firefox**

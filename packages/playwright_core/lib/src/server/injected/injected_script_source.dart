@@ -3,18 +3,20 @@
 // Version 2.0. Ported to Dart and modified; the modifications are summarized
 // in the NOTICE file of this package.
 //
-// Upstream source: packages/injected/src/{domUtils,selectorUtils,roleUtils,roleSelectorEngine,layoutSelectorUtils,selectorEvaluator,injectedScript}.ts and
-// packages/isomorphic/{stringUtils,cssTokenizer,cssParser}.ts
+// Upstream source: packages/injected/src/{domUtils,selectorUtils,roleUtils,roleSelectorEngine,layoutSelectorUtils,selectorEvaluator,injectedScript,ariaSnapshot,ariaSnapshotDistiller}.ts and
+// packages/isomorphic/{stringUtils,cssTokenizer,cssParser,yaml}.ts
 
 // The in-page selector engine.
 //
 // This is a hand port of the pieces of upstream Playwright's injected script
 // that the Dart port needs: `packages/injected/src/domUtils.ts`,
 // `selectorUtils.ts`, `roleUtils.ts`, `roleSelectorEngine.ts`,
-// `layoutSelectorUtils.ts`, `selectorEvaluator.ts` and the `internal:*`
-// engines of `injectedScript.ts`, plus
-// `packages/isomorphic/stringUtils.ts#normalizeWhiteSpace` and the
-// `cssTokenizer.ts`/`cssParser.ts` pair.
+// `layoutSelectorUtils.ts`, `selectorEvaluator.ts`, the `internal:*` engines
+// of `injectedScript.ts`, the aria tree of `ariaSnapshot.ts` with the
+// `normalizePlugins` of `ariaSnapshotDistiller.ts`, plus
+// `packages/isomorphic/stringUtils.ts#normalizeWhiteSpace`, the
+// `cssTokenizer.ts`/`cssParser.ts` pair and the `yamlEscape*` helpers of
+// `packages/isomorphic/yaml.ts`.
 //
 // The `css` engine runs the ported evaluator, so it supports Playwright's CSS
 // extensions (`:has-text()`, `:text()`, `:text-is()`, `:text-matches()`,
@@ -41,7 +43,13 @@
 //   of the CSS tokenizer; it handles quoted strings, `attr()` and the
 //   `/ "alt text"` form, which is what the property is used for in practice.
 // * Accessible-name computation returns plain text; upstream also collects the
-//   contributing elements, which only its aria snapshots need.
+//   contributing elements, which only the `ai` mode of its aria snapshots
+//   needs (to drop names that merely repeat rendered content).
+// * The aria tree ports upstream's `default` mode only, and holds no element
+//   references, so there are no `ref=` handles, no `box`/`cursor`, no
+//   `[active]` marker and no descent into iframes. Upstream's per-call aria
+//   caches are not ported either: the tree is built for a test page, not for
+//   an editor's live outline.
 library;
 
 import 'injected_css_engine_source.dart';
@@ -567,6 +575,395 @@ function checkStates(node, states, options) {
   return null;
 }
 
+// ------------------------------------------------------------ aria snapshot
+//
+// Hand port of upstream `packages/injected/src/ariaSnapshot.ts` (tree building
+// and YAML rendering), `ariaSnapshotDistiller.ts` (the two `normalizePlugins`)
+// and `yamlEscapeKeyIfNeeded`/`yamlEscapeValueIfNeeded` from
+// `packages/isomorphic/yaml.ts`.
+//
+// Only upstream's `default` mode is ported - the tree that
+// `toMatchAriaSnapshot` compares against. The `ai`, `codegen` and `autoexpect`
+// modes, element refs, `box`/`cursor`/`active`, iframe descent and the five
+// extra `aiPlugins` of the distiller are not.
+
+// https://www.w3.org/TR/wai-aria-1.2/#aria-invalid
+const kAriaInvalidRoles = ['application', 'checkbox', 'columnheader', 'combobox', 'gridcell', 'listbox', 'radiogroup', 'rowheader', 'searchbox', 'slider', 'spinbutton', 'switch', 'textbox', 'tree'];
+
+function getAriaInvalid(element) {
+  const ariaInvalid = element.getAttribute('aria-invalid');
+  if (!ariaInvalid || ariaInvalid.trim() === '' || ariaInvalid.toLocaleLowerCase() === 'false')
+    return 'false';
+  if (ariaInvalid === 'true' || ariaInvalid === 'grammar' || ariaInvalid === 'spelling')
+    return ariaInvalid;
+  return 'true';
+}
+
+// Data URLs carry megabytes of base64 that help nobody reading a snapshot.
+function truncateDataUrl(url) {
+  if (!url.startsWith('data:'))
+    return url;
+  const comma = url.indexOf(',');
+  if (comma === -1)
+    return url;
+  return url.slice(0, comma + 1) + '…';
+}
+
+function toAriaNode(element, options) {
+  if (element.nodeName === 'IFRAME' || element.nodeName === 'FRAME')
+    return { role: 'iframe', name: '', children: [], props: {} };
+
+  const defaultRole = options.includeGenericRole ? 'generic' : null;
+  const role = getAriaRole(element) || defaultRole;
+  if (!role || role === 'presentation' || role === 'none')
+    return null;
+
+  const name = normalizeWhiteSpace(getElementAccessibleName(element, false));
+  const box = computeBox(element);
+  if (role === 'generic' && box.inline && element.childNodes.length === 1 &&
+      element.childNodes[0].nodeType === 3)
+    return null;
+
+  const result = { role, name, children: [], props: {} };
+
+  if (kAriaCheckedRoles.includes(role))
+    result.checked = getAriaChecked(element);
+  if (kAriaDisabledRoles.includes(role))
+    result.disabled = getAriaDisabled(element);
+  if (kAriaExpandedRoles.includes(role))
+    result.expanded = getAriaExpanded(element);
+  if (kAriaInvalidRoles.includes(role)) {
+    const invalid = getAriaInvalid(element);
+    result.invalid = invalid === 'false' ? false : invalid === 'true' ? true : invalid;
+  }
+  if (kAriaLevelRoles.includes(role))
+    result.level = getAriaLevel(element);
+  if (kAriaPressedRoles.includes(role))
+    result.pressed = getAriaPressed(element);
+  if (kAriaSelectedRoles.includes(role))
+    result.selected = getAriaSelected(element);
+
+  const tagName = elementSafeTagName(element);
+  if (tagName === 'INPUT' || tagName === 'TEXTAREA') {
+    if (element.type !== 'checkbox' && element.type !== 'radio' && element.type !== 'file') {
+      result.children = [element.value];
+      // Not upstream's: upstream only has the text child, this port also has a
+      // `value` field on `AccessibilityNode` and fills it from the same place.
+      // The YAML renderer below ignores it and renders the text child.
+      result.value = element.value;
+    }
+  }
+
+  // Not upstream's: upstream keeps the description out of the aria node because
+  // its YAML never renders one. This port's `AccessibilityNode` has carried a
+  // `description` since before aria snapshots existed, and the value comes from
+  // upstream's own `getElementAccessibleDescription`, the one behind
+  // `getByRole(description:)`. The YAML renderer below ignores it.
+  const description = getElementAccessibleDescription(element, false);
+  if (description)
+    result.description = description;
+
+  return result;
+}
+
+// Builds upstream's aria tree rooted at `rootElement`. Returns the `fragment`
+// root whose children are the real nodes; string children are text.
+function generateAriaTree(rootElement, options) {
+  const visited = new Set();
+  const root = { role: 'fragment', name: '', children: [], props: {} };
+
+  const visit = (ariaNode, node) => {
+    if (visited.has(node))
+      return;
+    visited.add(node);
+
+    if (node.nodeType === 3 && node.nodeValue) {
+      const text = node.nodeValue;
+      // <textarea>AAA</textarea> should not report AAA as a child of the textarea.
+      if (ariaNode.role !== 'textbox' && text)
+        ariaNode.children.push(text);
+      return;
+    }
+
+    if (node.nodeType !== 1)
+      return;
+
+    const element = node;
+    // Upstream's `visibility: 'aria'`: a subtree hidden for aria has no aria
+    // nodes at all, so it can be skipped whole - and so `parentElementVisible`
+    // is always true here, unlike in the modes that keep visually visible but
+    // aria-hidden nodes.
+    if (isElementHiddenForAria(element))
+      return;
+
+    const ariaChildren = [];
+    if (element.hasAttribute('aria-owns')) {
+      const ids = element.getAttribute('aria-owns').split(/\s+/);
+      for (const id of ids) {
+        const ownedElement = rootElement.ownerDocument.getElementById(id);
+        if (ownedElement)
+          ariaChildren.push(ownedElement);
+      }
+    }
+
+    const childAriaNode = toAriaNode(element, options);
+    if (childAriaNode)
+      ariaNode.children.push(childAriaNode);
+    processElement(childAriaNode || ariaNode, element, ariaChildren);
+  };
+
+  function processElement(ariaNode, element, ariaChildren) {
+    // Surround every element with spaces for the sake of concatenated text nodes.
+    const style = getElementComputedStyle(element);
+    const display = (style && style.display) || 'inline';
+    const treatAsBlock = (display !== 'inline' || element.nodeName === 'BR') ? ' ' : '';
+    if (treatAsBlock)
+      ariaNode.children.push(treatAsBlock);
+
+    ariaNode.children.push(getCSSContent(element, '::before') || '');
+    const assignedNodes = element.nodeName === 'SLOT' ? element.assignedNodes() : [];
+    if (assignedNodes.length) {
+      for (const child of assignedNodes)
+        visit(ariaNode, child);
+    } else {
+      for (let child = element.firstChild; child; child = child.nextSibling) {
+        if (!child.assignedSlot)
+          visit(ariaNode, child);
+      }
+      if (element.shadowRoot) {
+        for (let child = element.shadowRoot.firstChild; child; child = child.nextSibling)
+          visit(ariaNode, child);
+      }
+    }
+
+    for (const child of ariaChildren)
+      visit(ariaNode, child);
+
+    ariaNode.children.push(getCSSContent(element, '::after') || '');
+
+    if (treatAsBlock)
+      ariaNode.children.push(treatAsBlock);
+
+    if (ariaNode.children.length === 1 && ariaNode.name === ariaNode.children[0])
+      ariaNode.children = [];
+
+    if (ariaNode.role === 'link' && element.hasAttribute('href'))
+      ariaNode.props['url'] = truncateDataUrl(element.getAttribute('href'));
+
+    if (ariaNode.role === 'textbox' && element.hasAttribute('placeholder') &&
+        element.getAttribute('placeholder') !== ariaNode.name)
+      ariaNode.props['placeholder'] = element.getAttribute('placeholder');
+  }
+
+  visit(root, rootElement);
+  distillAriaNode(root);
+  return root;
+}
+
+// The `mergeStringChildren` plugin: the tree builder emits raw text tokens -
+// text nodes, CSS content, block spacing markers - as string children.
+function mergeStringChildren(node) {
+  const children = [];
+  let buffer = [];
+  const flush = () => {
+    if (!buffer.length)
+      return;
+    const text = normalizeWhiteSpace(buffer.join(''));
+    if (text)
+      children.push(text);
+    buffer = [];
+  };
+  for (const child of node.children) {
+    if (typeof child === 'string') {
+      buffer.push(child);
+    } else {
+      flush();
+      children.push(child);
+    }
+  }
+  flush();
+  node.children = children;
+  if (node.children.length === 1 && node.children[0] === node.name)
+    node.children = [];
+}
+
+// The `unwrapSingleChildGenerics` plugin. This mode assigns no refs, so it only
+// ever fires on a childless nameless generic, which can only show up when
+// `includeGenericRole` is on.
+function isUnwrappableGeneric(node) {
+  return node.role === 'generic' && !node.name && node.children.length <= 1 &&
+      node.children.every(child => typeof child !== 'string' && !!child.ref);
+}
+
+// Upstream's distiller with `normalizePlugins`: one post-order traversal where
+// each node is merged first and then possibly unwrapped into its parent.
+function distillAriaNode(node) {
+  const children = [];
+  for (const child of node.children) {
+    if (typeof child === 'string') {
+      children.push(child);
+      continue;
+    }
+    distillAriaNode(child);
+    if (isUnwrappableGeneric(child)) {
+      for (const grandChild of child.children)
+        children.push(grandChild);
+      continue;
+    }
+    children.push(child);
+  }
+  node.children = children;
+  mergeStringChildren(node);
+}
+
+function yamlStringNeedsQuotes(str) {
+  if (str.length === 0)
+    return true;
+  // Strings with leading or trailing whitespace need quotes.
+  if (/^\s|\s$/.test(str))
+    return true;
+  // Strings containing control characters need quotes.
+  if (/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/.test(str))
+    return true;
+  // Strings starting with '-' need quotes.
+  if (/^-/.test(str))
+    return true;
+  // Strings containing ':' or '\n' followed by a space or at the end need quotes.
+  if (/[\n:](\s|$)/.test(str))
+    return true;
+  // Strings containing '#' preceded by a space need quotes (comment indicator).
+  if (/\s#/.test(str))
+    return true;
+  // Strings that contain line breaks need quotes.
+  if (/[\n\r]/.test(str))
+    return true;
+  // Strings starting with indicator characters or quotes need quotes.
+  if (/^[&*\],?!>|@"'#%]/.test(str))
+    return true;
+  // Strings containing special characters that could cause ambiguity.
+  if (/[{}`]/.test(str))
+    return true;
+  // YAML array starts with [.
+  if (/^\[/.test(str))
+    return true;
+  // Non-string types recognized by YAML.
+  if (!isNaN(Number(str)) || ['y', 'n', 'yes', 'no', 'true', 'false', 'on', 'off', 'null'].includes(str.toLowerCase()))
+    return true;
+  return false;
+}
+
+function yamlEscapeKeyIfNeeded(str) {
+  if (!yamlStringNeedsQuotes(str))
+    return str;
+  return "'" + str.replace(/'/g, "''") + "'";
+}
+
+function yamlEscapeValueIfNeeded(str) {
+  if (!yamlStringNeedsQuotes(str))
+    return str;
+  return '"' + str.replace(/[\\"\x00-\x1f\x7f-\x9f]/g, c => {
+    switch (c) {
+      case '\\': return '\\\\';
+      case '"': return '\\"';
+      case '\b': return '\\b';
+      case '\f': return '\\f';
+      case '\n': return '\\n';
+      case '\r': return '\\r';
+      case '\t': return '\\t';
+      default:
+        return '\\x' + c.charCodeAt(0).toString(16).padStart(2, '0');
+    }
+  }) + '"';
+}
+
+function renderAriaTree(root) {
+  const lines = [];
+  const indent = depth => '  '.repeat(depth);
+
+  const createKey = ariaNode => {
+    let key = ariaNode.role;
+    // Yaml has a limit of 1024 characters per key, and we leave some space for
+    // role and attributes.
+    if (ariaNode.name && ariaNode.name.length <= 900) {
+      const name = ariaNode.name;
+      const stringifiedName = name.startsWith('/') && name.endsWith('/') ? name : JSON.stringify(name);
+      key += ' ' + stringifiedName;
+    }
+    if (ariaNode.checked === 'mixed')
+      key += ' [checked=mixed]';
+    if (ariaNode.checked === true)
+      key += ' [checked]';
+    if (ariaNode.disabled)
+      key += ' [disabled]';
+    if (ariaNode.expanded)
+      key += ' [expanded]';
+    if (ariaNode.invalid === 'grammar' || ariaNode.invalid === 'spelling')
+      key += ' [invalid=' + ariaNode.invalid + ']';
+    if (ariaNode.invalid === true)
+      key += ' [invalid]';
+    if (ariaNode.level)
+      key += ' [level=' + ariaNode.level + ']';
+    if (ariaNode.pressed === 'mixed')
+      key += ' [pressed=mixed]';
+    if (ariaNode.pressed === true)
+      key += ' [pressed]';
+    if (ariaNode.selected === true)
+      key += ' [selected]';
+    return key;
+  };
+
+  const getSingleTextChild = ariaNode =>
+      ariaNode.children.length === 1 && typeof ariaNode.children[0] === 'string' &&
+          !Object.keys(ariaNode.props).length ? ariaNode.children[0] : undefined;
+
+  const visitText = (text, depth) => {
+    const escaped = yamlEscapeValueIfNeeded(text);
+    if (escaped)
+      lines.push(indent(depth) + '- text: ' + escaped);
+  };
+
+  const visit = (ariaNode, depth) => {
+    const escapedKey = indent(depth) + '- ' + yamlEscapeKeyIfNeeded(createKey(ariaNode));
+    const singleTextChild = getSingleTextChild(ariaNode);
+    const hasNoChildren = singleTextChild === undefined && !ariaNode.children.length;
+
+    if (hasNoChildren && !Object.keys(ariaNode.props).length) {
+      // Leaf node without children.
+      lines.push(escapedKey);
+    } else if (singleTextChild !== undefined) {
+      // Leaf node with just some text inside.
+      lines.push(escapedKey + ': ' + yamlEscapeValueIfNeeded(singleTextChild));
+    } else {
+      // Node with (optional) props and some children.
+      lines.push(escapedKey + ':');
+      for (const name of Object.keys(ariaNode.props))
+        lines.push(indent(depth + 1) + '- /' + name + ': ' + yamlEscapeValueIfNeeded(ariaNode.props[name]));
+      for (const child of ariaNode.children) {
+        if (typeof child === 'string')
+          visitText(child, depth + 1);
+        else
+          visit(child, depth + 1);
+      }
+    }
+  };
+
+  // Do not render the root fragment, just its children.
+  const nodesToRender = root.role === 'fragment' ? root.children : [root];
+  for (const nodeToRender of nodesToRender) {
+    if (typeof nodeToRender === 'string')
+      visitText(nodeToRender, 0);
+    else
+      visit(nodeToRender, 0);
+  }
+  return lines.join('\n');
+}
+
+// The element upstream snapshots a whole frame from: `body`, or the `frameset`
+// that stands in for it on the old pages where `document.body` is one.
+function ariaSnapshotRoot() {
+  return document.body || document.querySelector('frameset') || document.documentElement;
+}
+
 window.__pwDart = {
   normalizeWhiteSpace,
   isElementVisible,
@@ -575,6 +972,17 @@ window.__pwDart = {
   getAriaChecked,
   getReadonly,
   accessibleName: (element, includeHidden) => getElementAccessibleName(element, !!includeHidden),
+
+  // The aria tree, rooted at `root` or at the frame's body, as plain JSON:
+  // text children are strings, everything else is an aria node.
+  ariaTree(root, options) {
+    return generateAriaTree(root || ariaSnapshotRoot(), options || {});
+  },
+
+  // The same tree rendered as upstream's aria snapshot YAML.
+  ariaSnapshot(root, options) {
+    return renderAriaTree(generateAriaTree(root || ariaSnapshotRoot(), options || {}));
+  },
 
   queryAll(parts, root) {
     return queryParts(root || document, parts);

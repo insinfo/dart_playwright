@@ -24,6 +24,7 @@ export 'src/download.dart';
 export 'src/file_chooser.dart';
 export 'src/page_error.dart';
 export 'package:playwright_core/src/accessibility.dart';
+export 'package:playwright_core/src/aria_template.dart';
 export 'src/route.dart';
 
 // Re-export common types from protocol

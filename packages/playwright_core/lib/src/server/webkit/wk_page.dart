@@ -10,7 +10,6 @@ import 'wk_execution_context.dart';
 import 'wk_input.dart';
 import 'wk_network_manager.dart';
 import 'wk_route.dart';
-import '../../accessibility.dart';
 
 /// A WebKit page, backed by a pageProxy session.
 ///
@@ -24,6 +23,7 @@ class WkPage extends EventEmitter
         CorePageFileChooser,
         CorePageScreenshot,
         CorePageFrameEvaluation,
+        CorePageAccessibility,
         CorePageInputHelpers,
         CorePageDialogs,
         CorePageContentHelpers
@@ -374,12 +374,6 @@ class WkPage extends EventEmitter
     throw UnsupportedError(
         'page.pdf() is Chromium-only: the WebKit inspector protocol has no '
         'print-to-PDF command, and upstream Playwright has the same limit.');
-  }
-
-  Future<AccessibilitySnapshot> accessibilitySnapshot() async {
-    return AccessibilitySnapshot(
-        title: await title(),
-        root: AccessibilityNode(role: 'WebArea', name: '', ref: 'root'));
   }
 
   bool _routeListenerInstalled = false;

@@ -107,7 +107,16 @@ abstract class CorePage extends EventEmitter {
   /// Chromium only; Firefox and WebKit have no print-to-PDF command in their
   /// protocols, so they throw.
   Future<List<int>> pdf({String? path, CorePdfOptions options});
-  Future<AccessibilitySnapshot> accessibilitySnapshot();
+  /// The accessibility tree of the page's main frame.
+  ///
+  /// See [CorePageAccessibility.accessibilitySnapshot].
+  Future<AccessibilitySnapshot> accessibilitySnapshot(
+      {bool interestingOnly = true, CoreFrame? frame});
+
+  /// The aria snapshot YAML of the page's main frame.
+  ///
+  /// See [CorePageAccessibility.ariaSnapshot].
+  Future<String> ariaSnapshot({CoreFrame? frame, String? selectorJs});
 
   /// Resizes the page viewport, overriding whatever the context set.
   Future<void> setViewportSize(int width, int height);
@@ -760,6 +769,56 @@ mixin CorePageFrameEvaluation {
   /// Forgets the injected-script cache for a destroyed context.
   void forgetExecutionContext(Object contextId) {
     _injectedContexts.remove(contextId);
+  }
+}
+
+/// The accessibility tree and the aria snapshot, shared by the engine pages.
+///
+/// There is nothing engine-specific left here on purpose. Upstream Playwright
+/// used to have three implementations of this — `crAccessibility.ts` over CDP's
+/// `Accessibility.getFullAXTree`, `ffAccessibility.ts` over Juggler and
+/// `wkAccessibility.ts` over the WebKit inspector protocol — and removed all
+/// three: as of 1.62 the only accessibility tree it builds is the one its
+/// injected script computes from the DOM, in the page, identically everywhere.
+/// This port follows that, which is why Firefox and WebKit answer at all and
+/// why the three answers agree.
+mixin CorePageAccessibility on CorePageFrameEvaluation {
+  Future<String> title();
+
+  /// The accessibility tree of [frame] (the main frame by default).
+  ///
+  /// With [interestingOnly] — the default, and upstream's `default` snapshot
+  /// mode — an element whose computed ARIA role is `generic` contributes no
+  /// node of its own and its children are hoisted to the nearest node that has
+  /// a role, so `<div><span><button>` is one `button`, not three nodes. Pass
+  /// `false` to keep those wrappers: that sets upstream's internal
+  /// `includeGenericRole`, the switch its `ai` mode uses, on an otherwise
+  /// unchanged tree.
+  ///
+  /// The snapshot does not descend into iframes; each frame has its own tree.
+  Future<AccessibilitySnapshot> accessibilitySnapshot({
+    bool interestingOnly = true,
+    CoreFrame? frame,
+  }) async {
+    final options = jsonEncode({'includeGenericRole': !interestingOnly});
+    final raw = await evaluateInjected(
+        frame ?? mainFrame, '() => window.__pwDart.ariaTree(null, $options)');
+    return AccessibilitySnapshot(
+      title: await title(),
+      root: AccessibilityNode.fromInjectedJson(raw, AccessibilityRefCounter()),
+    );
+  }
+
+  /// The same tree rendered as upstream's aria snapshot YAML.
+  ///
+  /// This is the text `toMatchAriaSnapshot` compares against upstream. Pass
+  /// [selectorJs] to snapshot one element instead of the whole frame: it is a
+  /// JS expression evaluated in the frame that must return an element.
+  Future<String> ariaSnapshot({CoreFrame? frame, String? selectorJs}) async {
+    final root = selectorJs ?? 'null';
+    final result = await evaluateInjected(frame ?? mainFrame,
+        '() => window.__pwDart.ariaSnapshot($root, {})');
+    return result as String? ?? '';
   }
 }
 

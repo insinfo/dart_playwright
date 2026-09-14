@@ -87,6 +87,75 @@ void main() {
     }, options: allBrowsers);
   });
 
+  playwrightGroup('toMatchAriaSnapshot', () {
+    const page = '''
+      <h1>Relatorio</h1>
+      <nav aria-label="Menu">
+        <a href="/um">Um</a>
+        <a href="/dois">Dois</a>
+      </nav>
+      <input type="checkbox" checked aria-label="Aceito">
+      <button disabled>Salvar</button>
+    ''';
+
+    playwrightTest('casa a arvore da pagina', (t) async {
+      await t.page.setContent(page);
+      await expectPage(t.page).toMatchAriaSnapshot('''
+- heading "Relatorio" [level=1]
+- navigation "Menu":
+  - link "Um"
+  - link "Dois"
+- checkbox "Aceito" [checked]
+- button "Salvar" [disabled]
+''');
+    }, options: allBrowsers);
+
+    playwrightTest('casa a arvore de um locator', (t) async {
+      await t.page.setContent(page);
+      await expectLocator(t.page.locator('nav')).toMatchAriaSnapshot('''
+- navigation "Menu":
+  - /children: equal
+  - link "Um":
+    - /url: /um
+  - link "Dois":
+    - /url: /dois
+''');
+    }, options: allBrowsers);
+
+    playwrightTest('nome por regex e papel sem nome', (t) async {
+      await t.page.setContent(page);
+      await expectPage(t.page).toMatchAriaSnapshot(r'- heading /Relat.rio/');
+      await expectPage(t.page).toMatchAriaSnapshot('- navigation');
+    }, options: allBrowsers);
+
+    playwrightTest('not, e a falha traz o snapshot real', (t) async {
+      await t.page.setContent(page);
+      await expectPage(t.page).not.toMatchAriaSnapshot('- button "Cancelar"');
+      try {
+        await expectPage(t.page)
+            .toMatchAriaSnapshot('- button "Cancelar"');
+        fail('deveria ter falhado');
+      } on AssertionFailure catch (error) {
+        // The point of putting the real snapshot in the message: it is what
+        // you paste back into the template.
+        expect(error.toString(), contains('button "Salvar" [disabled]'));
+        expect(error.toString(), contains('match the aria snapshot'));
+      }
+    }, options: allBrowsers, timeout: const Timeout(Duration(minutes: 1)));
+
+    playwrightTest('um template invalido falha na hora, sem esperar',
+        (t) async {
+      await t.page.setContent(page);
+      final started = DateTime.now();
+      expect(
+          () => expectPage(t.page).toMatchAriaSnapshot('- button [nope]'),
+          throwsA(isA<AriaTemplateParseException>()));
+      // A parse error is the author's bug; retrying it for the full timeout
+      // would report "the page never matched", which is a lie.
+      expect(DateTime.now().difference(started).inSeconds, lessThan(2));
+    }, options: allBrowsers);
+  });
+
   playwrightGroup('screenshot na falha', () {
     playwrightTest('deve escrever a imagem e citar o caminho', (t) async {
       final artifacts =

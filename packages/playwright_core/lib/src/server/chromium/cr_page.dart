@@ -9,7 +9,6 @@ import 'cr_route.dart';
 import '../context_registry.dart';
 import '../core_request.dart';
 import '../core_route.dart';
-import '../../accessibility.dart';
 import '../core_page.dart';
 import '../core_js_handle.dart';
 
@@ -21,6 +20,7 @@ class CrPage extends EventEmitter
         CorePageFileChooser,
         CorePageScreenshot,
         CorePageFrameEvaluation,
+        CorePageAccessibility,
         CorePageInputHelpers,
         CorePageDialogs,
         CorePageContentHelpers
@@ -456,54 +456,6 @@ class CrPage extends EventEmitter
     }
     await session.send('IO.close', {'handle': handle});
     return chunks;
-  }
-
-  /// Get Accessibility Snapshot
-  Future<AccessibilitySnapshot> accessibilitySnapshot() async {
-    final result = await session.send('Accessibility.getFullAXTree');
-    final nodes = result['nodes'] as List;
-
-    // Simplistic parser for V0.1
-    if (nodes.isEmpty) {
-      return AccessibilitySnapshot(
-          title: '',
-          root: AccessibilityNode(role: 'WebArea', name: '', ref: 'root'));
-    }
-
-    final rootData = nodes.firstWhere((n) => n['role']?['value'] == 'WebArea',
-        orElse: () => nodes.first);
-
-    AccessibilityNode parseNode(Map<String, dynamic> data) {
-      final role = data['role']?['value'] as String? ?? 'Unknown';
-      final name = data['name']?['value'] as String? ?? '';
-      final description = data['description']?['value'] as String?;
-      final value = data['value']?['value']?.toString();
-      final nodeId = data['nodeId'] as String? ?? '';
-
-      final childIds = (data['childIds'] as List?)?.cast<String>() ?? [];
-      final children = childIds
-          .map((id) {
-            final childData =
-                nodes.firstWhere((n) => n['nodeId'] == id, orElse: () => null);
-            return childData != null ? parseNode(childData) : null;
-          })
-          .whereType<AccessibilityNode>()
-          .toList();
-
-      return AccessibilityNode(
-        role: role,
-        name: name,
-        description: description,
-        value: value,
-        children: children,
-        ref: 'node_$nodeId',
-      );
-    }
-
-    final root = parseNode(rootData);
-    final title = await this.title();
-
-    return AccessibilitySnapshot(title: title, root: root);
   }
 
   bool _routeListenerInstalled = false;

@@ -21,12 +21,28 @@ been modified:
 
   packages/playwright_core/lib/src/server/injected/
       injected_script_source.dart
-      Hand port of the in-page selector engine: packages/injected/src/
-      domUtils.ts, selectorUtils.ts, roleUtils.ts, roleSelectorEngine.ts,
-      the `internal:*` engines of injectedScript.ts, and
-      packages/isomorphic/stringUtils.ts#normalizeWhiteSpace. The ARIA role
+      Hand port of the in-page selector engine and of the aria tree:
+      packages/injected/src/ domUtils.ts, selectorUtils.ts, roleUtils.ts,
+      roleSelectorEngine.ts, the `internal:*` engines of injectedScript.ts,
+      ariaSnapshot.ts and the normalizePlugins of ariaSnapshotDistiller.ts,
+      plus packages/isomorphic/stringUtils.ts#normalizeWhiteSpace and the
+      yamlEscape* helpers of packages/isomorphic/yaml.ts. The ARIA role
       and attribute tables are reproduced closely; the selector parser and
-      the CSS tokenizer are not ported, and stability sampling differs.
+      the CSS tokenizer are not ported, stability sampling differs, and the
+      aria tree covers upstream's `default` mode only (no element refs,
+      boxes, active marker, depth limit or iframe descent).
+
+  packages/playwright_core/lib/src/aria_template.dart
+      Port of parseAriaSnapshot, KeyParser and textValue from packages/
+      isomorphic/ariaSnapshot.ts, plus matchesNode, listEqual, containsList
+      and matchesNodeDeep from packages/injected/src/ariaSnapshot.ts. The
+      matching runs in Dart over the snapshot tree instead of in the page,
+      and `[active]` is rejected instead of matched.
+
+  packages/playwright_core/lib/src/accessibility.dart
+      AccessibilityNode mirrors the AriaNode of packages/isomorphic/
+      ariaSnapshot.ts, plus the `value` and `description` fields this port
+      has carried since before upstream's aria snapshots existed.
 
   packages/playwright_core/lib/src/server/us_keyboard_layout.dart
       Port of packages/playwright-core/src/server/usKeyboardLayout.ts.

@@ -118,8 +118,46 @@ abstract class Page {
     bool outline = false,
   });
 
-  /// Get the accessibility snapshot.
-  Future<AccessibilitySnapshot> accessibilitySnapshot();
+  /// The accessibility tree of the page's main frame.
+  ///
+  /// The tree is computed in the page, from the DOM, by the injected script —
+  /// the same code on all three engines, which is how Chromium, Firefox and
+  /// WebKit come back with the same answer. Upstream Playwright works the same
+  /// way: it removed the old `page.accessibility.snapshot()`, which read each
+  /// browser's own accessibility tree through its own protocol, precisely
+  /// because the three browsers disagreed about the same page.
+  ///
+  /// So the roles are ARIA roles per the WAI-ARIA and HTML-AAM specs, not the
+  /// platform roles a screen reader consumes, and what a browser's internal
+  /// accessibility tree holds is **not** available here — on any engine. See
+  /// [AccessibilityNode] for what each field does and does not mean.
+  ///
+  /// With [interestingOnly] (the default) an element whose computed role is
+  /// `generic` produces no node and its children are hoisted to the nearest
+  /// node that has a role. Pass `false` to keep those wrappers.
+  ///
+  /// The snapshot stops at iframe boundaries: an `<iframe>` is one `iframe`
+  /// node with no children.
+  Future<AccessibilitySnapshot> accessibilitySnapshot(
+      {bool interestingOnly = true});
+
+  /// The page's accessibility tree rendered as upstream's aria snapshot YAML.
+  ///
+  /// This is the format upstream's `toMatchAriaSnapshot` assertion compares
+  /// against, built from the tree of [accessibilitySnapshot]:
+  ///
+  /// ```yaml
+  /// - heading "Relatorio" [level=1]
+  /// - navigation "Menu":
+  ///   - link "Um":
+  ///     - /url: /um
+  /// - checkbox "Aceito" [checked]
+  /// ```
+  ///
+  /// Only upstream's `default` mode is ported. There are no `[ref=e1]`
+  /// handles, no `[active]` marker and no descent into iframes; those belong
+  /// to its `ai` mode, which this port does not compute.
+  Future<String> ariaSnapshot();
 
   /// Resize the page viewport.
   ///
@@ -525,8 +563,12 @@ class PageImpl implements Page {
       );
 
   @override
-  Future<AccessibilitySnapshot> accessibilitySnapshot() =>
-      _corePage.accessibilitySnapshot();
+  Future<AccessibilitySnapshot> accessibilitySnapshot(
+          {bool interestingOnly = true}) =>
+      _corePage.accessibilitySnapshot(interestingOnly: interestingOnly);
+
+  @override
+  Future<String> ariaSnapshot() => _corePage.ariaSnapshot();
 
   @override
   Future<void> setViewportSize(int width, int height) =>

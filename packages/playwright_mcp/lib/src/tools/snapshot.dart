@@ -3,10 +3,12 @@ import 'package:playwright/playwright.dart';
 /// Builds the page snapshot the agent reads, and stamps every listed element
 /// with a `data-pw-ref` attribute so a later tool call can address it.
 ///
-/// This is deliberately *not* `page.accessibilitySnapshot()`: that one is
-/// backed by `Accessibility.getFullAXTree`, which only Chromium answers
-/// properly — Firefox and WebKit return a stub. Walking the DOM in the page
-/// works the same on all three.
+/// This is deliberately *not* `page.accessibilitySnapshot()`. That one now
+/// answers on all three engines and computes real ARIA roles and names, but it
+/// hands back a tree of values: nothing in it points at an element, so an
+/// agent could read it and still not be able to click anything. The `ref`
+/// stamping below is the whole point of this tool. Giving the aria tree
+/// element handles is upstream's `ai` mode, which this port does not have.
 ///
 /// The role and name computation is pragmatic rather than a full ARIA
 /// implementation: an explicit `role` wins, then a small tag-to-role table
