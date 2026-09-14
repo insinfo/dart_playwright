@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:playwright_protocol/playwright_protocol.dart';
 import 'core_page.dart';
+import 'launch_options.dart';
 
 /// Options applied to every page of a browser context.
 /// Latitude, longitude and accuracy in metres.
@@ -64,6 +65,10 @@ class CoreContextOptions {
   /// Permissions granted to every origin of this context.
   final List<String>? permissions;
 
+  /// A proxy for this context alone, overriding the browser's own. All three
+  /// engines take one per context, so this is not a Chromium special case.
+  final CoreProxySettings? proxy;
+
   const CoreContextOptions({
     this.viewport,
     this.userAgent,
@@ -82,6 +87,7 @@ class CoreContextOptions {
     this.httpCredentials,
     this.geolocation,
     this.permissions,
+    this.proxy,
   });
 
   /// Whether anything here needs emulation applied at all.
