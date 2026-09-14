@@ -180,9 +180,10 @@ registrar aqui.
 - **`BrowserType.connect`, `connectOverCDP`, `launchPersistentContext`,
   `launchServer`.**
 - **Proxy por contexto.**
-- **Extensões CSS do Playwright** (`:has-text()`, `:visible`, seletores de
-  layout) e shadow-piercing no motor `css`: continuam exigindo portar
-  `selectorEvaluator.ts` + `cssParser.ts` + `cssTokenizer.ts`.
+- ~~**Extensões CSS do Playwright** (`:has-text()`, `:visible`, seletores de
+  layout) e shadow-piercing no motor `css`~~ — FEITO em 2026-09-13:
+  `cssTokenizer.ts`, `cssParser.ts`, `layoutSelectorUtils.ts` e
+  `selectorEvaluator.ts` estão portados no script injetado.
 - **`ariaSnapshot`** e as assertions de snapshot/screenshot do
   `playwright_test`.
 - **`accessibilitySnapshot` real no Firefox e no WebKit.** Hoje só o Chromium
@@ -355,15 +356,21 @@ modelo em Dart que o alimenta (`server/selectors.dart`). É um porte à mão de
 `roleSelectorEngine.ts` e dos motores `internal:*` de `injectedScript.ts`,
 mais `normalizeWhiteSpace` de `stringUtils.ts`.
 
-Os seletores chegam como JSON estruturado construído em Dart, não como a
-sintaxe de string do Playwright, então `selectorParser.ts` e o tokenizador
-CSS não foram portados; tudo o que vem *depois* do parsing é o upstream.
-Diferenças deliberadas, documentadas no cabeçalho do arquivo:
+A *sintaxe de string* do seletor (encadeamento com `>>`, prefixos de motor) é
+parseada em Dart e chega como JSON estruturado, então `selectorParser.ts` não
+foi portado; o corpo CSS de uma parte `css=` é parseado na página pelo
+`cssParser`/`cssTokenizer` portados. Diferenças deliberadas, documentadas no
+cabeçalho do arquivo:
 
-- o motor `css` usa `querySelectorAll` nativo, logo não fura shadow DOM nem
-  entende as extensões CSS do Playwright (`:has-text()`, `:visible`,
-  seletores de layout). Os motores `text`, `label` e `role` **entram** em
-  shadow roots abertas, como o upstream;
+- o motor `css` roda o `selectorEvaluator` portado: entende as extensões CSS
+  do Playwright (`:has-text()`, `:text()`, `:text-is()`, `:text-matches()`,
+  `:visible`, `:has()`, `:is()`/`:where()`, `:not()`, `:scope`,
+  `:nth-match()`, `:left-of()`, `:right-of()`, `:above()`, `:below()`,
+  `:near()`, `:light()`) e **entra** em shadow roots abertas, como os motores
+  `text`, `label` e `role`. Shadow roots fechadas continuam invisíveis, como
+  no upstream;
+- um seletor malformado vira `InvalidSelectorError` na hora, em vez de ser
+  repetido até o timeout do locator;
 - `getCSSContent` usa um scanner pequeno em vez do tokenizador CSS: cobre
   strings entre aspas, `attr()` e a forma `/ "texto alternativo"`;
 - a computação de nome acessível devolve texto puro (o upstream também
@@ -462,11 +469,11 @@ Diferenças deliberadas, documentadas no cabeçalho do arquivo:
   drag escutam. O DnD nativo do HTML5 exige interceptação de drag no
   protocolo (`Input.setInterceptDrags` no Chromium) e equivalentes; ficou
   para depois.
-- **Extensões CSS do Playwright** (`:has-text()`, `:visible`, seletores de
-  layout) e shadow-piercing no motor `css`: exigem portar
-  `selectorEvaluator.ts` + `cssParser.ts` + `cssTokenizer.ts` (~1500 linhas).
-  Os casos de uso mais comuns já estão cobertos por `filter(hasText:)`,
-  `visible()` e pelos `getBy*`.
+- ~~**Extensões CSS do Playwright** e shadow-piercing no motor `css`~~ —
+  FEITO em 2026-09-13. Ficaram de fora, por dependerem do `selectorParser`
+  que não é portado: os motores CSS registrados pelo usuário
+  (`selectors.register`) e o sufixo `:light` em outros motores
+  (`text:light=`, `id:light=`).
 
 ### Cobertura de teste desta rodada
 
@@ -885,7 +892,7 @@ Faltam recursos completos de serialização entre Dart e runtime da página:
 5. ~~Eventos `console`/`pageError` e `context.waitForConsoleMessage`~~ — FEITO em 2026-09-13.
 6. ~~`page.setViewportSize` e `page.setExtraHTTPHeaders`~~ — FEITO em 2026-09-13.
 7. `setInputFiles` + `FileChooser`, e `Locator.screenshot` com recorte por elemento (ambos Milestone 3).
-8. Portar `selectorEvaluator`/`cssParser` para destravar as extensões CSS (`:has-text()`, `:visible`, layout) e shadow-piercing no motor `css`.
+8. ~~Portar `selectorEvaluator`/`cssParser` para destravar as extensões CSS (`:has-text()`, `:visible`, layout) e shadow-piercing no motor `css`~~ — FEITO em 2026-09-13.
 
 ### Milestone 1 - API pública consistente e multi-engine
 

@@ -189,10 +189,13 @@ returns a promise resolves it on Chromium and WebKit, but **not on Firefox**
 command. On Firefox, have the page store the result and poll for it with
 `waitForFunction`.
 
-Deliberately partial: the `css` selector engine uses the browser's native
-`querySelectorAll`, so it neither pierces shadow DOM nor understands
-Playwright's CSS extensions (`:has-text()`, `:visible`, layout selectors); the
-`text`, `label` and `role` engines do enter open shadow roots. Actionability
+The `css` selector engine runs the ported `selectorEvaluator`, so it supports
+Playwright's CSS extensions (`:has-text()`, `:text()`, `:text-is()`,
+`:text-matches()`, `:visible`, `:has()`, `:is()`/`:where()`, `:not()`,
+`:scope`, `:nth-match()`, `:left-of()`, `:right-of()`, `:above()`, `:below()`,
+`:near()` and `:light()`) and pierces open shadow roots, the same as the
+`text`, `label` and `role` engines. Closed shadow roots stay invisible, as
+upstream. Deliberately partial: actionability
 checks `visible`, `stable`, `enabled` and `editable` but not
 `receivesPointerEvents`, so an element covered by another is still clicked.
 

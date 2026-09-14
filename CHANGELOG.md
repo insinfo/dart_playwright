@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **Playwright's CSS extensions in the `css` engine**: `:has-text()`, `:text()`, `:text-is()`, `:text-matches()`, `:visible`, `:has()`, `:is()`/`:where()`, `:not()`, `:scope`, `:nth-match()`, `:left-of()`, `:right-of()`, `:above()`, `:below()`, `:near()` and `:light()`, plus the `css:light=` prefix. Upstream's `cssTokenizer.ts`, `cssParser.ts`, `layoutSelectorUtils.ts` and `selectorEvaluator.ts` are ported into the injected script, so the semantics — whitespace normalisation, the exact/substring split between `:text-is()` and `:text()`, and the proximity ordering of the layout selectors — are upstream's.
+- **The `css` engine pierces open shadow roots**, like the `text`, `label` and `role` engines already did. Combinators cross the boundary too, so `#host .inside` matches. Closed shadow roots stay invisible, as upstream; `:light()` opts a subtree out.
+
+### Fixed
+- **A malformed selector timed out instead of failing.** A selector that does not parse, or an extension used with the wrong arguments, reached the locator retry loop as a generic error and became a `TimeoutException` after 30s. It now raises `InvalidSelectorError` at once, as upstream does.
+
 ## [0.8.0] - Milestone 5: fixtures and assertions
 
 ### Added
