@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:playwright_protocol/playwright_protocol.dart';
 import '../core_browser.dart';
 import '../core_page.dart';
+import '../launch_options.dart';
 import 'ff_connection.dart';
 import 'ff_page.dart';
 
@@ -108,22 +109,70 @@ class FfBrowser extends EventEmitter implements CoreBrowser {
 
   /// A temporary directory for this browser's downloads.
   String defaultDownloadsDirectory() {
+    final launchPath = launchDownloadsPath;
+    if (launchPath != null) {
+      Directory(launchPath).createSync(recursive: true);
+      return launchPath;
+    }
     return _downloadsDirectory ??= Directory.systemTemp
         .createTempSync('playwright-dart-downloads')
         .path;
   }
 
+  /// The context for [browserContextId], falling back to the profile's own
+  /// context.
+  ///
+  /// The fallback is not a nicety: the engines report a real id for the
+  /// default context, not a missing one, so a persistent context would never
+  /// recognise its own pages by id alone and every `newPage()` there would
+  /// time out waiting for a session that was quietly discarded. Upstream
+  /// takes the same fallback. For a non-persistent browser there is no
+  /// default context, so an unknown id still means "not ours".
   FfBrowserContext? _contextFor(String? browserContextId) {
     for (final context in _contexts) {
       if (context.browserContextId == browserContextId) return context;
     }
+    return _defaultContextOrNull;
+  }
+
+  FfBrowserContext? get _defaultContextOrNull {
+    for (final context in _contexts) {
+      if (context.browserContextId == null) return context;
+    }
     return null;
   }
 
-  Future<void> init() async {
+  /// Where this browser's downloads land when a context does not say.
+  String? launchDownloadsPath;
+
+  /// Where trace artifacts are written.
+  String? tracesDir;
+
+  /// The throwaway profile to delete when the browser closes, if any.
+  String? tempUserDataDir;
+
+  /// The default context of a persistent launch, or null for a plain launch.
+  FfBrowserContext? get defaultContext => _defaultContextOrNull;
+
+  /// [persistentContext] attaches to Firefox's own default profile context —
+  /// the one the `-profile` directory belongs to — instead of ignoring it.
+  Future<void> init(
+      {bool persistentContext = false,
+      CoreContextOptions contextOptions = const CoreContextOptions(),
+      CoreProxySettings? proxy}) async {
     await session.send('Browser.enable', {
-      'attachToDefaultContext': false,
+      'attachToDefaultContext': persistentContext,
     });
+    if (proxy != null) {
+      await session.send(
+          'Browser.setBrowserProxy', jugglerProxyOptions(proxy.normalized()));
+    }
+    if (persistentContext) {
+      final context = FfBrowserContext(this, null, contextOptions);
+      _contexts.add(context);
+      await applyContextOptions(null, contextOptions);
+      await applyDownloadOptions(context);
+    }
   }
 
   @override
@@ -145,18 +194,59 @@ class FfBrowser extends EventEmitter implements CoreBrowser {
       'removeOnDetach': true,
     });
     final browserContextId = result['browserContextId'] as String;
+    await applyContextOptions(browserContextId, options);
+    final context = FfBrowserContext(this, browserContextId, options);
+    _contexts.add(context);
+    await applyDownloadOptions(context);
+    return context;
+  }
+
+  /// Juggler takes the proxy apart rather than as a URL, and names SOCKS5
+  /// `socks`.
+  static Map<String, dynamic> jugglerProxyOptions(CoreProxySettings proxy) {
+    final url = Uri.parse(proxy.server);
+    final type = switch (url.scheme) {
+      'socks5' => 'socks',
+      'https' => 'https',
+      _ => 'http',
+    };
+    var port = url.port;
+    if (port == 0) port = url.scheme == 'https' ? 443 : 80;
+    return <String, dynamic>{
+      'type': type,
+      'host': url.host,
+      'port': port,
+      'bypass': proxy.bypass == null
+          ? <String>[]
+          : proxy.bypass!.split(',').map((d) => d.trim()).toList(),
+      if (proxy.username != null) 'username': proxy.username,
+      if (proxy.password != null) 'password': proxy.password,
+    };
+  }
+
+  /// Applies [options] to the Juggler context [browserContextId], or to the
+  /// profile's default context when that is null.
+  ///
+  /// Juggler applies all of these context-wide, before any page exists,
+  /// which is why Firefox needs no per-page emulation at all. The default
+  /// context is addressed by leaving `browserContextId` off the message.
+  Future<void> applyContextOptions(
+      String? browserContextId, CoreContextOptions options) async {
+    final ctx = <String, dynamic>{
+      if (browserContextId != null) 'browserContextId': browserContextId,
+    };
     // Juggler applies all of these context-wide, before any page exists,
     // which is why Firefox needs no per-page emulation at all.
     if (options.userAgent != null) {
       await session.send('Browser.setUserAgentOverride', {
-        'browserContextId': browserContextId,
+        ...ctx,
         'userAgent': options.userAgent,
       });
     }
     final viewport = options.viewport;
     if (viewport != null) {
       await session.send('Browser.setDefaultViewport', {
-        'browserContextId': browserContextId,
+        ...ctx,
         'viewport': {
           'viewportSize': {
             'width': viewport.width,
@@ -169,43 +259,43 @@ class FfBrowser extends EventEmitter implements CoreBrowser {
     }
     if (options.locale != null) {
       await session.send('Browser.setLocaleOverride', {
-        'browserContextId': browserContextId,
+        ...ctx,
         'locale': options.locale,
       });
     }
     if (options.timezoneId != null) {
       await session.send('Browser.setTimezoneOverride', {
-        'browserContextId': browserContextId,
+        ...ctx,
         'timezoneId': options.timezoneId,
       });
     }
     if (options.colorScheme != null) {
       await session.send('Browser.setColorScheme', {
-        'browserContextId': browserContextId,
+        ...ctx,
         'colorScheme': options.colorScheme,
       });
     }
     if (options.reducedMotion != null) {
       await session.send('Browser.setReducedMotion', {
-        'browserContextId': browserContextId,
+        ...ctx,
         'reducedMotion': options.reducedMotion,
       });
     }
     if (options.forcedColors != null) {
       await session.send('Browser.setForcedColors', {
-        'browserContextId': browserContextId,
+        ...ctx,
         'forcedColors': options.forcedColors,
       });
     }
     if (options.hasTouch) {
       await session.send('Browser.setTouchOverride', {
-        'browserContextId': browserContextId,
+        ...ctx,
         'hasTouch': true,
       });
     }
     if (options.offline) {
       await session.send('Browser.setOnlineOverride', {
-        'browserContextId': browserContextId,
+        ...ctx,
         'override': 'offline',
       });
     }
@@ -213,7 +303,7 @@ class FfBrowser extends EventEmitter implements CoreBrowser {
     if (headers != null && headers.isNotEmpty) {
       // Juggler takes an array of {name, value}, not an object.
       await session.send('Browser.setExtraHTTPHeaders', {
-        'browserContextId': browserContextId,
+        ...ctx,
         'headers': [
           for (final entry in headers.entries)
             {'name': entry.key, 'value': entry.value},
@@ -223,7 +313,7 @@ class FfBrowser extends EventEmitter implements CoreBrowser {
     final credentials = options.httpCredentials;
     if (credentials != null) {
       await session.send('Browser.setHTTPCredentials', {
-        'browserContextId': browserContextId,
+        ...ctx,
         'credentials': {
           'username': credentials.username,
           'password': credentials.password,
@@ -234,7 +324,7 @@ class FfBrowser extends EventEmitter implements CoreBrowser {
     final geolocation = options.geolocation;
     if (geolocation != null) {
       await session.send('Browser.setGeolocationOverride', {
-        'browserContextId': browserContextId,
+        ...ctx,
         'geolocation': {
           'latitude': geolocation.latitude,
           'longitude': geolocation.longitude,
@@ -242,10 +332,17 @@ class FfBrowser extends EventEmitter implements CoreBrowser {
         },
       });
     }
+    final proxy = options.proxy?.normalized();
+    if (proxy != null && browserContextId != null) {
+      await session.send('Browser.setContextProxy', {
+        ...ctx,
+        ...jugglerProxyOptions(proxy),
+      });
+    }
     final permissions = options.permissions;
     if (permissions != null && permissions.isNotEmpty) {
       await session.send('Browser.grantPermissions', {
-        'browserContextId': browserContextId,
+        ...ctx,
         // Upstream keys permissions by origin and defaults to '*', meaning
         // every origin; an empty string matches nothing.
         'origin': '*',
@@ -253,17 +350,19 @@ class FfBrowser extends EventEmitter implements CoreBrowser {
             CorePermissions.resolve(CorePermissions.firefox, permissions),
       });
     }
-    final context = FfBrowserContext(this, browserContextId, options);
-    _contexts.add(context);
+  }
+
+  /// Points the context's downloads at its directory, or refuses them.
+  Future<void> applyDownloadOptions(FfBrowserContext context) async {
     await session.send('Browser.setDownloadOptions', {
-      'browserContextId': browserContextId,
+      if (context.browserContextId != null)
+        'browserContextId': context.browserContextId,
       'downloadOptions': {
-        'behavior': options.acceptDownloads ? 'saveToDisk' : 'cancel',
-        if (options.acceptDownloads)
+        'behavior': context.options.acceptDownloads ? 'saveToDisk' : 'cancel',
+        if (context.options.acceptDownloads)
           'downloadsDir': context.downloadsDirectory,
       },
     });
-    return context;
   }
 
   /// Waits for the page attached to [targetId] (created via Browser.newPage)
@@ -286,6 +385,20 @@ class FfBrowser extends EventEmitter implements CoreBrowser {
       await session.send('Browser.close').timeout(const Duration(seconds: 3));
     } catch (_) {}
     await connection.transport.close();
+    // `close()` returning has to mean disconnected. The transport announces
+    // its closure through a stream, so _onClosed would otherwise land a tick
+    // later and `isConnected()` would still say true right after the await.
+    // _onClosed is idempotent, so the stream event that follows is a no-op.
+    _onClosed();
+  }
+
+  void _cleanupTempProfile() {
+    final dir = tempUserDataDir;
+    if (dir == null) return;
+    tempUserDataDir = null;
+    try {
+      Directory(dir).deleteSync(recursive: true);
+    } catch (_) {}
   }
 
   void _onClosed() {
@@ -303,6 +416,7 @@ class FfBrowser extends EventEmitter implements CoreBrowser {
     _contexts.clear();
     emit('disconnected', true);
     disposeStreams();
+    _cleanupTempProfile();
   }
 }
 
@@ -311,11 +425,17 @@ class FfBrowserContext extends EventEmitter
     with BrowserContextStorage
     implements CoreBrowserContext {
   final FfBrowser browser;
-  final String browserContextId;
+
+  /// Null for the default context of a persistent launch: Juggler addresses
+  /// that one by leaving `browserContextId` off the message entirely.
+  final String? browserContextId;
   final CoreContextOptions options;
   bool _closed = false;
 
   FfBrowserContext(this.browser, this.browserContextId, this.options);
+
+  /// Whether this is the profile's own context rather than one we created.
+  bool get isDefault => browserContextId == null;
 
   /// Where this context's downloads land.
   late final String downloadsDirectory =
@@ -330,7 +450,7 @@ class FfBrowserContext extends EventEmitter
     final Map<String, dynamic> result;
     try {
       result = await browser.session.send('Browser.newPage', {
-        'browserContextId': browserContextId,
+        if (browserContextId != null) 'browserContextId': browserContextId,
       });
     } catch (error) {
       // Juggler validates the timezone when it builds the page, not when the
@@ -349,7 +469,7 @@ class FfBrowserContext extends EventEmitter
   @override
   Future<List<Map<String, dynamic>>> cookies([List<String>? urls]) async {
     final result = await browser.session.send('Browser.getCookies', {
-      'browserContextId': browserContextId,
+      if (browserContextId != null) 'browserContextId': browserContextId,
     });
     return (result['cookies'] as List).cast<Map<String, dynamic>>();
   }
@@ -357,7 +477,7 @@ class FfBrowserContext extends EventEmitter
   @override
   Future<void> addCookies(List<Map<String, dynamic>> cookies) async {
     await browser.connection.send('Browser.setCookies', {
-      'browserContextId': browserContextId,
+      if (browserContextId != null) 'browserContextId': browserContextId,
       'cookies': rewriteCookies(cookies),
     });
   }
@@ -365,7 +485,7 @@ class FfBrowserContext extends EventEmitter
   @override
   Future<void> clearCookies() async {
     await browser.session.send('Browser.clearCookies', {
-      'browserContextId': browserContextId,
+      if (browserContextId != null) 'browserContextId': browserContextId,
     });
   }
 
@@ -376,6 +496,16 @@ class FfBrowserContext extends EventEmitter
   Future<void> close() async {
     if (_closed) return;
     _closed = true;
+    if (isDefault) {
+      // The default context belongs to the profile, not to us: there is no
+      // context to remove, and closing it means closing the browser — which
+      // is what upstream does for a persistent context too.
+      trackedPages.clear();
+      browser._contexts.remove(this);
+      notifyClosed();
+      await browser.close();
+      return;
+    }
     // Removing the context closes its pages (removeOnDetach: true semantics
     // apply to disconnect; removal is explicit here).
     await browser.session.send('Browser.removeBrowserContext', {

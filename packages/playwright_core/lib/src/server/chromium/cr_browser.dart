@@ -195,11 +195,39 @@ class CrBrowser extends EventEmitter implements CoreBrowser {
     }
   }
 
+  /// Chromium never proxies loopback unless told to, so a proxy on
+  /// localhost — every local test, and plenty of real setups — would be
+  /// skipped silently. `<-loopback>` un-exempts it, unless the caller's
+  /// bypass list already has an opinion about loopback.
+  static String? _proxyBypassList(String? bypass) {
+    const loopback = [
+      'localhost',
+      '127.0.0.1',
+      '::1',
+      '[::]',
+      '[::1]',
+      '<loopback>',
+      '<-loopback>',
+    ];
+    final hosts = (bypass ?? '').split(',').map((s) => s.trim()).toList();
+    if (hosts.any(loopback.contains)) return bypass;
+    return bypass == null ? '<-loopback>' : '<-loopback>,$bypass';
+  }
+
+  /// The context for [browserContextId], falling back to the profile's own
+  /// context.
+  ///
+  /// The fallback is not a nicety: the engines report a real id for the
+  /// default context, not a missing one, so a persistent context would never
+  /// recognise its own pages by id alone and every `newPage()` there would
+  /// time out waiting for a session that was quietly discarded. Upstream
+  /// takes the same fallback. For a non-persistent browser there is no
+  /// default context, so an unknown id still means "not ours".
   CrBrowserContext? _contextFor(String? browserContextId) {
     for (final context in _contexts) {
       if (context.browserContextId == browserContextId) return context;
     }
-    return null;
+    return defaultContext;
   }
 
   /// The page for [targetId], waiting for the auto-attach to land.
@@ -244,8 +272,11 @@ class CrBrowser extends EventEmitter implements CoreBrowser {
   @override
   Future<CoreBrowserContext> createBrowserContext(
       {CoreContextOptions options = const CoreContextOptions()}) async {
+    final proxy = options.proxy?.normalized();
     final result = await connection.send('Target.createBrowserContext', {
       'disposeOnDetach': true,
+      if (proxy != null) 'proxyServer': proxy.server,
+      if (proxy != null) 'proxyBypassList': _proxyBypassList(proxy.bypass),
     });
     final context =
         CrBrowserContext(this, result['browserContextId'] as String, options);
@@ -284,6 +315,11 @@ class CrBrowser extends EventEmitter implements CoreBrowser {
       process!.kill();
     }
     await connection.close();
+    // `close()` returning has to mean disconnected. The transport announces
+    // its closure through a stream, so _onClosed would otherwise land a tick
+    // later and `isConnected()` would still say true right after the await.
+    // _onClosed is idempotent, so the stream event that follows is a no-op.
+    _onClosed();
   }
 
   static const _gracefulCloseTimeout = Duration(seconds: 3);
@@ -526,16 +562,21 @@ class CrBrowserContext extends EventEmitter
   Future<void> close() async {
     if (_closed) return;
     _closed = true;
-    if (browserContextId != null) {
-      // Disposing the context closes every target that belongs to it.
-      await browser.connection.send('Target.disposeBrowserContext', {
-        'browserContextId': browserContextId,
-      });
-    } else {
-      for (final page in trackedPages.toList()) {
-        await page.close();
-      }
+    if (browserContextId == null) {
+      // The default context belongs to the profile, not to us: there is no
+      // context to dispose, and closing it means closing the browser — which
+      // is what upstream does for a persistent context too. Closing only its
+      // pages would leave Chromium running with nobody holding it.
+      trackedPages.clear();
+      browser._contexts.remove(this);
+      notifyClosed();
+      await browser.close();
+      return;
     }
+    // Disposing the context closes every target that belongs to it.
+    await browser.connection.send('Target.disposeBrowserContext', {
+      'browserContextId': browserContextId,
+    });
     trackedPages.clear();
     browser._contexts.remove(this);
     notifyClosed();
