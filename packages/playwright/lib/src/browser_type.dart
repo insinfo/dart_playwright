@@ -10,9 +10,13 @@ import 'browser_context.dart';
 
 /// Proxy settings for a browser or for a single context.
 ///
-/// [server] is `scheme://host:port` — `http`, `https` and `socks5` — and a
-/// bare `host:port` is read as `http://host:port`. [bypass] is a
+/// `server` is `scheme://host:port` — `http`, `https` and `socks5` — and a
+/// bare `host:port` is read as `http://host:port`. `bypass` is a
 /// comma-separated list of hosts that skip the proxy.
+///
+/// The field names are in backticks rather than square brackets because
+/// dartdoc cannot resolve a reference to a field of a record type, and the
+/// CI `Docs` job fails the build on any unresolved reference.
 typedef ProxySettings = ({
   String server,
   String? bypass,

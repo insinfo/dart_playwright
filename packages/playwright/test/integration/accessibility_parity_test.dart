@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:playwright/playwright.dart';
 import 'package:test/test.dart';
 
@@ -274,19 +276,34 @@ void main() {
       // ------------------------------------------------------ divergencias
 
       test(
-          'DIVERGENCIA: o valor default de <input type=color> nao e o mesmo '
-          'nos tres motores', () async {
+          'DIVERGENCIA: o valor default de <input type=color> depende da '
+          'plataforma, nao do motor', () async {
         // Not an accessibility difference: the tree asks the DOM for
-        // `input.value`, and WebKit's color input starts empty where Chromium
-        // and Firefox start at "#000000". Recorded here rather than papered
-        // over, because a test that only asserted "the three agree" would have
-        // to either skip this input or assert something false.
+        // `input.value`. Chromium and Firefox start that at "#000000"
+        // everywhere.
+        //
+        // O WebKit nao: ele devolve valor vazio no Windows e "#000000" no
+        // Linux e no macOS. Isto aqui ja afirmou que o vazio era "o
+        // comportamento do WebKit", o que passava na maquina em que foi
+        // escrito e quebrava o CI nos outros dois sistemas. Nao e o motor que
+        // diverge, e o port: o `<input type=color>` do WebKit depende do
+        // widget nativo, e a build de Windows nao traz o mesmo seletor de cor
+        // que as builds de GTK e de macOS.
+        //
+        // Por isso a asserçao e por plataforma em vez de "aceita os dois":
+        // aceitar qualquer um dos dois nao afirmaria mais nada, e esta
+        // divergencia existe justamente para ficar registrada.
         final snapshots = await snapshotEverywhere('<input type=color>');
         expect(snapshots['chromium'], equals('- textbox: "#000000"'));
         expect(snapshots['firefox'], equals(snapshots['chromium']),
             reason: 'o Firefox acompanha o Chromium aqui');
-        expect(snapshots['webkit'], equals('- textbox'),
-            reason: 'o WebKit devolve value vazio para type=color');
+        expect(
+            snapshots['webkit'],
+            equals(Platform.isWindows ? '- textbox' : '- textbox: "#000000"'),
+            reason: Platform.isWindows
+                ? 'a build de Windows do WebKit devolve value vazio para '
+                    'type=color'
+                : 'fora do Windows a build do WebKit acompanha o Chromium');
       });
     });
   });
