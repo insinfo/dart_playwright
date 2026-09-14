@@ -47,8 +47,9 @@ CoreBindingCallback adaptBindingCallback(BindingCallback callback) {
     final coreFrame = source.frame;
     return callback(
       BindingSource(
-        context:
-            coreContext == null ? null : BrowserContextImpl.forCore(coreContext),
+        context: coreContext == null
+            ? null
+            : BrowserContextImpl.forCore(coreContext),
         page: page,
         frame: coreFrame == null ? null : FrameImpl(coreFrame, page),
       ),

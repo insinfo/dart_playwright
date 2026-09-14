@@ -23,7 +23,8 @@ class WkPageProxySession extends EventEmitter {
   WkPageProxySession(this.connection, this.pageProxyId);
 
   /// Completes with the targetId of the first page target in this proxy.
-  Future<String> waitForTarget({Duration timeout = const Duration(seconds: 30)}) {
+  Future<String> waitForTarget(
+      {Duration timeout = const Duration(seconds: 30)}) {
     return _targetCompleter.future.timeout(timeout, onTimeout: () {
       throw PlaywrightException(
           'Timeout waiting for WebKit target in pageProxy $pageProxyId');
@@ -75,7 +76,8 @@ class WkPageProxySession extends EventEmitter {
     if (method == null) return;
 
     if (method == 'Target.targetCreated') {
-      final targetInfo = response.params?['targetInfo'] as Map<String, dynamic>?;
+      final targetInfo =
+          response.params?['targetInfo'] as Map<String, dynamic>?;
       if (targetInfo != null && targetInfo['type'] == 'page') {
         targetId = targetInfo['targetId'] as String?;
         targetIsPaused = targetInfo['isPaused'] == true;
@@ -101,8 +103,8 @@ class WkPageProxySession extends EventEmitter {
                 (error as Map<String, dynamic>)['message'] as String? ??
                     'Unknown protocol error'));
           } else {
-            completer.complete(
-                (inner['result'] as Map<String, dynamic>?) ?? {});
+            completer
+                .complete((inner['result'] as Map<String, dynamic>?) ?? {});
           }
         }
       } else if (inner['method'] != null) {
@@ -143,7 +145,8 @@ class WkConnection extends EventEmitter {
     return completer;
   }
 
-  Completer<Map<String, dynamic>>? takeCallback(int id) => _callbacks.remove(id);
+  Completer<Map<String, dynamic>>? takeCallback(int id) =>
+      _callbacks.remove(id);
 
   WkPageProxySession pageProxySession(String pageProxyId) {
     return _pageProxySessions.putIfAbsent(

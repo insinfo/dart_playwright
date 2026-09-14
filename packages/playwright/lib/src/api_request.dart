@@ -281,11 +281,10 @@ class APIRequestContextImpl implements APIRequestContext {
 
     if (payload != null) request.add(payload);
 
-    final response =
-        await request.close().timeout(timeout ?? _defaultTimeout, onTimeout: () {
+    final response = await request.close().timeout(timeout ?? _defaultTimeout,
+        onTimeout: () {
       request.abort();
-      throw TimeoutException(
-          'API request to $uri timed out',
+      throw TimeoutException('API request to $uri timed out',
           timeout: timeout ?? _defaultTimeout);
     });
 
@@ -349,8 +348,7 @@ class APIRequestContextImpl implements APIRequestContext {
           'domain': cookie.domain ?? uri.host,
           'path': cookie.path ?? '/',
           if (cookie.expires != null)
-            'expires':
-                cookie.expires!.millisecondsSinceEpoch / 1000,
+            'expires': cookie.expires!.millisecondsSinceEpoch / 1000,
           'httpOnly': cookie.httpOnly,
           'secure': cookie.secure,
         },

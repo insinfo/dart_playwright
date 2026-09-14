@@ -82,8 +82,8 @@ class LocatorAssertions {
 
   String get _what => 'locator';
 
-  Future<void> _check(String expected,
-      Future<({bool ok, String actual})> Function() probe) {
+  Future<void> _check(
+      String expected, Future<({bool ok, String actual})> Function() probe) {
     if (!_isNot) return _retry(_what, expected, _timeout, probe);
     return _retry(_what, 'not $expected', _timeout, () async {
       final result = await probe();
@@ -139,8 +139,8 @@ class LocatorAssertions {
 
   /// The element is the active element of its document.
   Future<void> toBeFocused() => _check('be focused', () async {
-        final focused = await _locator.evaluate(
-            '(el) => el.ownerDocument.activeElement === el');
+        final focused = await _locator
+            .evaluate('(el) => el.ownerDocument.activeElement === el');
         return (
           ok: focused == true,
           actual: focused == true ? 'focused' : 'not focused'
@@ -229,15 +229,14 @@ class LocatorAssertions {
   /// Upstream's `[active]` is rejected rather than ignored: this port does not
   /// compute the focused node, and quietly dropping the attribute would make
   /// the assertion pass on any node.
-  Future<void> toMatchAriaSnapshot(String template) =>
-      _check('match the aria snapshot',
-          _ariaSnapshotProbe(template, _locator.accessibilitySnapshot,
-              _locator.ariaSnapshot));
+  Future<void> toMatchAriaSnapshot(String template) => _check(
+      'match the aria snapshot',
+      _ariaSnapshotProbe(
+          template, _locator.accessibilitySnapshot, _locator.ariaSnapshot));
 
   static String _normalize(String value) =>
       value.replaceAll(RegExp(r'\s+'), ' ').trim();
 }
-
 
 /// Shared body of `toMatchAriaSnapshot`.
 ///
@@ -273,8 +272,8 @@ class PageAssertions {
   PageAssertions get not =>
       PageAssertions(_page, timeout: _timeout, isNot: !_isNot);
 
-  Future<void> _check(String expected,
-      Future<({bool ok, String actual})> Function() probe) {
+  Future<void> _check(
+      String expected, Future<({bool ok, String actual})> Function() probe) {
     if (!_isNot) return _retry('page', expected, _timeout, probe);
     return _retry('page', 'not $expected', _timeout, () async {
       final result = await probe();
@@ -300,10 +299,10 @@ class PageAssertions {
   ///
   /// See [LocatorAssertions.toMatchAriaSnapshot] for the format and the
   /// matching rules.
-  Future<void> toMatchAriaSnapshot(String template) =>
-      _check('match the aria snapshot',
-          _ariaSnapshotProbe(template, _page.accessibilitySnapshot,
-              _page.ariaSnapshot));
+  Future<void> toMatchAriaSnapshot(String template) => _check(
+      'match the aria snapshot',
+      _ariaSnapshotProbe(
+          template, _page.accessibilitySnapshot, _page.ariaSnapshot));
 }
 
 /// Assertions about an [APIResponse]. These do not retry: a response is

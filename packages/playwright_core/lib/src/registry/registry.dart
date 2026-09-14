@@ -192,8 +192,20 @@ class BrowserRegistry {
 const _executablePaths = <String, Map<String, List<String>?>>{
   'chromium': {
     'win-x64': ['chrome-win64', 'chrome.exe'],
-    'mac-x64': ['chrome-mac-x64', 'Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing'],
-    'mac-arm64': ['chrome-mac-arm64', 'Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing'],
+    'mac-x64': [
+      'chrome-mac-x64',
+      'Google Chrome for Testing.app',
+      'Contents',
+      'MacOS',
+      'Google Chrome for Testing'
+    ],
+    'mac-arm64': [
+      'chrome-mac-arm64',
+      'Google Chrome for Testing.app',
+      'Contents',
+      'MacOS',
+      'Google Chrome for Testing'
+    ],
     'linux-x64': ['chrome-linux64', 'chrome'],
     'linux-arm64': ['chrome-linux', 'chrome'],
   },

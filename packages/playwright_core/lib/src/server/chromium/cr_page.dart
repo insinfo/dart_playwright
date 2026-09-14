@@ -287,7 +287,8 @@ class CrPage extends EventEmitter
   }
 
   @override
-  Object? contextIdOf(CoreFrame frame) => _contexts.contextFor(frame.id)?.contextId;
+  Object? contextIdOf(CoreFrame frame) =>
+      _contexts.contextFor(frame.id)?.contextId;
 
   void _onBindingCalled(Map<String, dynamic> params) {
     if (params['name'] != kBindingChannelName) return;
@@ -307,9 +308,8 @@ class CrPage extends EventEmitter
         timeout: timeout ?? const Duration(seconds: 10),
         // The main frame's default context is addressable without an id, so a
         // missing creation event must not make the page unusable.
-        fallback: frame.parentId == null
-            ? CrExecutionContext(session, null)
-            : null);
+        fallback:
+            frame.parentId == null ? CrExecutionContext(session, null) : null);
   }
 
   @override
@@ -330,8 +330,8 @@ class CrPage extends EventEmitter
   @override
   Future<CoreFrame?> contentFrame(CoreJSHandle handle) async {
     if (handle is! CrJSHandle) return null;
-    final info = await session
-        .send('DOM.describeNode', {'objectId': handle.objectId});
+    final info =
+        await session.send('DOM.describeNode', {'objectId': handle.objectId});
     final frameId = info['node']?['frameId'];
     if (frameId is! String) return null;
     return frameManager.frame(frameId);
@@ -377,8 +377,7 @@ class CrPage extends EventEmitter
   }
 
   @override
-  Future<bool> goBack({WaitUntilState? waitUntil}) =>
-      _goHistory(-1, waitUntil);
+  Future<bool> goBack({WaitUntilState? waitUntil}) => _goHistory(-1, waitUntil);
 
   @override
   Future<bool> goForward({WaitUntilState? waitUntil}) =>
@@ -467,8 +466,7 @@ class CrPage extends EventEmitter
 
   @override
   Future<List<int>> pdf(
-      {String? path,
-      CorePdfOptions options = const CorePdfOptions()}) async {
+      {String? path, CorePdfOptions options = const CorePdfOptions()}) async {
     final paper = options.paperSize;
     final result = await session.send('Page.printToPDF', {
       // Asking for a stream keeps a large document out of a single protocol

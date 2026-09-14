@@ -211,7 +211,6 @@ class WkPage extends EventEmitter
   @override
   List<CoreFrame> get frames => frameManager.frames;
 
-
   @override
   CoreCoverage get coverage {
     throw UnsupportedError(
@@ -533,8 +532,8 @@ class WkPage extends EventEmitter
 
   @override
   Future<void> setInterceptFileChooser(bool enabled) async {
-    await session
-        .sendToTarget('Page.setInterceptFileChooserDialog', {'enabled': enabled});
+    await session.sendToTarget(
+        'Page.setInterceptFileChooserDialog', {'enabled': enabled});
   }
 
   void _onFileChooserOpened(Map<String, dynamic> params) {
@@ -543,8 +542,7 @@ class WkPage extends EventEmitter
     if (frameId == null || element is! Map) return;
     final context = _contexts.contextFor(frameId);
     if (context is! WkExecutionContext) return;
-    emitFileChooser(
-        context.createHandle(Map<String, dynamic>.from(element)));
+    emitFileChooser(context.createHandle(Map<String, dynamic>.from(element)));
   }
 
   @override

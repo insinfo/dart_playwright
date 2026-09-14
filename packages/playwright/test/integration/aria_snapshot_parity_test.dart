@@ -618,8 +618,8 @@ void main() {
           await check('<input placeholder="Placeholder">', '''
             - textbox "Placeholder"
           ''');
-          await check('<input placeholder="Placeholder" aria-label="Label">',
-              '''
+          await check(
+              '<input placeholder="Placeholder" aria-label="Label">', '''
             - textbox "Label":
               - /placeholder: Placeholder
           ''');
@@ -646,7 +646,8 @@ void main() {
               <li>Dois</li>
             </ul>
           ''');
-          expect(await page.locator('#target').ariaSnapshot(), equals(unshift('''
+          expect(
+              await page.locator('#target').ariaSnapshot(), equals(unshift('''
             - list:
               - listitem: Um
               - listitem: Dois

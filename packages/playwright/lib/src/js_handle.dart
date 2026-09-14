@@ -18,7 +18,8 @@ class JSHandleImpl implements JSHandle {
   JSHandleImpl(this._coreHandle);
 
   @override
-  Future<dynamic> evaluate(String expression) => _coreHandle.evaluate(expression);
+  Future<dynamic> evaluate(String expression) =>
+      _coreHandle.evaluate(expression);
 
   @override
   Future<Map<String, dynamic>> getProperties() => _coreHandle.getProperties();

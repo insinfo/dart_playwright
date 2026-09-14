@@ -116,7 +116,8 @@ void main() {
 
         test('Deve preservar a ordem em que foram adicionados', () async {
           await page.addInitScript('window.__seed = "primeiro";');
-          await page.addInitScript('window.__seed = window.__seed + "-depois";');
+          await page
+              .addInitScript('window.__seed = window.__seed + "-depois";');
           await page.goto(server.url('/init-probe'));
           expect(await page.evaluate('() => window.__seenInHead'),
               equals('primeiro-depois'));
@@ -126,7 +127,8 @@ void main() {
           // Dois scripts declarando o mesmo `const` no topo: sem o IIFE por
           // script, o segundo quebraria com "already been declared" e o
           // primeiro nunca teria efeito.
-          await page.addInitScript('const marca = "um"; window.__seed = marca;');
+          await page
+              .addInitScript('const marca = "um"; window.__seed = marca;');
           await page.addInitScript(
               'const marca = "dois"; window.__seed = window.__seed + marca;');
           await page.goto(server.url('/init-probe'));
@@ -135,8 +137,7 @@ void main() {
         });
 
         test('Argumento sem funcao e recusado', () async {
-          expect(
-              () => page.addInitScript('window.__seed = 1;', arg: 7),
+          expect(() => page.addInitScript('window.__seed = 1;', arg: 7),
               throwsA(isA<ArgumentError>()));
         });
 
@@ -160,7 +161,8 @@ void main() {
 
         test('Script do contexto roda antes do script da pagina', () async {
           await context.addInitScript('window.__seed = "contexto";');
-          await page.addInitScript('window.__seed = window.__seed + "-pagina";');
+          await page
+              .addInitScript('window.__seed = window.__seed + "-pagina";');
           await page.goto(server.url('/init-probe'));
           expect(await page.evaluate('() => window.__seenInHead'),
               equals('contexto-pagina'));
@@ -178,10 +180,10 @@ void main() {
         test('Funcao exposta depois do goto responde no documento aberto',
             () async {
           await page.goto(server.url('/init-probe'));
-          await page.exposeFunction('gritar',
-              (args) => '${args[0]}'.toUpperCase());
-          expect(await page.evaluate('() => window.gritar("oi")'),
-              equals('OI'));
+          await page.exposeFunction(
+              'gritar', (args) => '${args[0]}'.toUpperCase());
+          expect(
+              await page.evaluate('() => window.gritar("oi")'), equals('OI'));
         });
 
         test('Funcao exposta sobrevive a navegacao', () async {
@@ -260,7 +262,8 @@ void main() {
             return 'ok';
           });
           await page.goto(server.url('/init-frames'));
-          expect(await page.evaluate('() => window.quemChamou()'), equals('ok'));
+          expect(
+              await page.evaluate('() => window.quemChamou()'), equals('ok'));
           expect(seenPage, same(page));
           expect(frameUrl, equals(server.url('/init-frames')));
         });
@@ -282,7 +285,8 @@ void main() {
         // ------------------------------------- exposeFunction no contexto
 
         test('Funcao do contexto alcanca pagina criada depois', () async {
-          await context.exposeFunction('dobrar', (args) => (args[0] as num) * 2);
+          await context.exposeFunction(
+              'dobrar', (args) => (args[0] as num) * 2);
           final other = await context.newPage();
           await other.goto(server.url('/hello'));
           expect(await other.evaluate('() => window.dobrar(21)'), equals(42));
@@ -290,8 +294,8 @@ void main() {
         });
 
         test('Funcao do contexto alcanca pagina que ja existia', () async {
-          await context.exposeFunction('triplicar',
-              (args) => (args[0] as num) * 3);
+          await context.exposeFunction(
+              'triplicar', (args) => (args[0] as num) * 3);
           await page.goto(server.url('/hello'));
           expect(await page.evaluate('() => window.triplicar(14)'), equals(42));
         });

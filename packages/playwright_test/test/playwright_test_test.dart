@@ -132,8 +132,7 @@ void main() {
       await t.page.setContent(page);
       await expectPage(t.page).not.toMatchAriaSnapshot('- button "Cancelar"');
       try {
-        await expectPage(t.page)
-            .toMatchAriaSnapshot('- button "Cancelar"');
+        await expectPage(t.page).toMatchAriaSnapshot('- button "Cancelar"');
         fail('deveria ter falhado');
       } on AssertionFailure catch (error) {
         // The point of putting the real snapshot in the message: it is what
@@ -147,8 +146,7 @@ void main() {
         (t) async {
       await t.page.setContent(page);
       final started = DateTime.now();
-      expect(
-          () => expectPage(t.page).toMatchAriaSnapshot('- button [nope]'),
+      expect(() => expectPage(t.page).toMatchAriaSnapshot('- button [nope]'),
           throwsA(isA<AriaTemplateParseException>()));
       // A parse error is the author's bug; retrying it for the full timeout
       // would report "the page never matched", which is a lie.

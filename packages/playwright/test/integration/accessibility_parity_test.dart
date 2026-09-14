@@ -111,16 +111,16 @@ void main() {
           expect(tree.allNodes.length, greaterThan(10),
               reason: '$browserName devolveu ${tree.allNodes.length} no(s)');
           // The old skeleton: one node, role WebArea, no name.
-          expect(tree.allNodes.map((node) => node.role), isNot(contains('WebArea')));
+          expect(tree.allNodes.map((node) => node.role),
+              isNot(contains('WebArea')));
         });
 
         test('papeis e nomes acessiveis, de tres origens', () async {
           final tree = await page.accessibilitySnapshot();
-          AccessibilityNode find(String role, String name) =>
-              tree.allNodes.firstWhere(
-                  (node) => node.role == role && node.name == name,
-                  orElse: () => fail(
-                      '$browserName: sem no $role "$name" em\n$tree'));
+          AccessibilityNode find(String role, String name) => tree.allNodes
+              .firstWhere((node) => node.role == role && node.name == name,
+                  orElse: () =>
+                      fail('$browserName: sem no $role "$name" em\n$tree'));
 
           expect(find('heading', 'Relatorio').level, equals(1));
           expect(find('heading', 'Secao').level, equals(2));
@@ -166,9 +166,10 @@ void main() {
 
         test('aninhamento: os links moram dentro da navegacao', () async {
           final tree = await page.accessibilitySnapshot();
-          final nav = tree.allNodes
-              .firstWhere((node) => node.role == 'navigation');
-          expect(nav.children.map((node) => node.role), equals(['link', 'link']));
+          final nav =
+              tree.allNodes.firstWhere((node) => node.role == 'navigation');
+          expect(
+              nav.children.map((node) => node.role), equals(['link', 'link']));
           expect(nav.children.map((node) => node.name), equals(['Um', 'Dois']));
 
           final list = tree.allNodes.firstWhere((node) => node.role == 'list');
@@ -193,8 +194,7 @@ void main() {
 
           // The three generics are <body> - the element the snapshot is
           // rooted at, and itself a generic - plus the div and the span.
-          final full =
-              await page.accessibilitySnapshot(interestingOnly: false);
+          final full = await page.accessibilitySnapshot(interestingOnly: false);
           expect(full.allNodes.map((node) => node.role).toList(),
               equals(['fragment', 'generic', 'generic', 'generic', 'button']));
         });

@@ -20,7 +20,7 @@ class CrJSHandle implements CoreJSHandle {
       'objectId': objectId,
       'ownProperties': true,
     });
-    
+
     final props = <String, dynamic>{};
     for (final prop in result['result'] as List) {
       if (prop['enumerable'] == true) {

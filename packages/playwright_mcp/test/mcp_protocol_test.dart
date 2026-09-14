@@ -92,7 +92,8 @@ class McpClient {
   /// The next message, or null when nothing arrives within [within].
   Future<Map<String, dynamic>?> nextOrNull(
       {Duration within = const Duration(seconds: 2)}) async {
-    final hasNext = await _lines.hasNext.timeout(within, onTimeout: () => false);
+    final hasNext =
+        await _lines.hasNext.timeout(within, onTimeout: () => false);
     if (!hasNext) return null;
     return jsonDecode(await _lines.next) as Map<String, dynamic>;
   }
@@ -132,7 +133,8 @@ void main() {
       // The server echoes a version it supports.
       expect(init['protocolVersion'], equals('2025-06-18'));
       expect((init['capabilities'] as Map)['tools'], isNotNull);
-      expect((init['serverInfo'] as Map)['name'], equals('playwright-dart-mcp'));
+      expect(
+          (init['serverInfo'] as Map)['name'], equals('playwright-dart-mcp'));
 
       // A notification must not be answered at all.
       client.notify('notifications/initialized');
@@ -218,8 +220,8 @@ void main() {
       addTearDown(client.close);
 
       client.sendRaw('{ this is not json');
-      final parseError = await client.nextOrNull(
-          within: const Duration(seconds: 20));
+      final parseError =
+          await client.nextOrNull(within: const Duration(seconds: 20));
       expect(parseError, isNotNull);
       expect((parseError!['error'] as Map)['code'],
           equals(McpErrorCodes.parseError));
@@ -244,8 +246,8 @@ void main() {
       });
       final result = missingArgument['result'] as Map<String, dynamic>;
       expect(result['isError'], isTrue);
-      expect(((result['content'] as List).first as Map)['text'],
-          contains('url'));
+      expect(
+          ((result['content'] as List).first as Map)['text'], contains('url'));
 
       // Malformed params are refused as invalid params.
       final badParams = await client.request('tools/call', {'name': 42});

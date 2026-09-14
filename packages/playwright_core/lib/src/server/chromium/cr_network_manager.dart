@@ -111,8 +111,8 @@ class CrNetworkManager extends EventEmitter {
     if (params['redirectResponse'] != null && requestId != null) {
       previous = _requests.remove(requestId);
       if (previous != null) {
-        previous.response = CrResponse(
-            session, {...params, 'response': params['redirectResponse']}, previous);
+        previous.response = CrResponse(session,
+            {...params, 'response': params['redirectResponse']}, previous);
         emit('response', previous.response);
         previous.markFinished();
         emit('requestFinished', previous);
@@ -135,8 +135,7 @@ class CrNetworkManager extends EventEmitter {
     final ip = response['remoteIPAddress'];
     final port = response['remotePort'];
     if (ip is String && port is num) {
-      res.remoteAddr =
-          CoreRemoteAddr(ipAddress: ip, port: port.toInt());
+      res.remoteAddr = CoreRemoteAddr(ipAddress: ip, port: port.toInt());
     }
     final security = response['securityDetails'];
     if (security is Map) {
