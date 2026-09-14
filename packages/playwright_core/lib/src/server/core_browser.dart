@@ -219,6 +219,19 @@ abstract class CoreBrowserContext extends EventEmitter {
   /// `{ 'cookies': [...], 'origins': [{ 'origin': ..., 'localStorage': [...] }] }`.
   Future<Map<String, dynamic>> storageState();
 
+  /// Adds [source] to the scripts every new document of every page of this
+  /// context runs before any of its own. See
+  /// [CoreBrowserContextBindings.addInitScript].
+  Future<CoreInitScript> addInitScript(String source);
+
+  /// Exposes [name] as a function on every page of this context. See
+  /// [CoreBrowserContextBindings.exposeBinding].
+  Future<void> exposeBinding(String name, CoreBindingCallback callback,
+      {bool noGlobal});
+
+  /// Functions exposed on this context.
+  Map<String, CoreBinding> get contextBindings;
+
   /// Disposes this context and every page that belongs to it.
   Future<void> close();
 }

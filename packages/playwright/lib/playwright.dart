@@ -23,6 +23,8 @@ export 'src/test_id.dart';
 export 'src/download.dart';
 export 'src/file_chooser.dart';
 export 'src/page_error.dart';
+export 'src/binding_source.dart'
+    show BindingCallback, BindingSource, ExposedFunction;
 export 'package:playwright_core/src/accessibility.dart';
 export 'package:playwright_core/src/aria_template.dart';
 export 'src/route.dart';

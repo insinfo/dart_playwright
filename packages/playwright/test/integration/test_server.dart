@@ -116,6 +116,45 @@ class TestServer {
             ..write('<html><body><h1 id="hello">Hello</h1></body></html>');
           break;
         
+        case '/init-probe':
+          // Records what the init script left behind, read at three moments:
+          // while <head> parses, while <body> parses, and after load. A page
+          // script can only see a value an init script set if the init script
+          // really ran first.
+          request.response
+            ..statusCode = 200
+            ..headers.contentType = ContentType.html
+            ..write('''
+              <html><head><script>
+                window.__seenInHead = window.__seed;
+              </script></head><body>
+                <div id="out">nothing</div>
+                <script>
+                  window.__seenInBody = window.__seed;
+                  document.getElementById('out').textContent =
+                      String(window.__seed);
+                </script>
+              </body></html>
+            ''');
+          break;
+
+        case '/init-frames':
+          // A host page with one child frame, both loading /init-probe, so a
+          // test can prove an init script reaches child frames too.
+          request.response
+            ..statusCode = 200
+            ..headers.contentType = ContentType.html
+            ..write('''
+              <html><head><script>
+                window.__seenInHead = window.__seed;
+              </script></head><body>
+                <div id="out">host</div>
+                <iframe id="child" name="init-child" src="/init-probe"
+                        style="width:200px;height:80px"></iframe>
+              </body></html>
+            ''');
+          break;
+
         case '/title':
           request.response
             ..statusCode = 200

@@ -20,6 +20,7 @@ class CrPage extends EventEmitter
         CorePageFileChooser,
         CorePageScreenshot,
         CorePageFrameEvaluation,
+        CorePageInitScripts,
         CorePageAccessibility,
         CorePageInputHelpers,
         CorePageDialogs,
@@ -70,6 +71,7 @@ class CrPage extends EventEmitter
     session.on('Runtime.consoleAPICalled', _onConsoleAPICalled);
     session.on('Log.entryAdded', _onLogEntryAdded);
     session.on('Runtime.exceptionThrown', _onExceptionThrown);
+    session.on('Runtime.bindingCalled', _onBindingCalled);
     // The renderer died: the tab is showing "Aw, Snap!". The session survives,
     // so the page object stays usable enough to report the crash.
     session.on('Inspector.targetCrashed', (_) => emit('crash', true));
@@ -240,6 +242,59 @@ class CrPage extends EventEmitter
 
   @override
   List<CoreFrame> get frames => frameManager.frames;
+
+  // --------------------------------------------------- init scripts
+
+  /// Identifiers CDP gave the scripts currently installed, so the next
+  /// [applyInitScripts] can take them back off.
+  final _initScriptIds = <String>[];
+
+  /// Binding channels already opened on this page.
+  final _bindingChannels = <String>{};
+
+  @override
+  Future<void> applyInitScripts(List<CoreInitScript> scripts) async {
+    for (final identifier in _initScriptIds) {
+      try {
+        await session.send('Page.removeScriptToEvaluateOnNewDocument',
+            {'identifier': identifier});
+      } catch (_) {
+        // The page may already be gone; the script goes with it.
+      }
+    }
+    _initScriptIds.clear();
+    for (final script in scripts) {
+      final result = await session.send(
+          'Page.addScriptToEvaluateOnNewDocument', {'source': script.source});
+      final identifier = result['identifier'] as String?;
+      if (identifier != null) _initScriptIds.add(identifier);
+    }
+  }
+
+  @override
+  Future<void> installBindingChannel(String name) async {
+    if (!_bindingChannels.add(name)) return;
+    try {
+      await session.send('Runtime.addBinding', {'name': name});
+    } catch (error) {
+      _bindingChannels.remove(name);
+      rethrow;
+    }
+  }
+
+  @override
+  Object? contextIdOf(CoreFrame frame) => _contexts.contextFor(frame.id)?.contextId;
+
+  void _onBindingCalled(Map<String, dynamic> params) {
+    if (params['name'] != kBindingChannelName) return;
+    final payload = params['payload'];
+    final contextId = (params['executionContextId'] as num?)?.toInt();
+    if (payload is! String || contextId == null) return;
+    // The context is addressed by id rather than looked up in the registry:
+    // a binding can legitimately be called from a context the driver never
+    // saw announced, and the answer still has to reach it.
+    dispatchBindingCall(payload, CrExecutionContext(session, contextId));
+  }
 
   @override
   Future<CoreExecutionContext> executionContextFor(CoreFrame frame,

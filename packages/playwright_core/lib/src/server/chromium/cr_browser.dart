@@ -89,6 +89,10 @@ class CrBrowser extends EventEmitter implements CoreBrowser {
     try {
       final page = await CrPage.create(session, targetId: targetId);
       await context.applyContextOptions(session);
+      // The page must carry the context's init scripts and bindings before
+      // anyone can navigate it.
+      page.browserContext = context;
+      await context.initializePage(page);
 
       final openerId = targetInfo['openerId'] as String?;
       _pagesByTarget[targetId] = page;
@@ -277,7 +281,7 @@ class CrBrowser extends EventEmitter implements CoreBrowser {
 
 /// An isolated Chromium browser context (incognito-like partition).
 class CrBrowserContext extends EventEmitter
-    with BrowserContextStorage
+    with BrowserContextStorage, CoreBrowserContextBindings
     implements CoreBrowserContext {
   final CrBrowser browser;
   final String? browserContextId;

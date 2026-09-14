@@ -62,6 +62,10 @@ class WkBrowser extends EventEmitter implements CoreBrowser {
       final page = WkPage(session, browserContextId: contextId);
       await page.initialize();
       await context.applyContextOptions(session);
+      // The page must carry the context's init scripts and bindings before
+      // anyone can navigate it.
+      page.browserContext = context;
+      await context.initializePage(page);
 
       final openerId = params['openerId'] as String?;
       _pagesByProxy[pageProxyId] = page;
@@ -239,7 +243,7 @@ class WkBrowser extends EventEmitter implements CoreBrowser {
 
 /// An isolated WebKit browser context.
 class WkBrowserContext extends EventEmitter
-    with BrowserContextStorage
+    with BrowserContextStorage, CoreBrowserContextBindings
     implements CoreBrowserContext {
   final WkBrowser browser;
   final String browserContextId;

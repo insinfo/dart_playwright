@@ -20,6 +20,7 @@ class FfPage extends EventEmitter
         CorePageFileChooser,
         CorePageScreenshot,
         CorePageFrameEvaluation,
+        CorePageInitScripts,
         CorePageAccessibility,
         CorePageInputHelpers,
         CorePageDialogs,
@@ -49,6 +50,7 @@ class FfPage extends EventEmitter
     session.on('Page.fileChooserOpened', _onFileChooserOpened);
     session.on('Runtime.console', _onConsole);
     session.on('Page.uncaughtError', _onUncaughtError);
+    session.on('Page.bindingCalled', _onBindingCalled);
     session.on('Page.crashed', (_) => emit('crash', true));
     session.on('Page.frameAttached', (params) {
       frameManager.frameAttached(
@@ -166,6 +168,45 @@ class FfPage extends EventEmitter
 
   @override
   List<CoreFrame> get frames => frameManager.frames;
+
+  // --------------------------------------------------- init scripts
+
+  /// Binding channels already opened on this page.
+  final _bindingChannels = <String>{};
+
+  @override
+  Future<void> applyInitScripts(List<CoreInitScript> scripts) async {
+    // Juggler replaces the whole list in one command, which is why there is
+    // nothing to remove first.
+    await session.send('Page.setInitScripts', {
+      'scripts': [
+        for (final script in scripts) {'script': script.source},
+      ],
+    });
+  }
+
+  @override
+  Future<void> installBindingChannel(String name) async {
+    if (!_bindingChannels.add(name)) return;
+    try {
+      await session.send('Page.addBinding', {'name': name, 'script': ''});
+    } catch (error) {
+      _bindingChannels.remove(name);
+      rethrow;
+    }
+  }
+
+  @override
+  Object? contextIdOf(CoreFrame frame) =>
+      _contexts.contextFor(frame.id)?.contextId;
+
+  void _onBindingCalled(Map<String, dynamic> params) {
+    if (params['name'] != kBindingChannelName) return;
+    final payload = params['payload'];
+    final contextId = params['executionContextId'] as String?;
+    if (payload is! String || contextId == null) return;
+    dispatchBindingCall(payload, FfExecutionContext(session, contextId));
+  }
 
   @override
   Future<CoreExecutionContext> executionContextFor(CoreFrame frame,
