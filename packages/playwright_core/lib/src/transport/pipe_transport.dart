@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
@@ -52,7 +53,7 @@ class PipeTransport implements ConnectionTransport {
         final json = jsonDecode(messageStr) as Map<String, dynamic>;
         _messageController.add(ProtocolResponse.fromJson(json));
       } catch (e) {
-        print('Error decoding pipe message: $e');
+        stderr.writeln('Error decoding pipe message: $e');
       }
     });
   }

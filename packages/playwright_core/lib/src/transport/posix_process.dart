@@ -76,16 +76,16 @@ class PosixProcess {
     final debug = Platform.environment['PLAYWRIGHT_DEBUG'] != null;
     if (debug) {
       process.exitCode
-          .then((code) => print('[browser exit] code=$code'))
+          .then((code) => stderr.writeln('[browser exit] code=$code'))
           .catchError((_) {});
       process.stdout
           .transform(const SystemEncoding().decoder)
           .transform(const LineSplitter())
-          .listen((line) => print('[browser stdout] $line'));
+          .listen((line) => stderr.writeln('[browser stdout] $line'));
       process.stderr
           .transform(const SystemEncoding().decoder)
           .transform(const LineSplitter())
-          .listen((line) => print('[browser stderr] $line'));
+          .listen((line) => stderr.writeln('[browser stderr] $line'));
     } else {
       process.stdout.drain<void>().catchError((_) {});
       process.stderr.drain<void>().catchError((_) {});

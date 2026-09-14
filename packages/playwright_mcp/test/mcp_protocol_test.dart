@@ -78,7 +78,15 @@ class McpClient {
 
   Future<Map<String, dynamic>> _nextMessage() async {
     final line = await _lines.next.timeout(const Duration(seconds: 120));
-    return jsonDecode(line) as Map<String, dynamic>;
+    try {
+      return jsonDecode(line) as Map<String, dynamic>;
+    } on FormatException catch (error) {
+      // Anything that is not a protocol message on stdout is a bug worth
+      // naming: a stdio server's stdout is the protocol channel, and one
+      // stray diagnostic line breaks every client. Say which line it was.
+      throw StateError('Non-protocol output on the server stdout: '
+          '"$line" ($error)');
+    }
   }
 
   /// The next message, or null when nothing arrives within [within].
