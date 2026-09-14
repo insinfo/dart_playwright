@@ -345,6 +345,13 @@ abstract class Locator with LocatorFactory {
   /// The element's accessible name.
   Future<String> accessibleName({Duration? timeout, bool strict = true});
 
+  /// The element's subtree as upstream's aria snapshot YAML.
+  ///
+  /// The element itself is the root of the snapshot, so the first line is the
+  /// element's own role. See [Page.ariaSnapshot] for the format and for what
+  /// this port leaves out.
+  Future<String> ariaSnapshot({Duration? timeout, bool strict = true});
+
   // ------------------------------------------------------------ evaluation
 
   /// Evaluate [expression], a function of the element.
@@ -1070,6 +1077,15 @@ class LocatorImpl extends Locator {
   Future<String> accessibleName({Duration? timeout, bool strict = true}) async {
     final result = await _run(
         'return window.__pwDart.normalizeWhiteSpace(window.__pwDart.accessibleName(el, false));',
+        timeout: timeout,
+        strict: strict);
+    return result?.toString() ?? '';
+  }
+
+  @override
+  Future<String> ariaSnapshot({Duration? timeout, bool strict = true}) async {
+    final result = await _run(
+        'return window.__pwDart.ariaSnapshot(el, {});',
         timeout: timeout,
         strict: strict);
     return result?.toString() ?? '';

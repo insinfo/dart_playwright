@@ -107,7 +107,16 @@ abstract class CorePage extends EventEmitter {
   /// Chromium only; Firefox and WebKit have no print-to-PDF command in their
   /// protocols, so they throw.
   Future<List<int>> pdf({String? path, CorePdfOptions options});
-  Future<AccessibilitySnapshot> accessibilitySnapshot();
+  /// The accessibility tree of the page's main frame.
+  ///
+  /// See [CorePageAccessibility.accessibilitySnapshot].
+  Future<AccessibilitySnapshot> accessibilitySnapshot(
+      {bool interestingOnly = true, CoreFrame? frame});
+
+  /// The aria snapshot YAML of the page's main frame.
+  ///
+  /// See [CorePageAccessibility.ariaSnapshot].
+  Future<String> ariaSnapshot({CoreFrame? frame, String? selectorJs});
 
   /// Resizes the page viewport, overriding whatever the context set.
   Future<void> setViewportSize(int width, int height);
@@ -761,6 +770,107 @@ mixin CorePageFrameEvaluation {
   void forgetExecutionContext(Object contextId) {
     _injectedContexts.remove(contextId);
   }
+}
+
+/// The accessibility tree and the aria snapshot, shared by the engine pages.
+///
+/// There is nothing engine-specific left here on purpose. Upstream Playwright
+/// used to have three implementations of this — `crAccessibility.ts` over CDP's
+/// `Accessibility.getFullAXTree`, `ffAccessibility.ts` over Juggler and
+/// `wkAccessibility.ts` over the WebKit inspector protocol — and removed all
+/// three: as of 1.62 the only accessibility tree it builds is the one its
+/// injected script computes from the DOM, in the page, identically everywhere.
+/// This port follows that, which is why Firefox and WebKit answer at all and
+/// why the three answers agree.
+mixin CorePageAccessibility on CorePageFrameEvaluation {
+  Future<String> title();
+
+  /// The accessibility tree of [frame] (the main frame by default).
+  ///
+  /// With [interestingOnly] — the default, and upstream's `default` snapshot
+  /// mode — an element whose computed ARIA role is `generic` contributes no
+  /// node of its own and its children are hoisted to the nearest node that has
+  /// a role, so `<div><span><button>` is one `button`, not three nodes. Pass
+  /// `false` to keep those wrappers: that sets upstream's internal
+  /// `includeGenericRole`, the switch its `ai` mode uses, on an otherwise
+  /// unchanged tree.
+  ///
+  /// The snapshot does not descend into iframes; each frame has its own tree.
+  Future<AccessibilitySnapshot> accessibilitySnapshot({
+    bool interestingOnly = true,
+    CoreFrame? frame,
+  }) async {
+    final options = jsonEncode({'includeGenericRole': !interestingOnly});
+    final raw = await evaluateInjected(
+        frame ?? mainFrame, '() => window.__pwDart.ariaTree(null, $options)');
+    final counter = _RefCounter();
+    return AccessibilitySnapshot(
+      title: await title(),
+      root: _toAccessibilityNode(raw, counter),
+    );
+  }
+
+  /// The same tree rendered as upstream's aria snapshot YAML.
+  ///
+  /// This is the text `toMatchAriaSnapshot` compares against upstream. Pass
+  /// [selectorJs] to snapshot one element instead of the whole frame: it is a
+  /// JS expression evaluated in the frame that must return an element.
+  Future<String> ariaSnapshot({CoreFrame? frame, String? selectorJs}) async {
+    final root = selectorJs ?? 'null';
+    final result = await evaluateInjected(frame ?? mainFrame,
+        '() => window.__pwDart.ariaSnapshot($root, {})');
+    return result as String? ?? '';
+  }
+
+  /// Converts one node of the injected script's JSON tree.
+  ///
+  /// Upstream models a run of text as a bare string child; this tree has one
+  /// node type, so those become nodes with role `text`.
+  AccessibilityNode _toAccessibilityNode(Object? data, _RefCounter counter) {
+    final ref = counter.next();
+    if (data is String) {
+      return AccessibilityNode(role: 'text', name: data, ref: ref);
+    }
+    final map = (data as Map).cast<String, dynamic>();
+    return AccessibilityNode(
+      role: map['role'] as String? ?? '',
+      name: map['name'] as String? ?? '',
+      value: map['value'] as String?,
+      description: map['description'] as String?,
+      checked: _ariaTristate(map['checked']),
+      disabled: map['disabled'] as bool?,
+      expanded: map['expanded'] as bool?,
+      invalid: _ariaTristate(map['invalid']),
+      level: (map['level'] as num?)?.toInt(),
+      pressed: _ariaTristate(map['pressed']),
+      selected: map['selected'] as bool?,
+      props: {
+        for (final entry in ((map['props'] as Map?) ?? const {}).entries)
+          entry.key.toString(): entry.value.toString(),
+      },
+      children: [
+        for (final child in (map['children'] as List? ?? const []))
+          _toAccessibilityNode(child, counter),
+      ],
+      ref: ref,
+    );
+  }
+
+  /// `aria-checked`, `aria-pressed` and `aria-invalid` are booleans that also
+  /// have named states (`mixed`, `grammar`, `spelling`), so they cross the
+  /// bridge as `true`/`false` or as the name. Keep both as the string the
+  /// spec uses instead of flattening the named states into `true`.
+  static String? _ariaTristate(Object? value) {
+    if (value == null) return null;
+    if (value is bool) return value ? 'true' : 'false';
+    return value.toString();
+  }
+}
+
+/// Hands out the pre-order `node_N` addresses of a single snapshot.
+class _RefCounter {
+  int _next = 0;
+  String next() => 'node_${_next++}';
 }
 
 /// Content and script-polling helpers shared by the engine pages.

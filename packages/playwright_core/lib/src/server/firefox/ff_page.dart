@@ -6,7 +6,6 @@ import 'ff_execution_context.dart';
 import 'ff_input.dart';
 import 'ff_network_manager.dart';
 import 'ff_route.dart';
-import '../../accessibility.dart';
 
 import '../context_registry.dart';
 import '../core_page.dart';
@@ -21,6 +20,7 @@ class FfPage extends EventEmitter
         CorePageFileChooser,
         CorePageScreenshot,
         CorePageFrameEvaluation,
+        CorePageAccessibility,
         CorePageInputHelpers,
         CorePageDialogs,
         CorePageContentHelpers
@@ -334,23 +334,6 @@ class FfPage extends EventEmitter
     throw UnsupportedError(
         'page.pdf() is Chromium-only: the Juggler protocol has no '
         'print-to-PDF command, and upstream Playwright has the same limit.');
-  }
-
-  /// Get Accessibility Snapshot
-  Future<AccessibilitySnapshot> accessibilitySnapshot() async {
-    // Firefox might not have Accessibility.getFullAXTree out of the box in Juggler
-    // We mock it for parity tests if it fails
-    try {
-      await session.send('Accessibility.getFullAXTree');
-      // Similar parsing...
-      return AccessibilitySnapshot(
-          title: 'Firefox A11y',
-          root: AccessibilityNode(role: 'WebArea', name: '', ref: 'root'));
-    } catch (_) {
-      return AccessibilitySnapshot(
-          title: await title(),
-          root: AccessibilityNode(role: 'WebArea', name: '', ref: 'root'));
-    }
   }
 
   bool _routeListenerInstalled = false;
