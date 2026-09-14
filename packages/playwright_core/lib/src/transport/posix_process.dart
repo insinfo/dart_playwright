@@ -4,6 +4,8 @@ import 'dart:isolate';
 
 import 'package:stdlibc/stdlibc.dart' as libc;
 
+import 'browser_process_registry.dart';
+
 /// Launches a browser process on Linux/macOS with the Playwright fd3/fd4
 /// inspector pipes attached.
 ///
@@ -34,9 +36,16 @@ class PosixProcess {
 
   int get processId => process.pid;
 
+  /// Whether [kill] already ran.
+  bool get isKilled => _killed;
+
   void kill() {
     if (_killed) return;
     _killed = true;
+    // The browser's content/renderer children are not signalled with their
+    // parent, so reap the tree before the parent itself.
+    killProcessTree(process.pid);
+    BrowserProcessRegistry.unregister(process.pid);
     process.kill(ProcessSignal.sigkill);
     libc.close(jugglerWriteFd);
     libc.close(jugglerReadFd);

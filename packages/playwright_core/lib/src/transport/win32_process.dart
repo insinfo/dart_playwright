@@ -9,6 +9,8 @@ import 'dart:typed_data';
 import 'package:ffi/ffi.dart';
 import 'package:win32/win32.dart';
 
+import 'browser_process_registry.dart';
+
 class Win32Process {
   final int processId;
   final int processHandle;
@@ -25,7 +27,20 @@ class Win32Process {
     this.jugglerReadHandle,
   );
 
+  bool _killed = false;
+
+  /// Whether [kill] already ran. Handles must not be closed twice.
+  bool get isKilled => _killed;
+
   void kill() {
+    // Closing a handle twice is undefined behaviour, and `kill` is reached
+    // from both the transport's explicit close and its end-of-pipe handler.
+    if (_killed) return;
+    _killed = true;
+    // TerminateProcess reaches only the browser process itself; its renderer
+    // and GPU children stay alive and orphaned. taskkill /T walks the tree.
+    killProcessTree(processId);
+    BrowserProcessRegistry.unregister(processId);
     TerminateProcess(processHandle, 0);
     CloseHandle(processHandle);
     CloseHandle(threadHandle);

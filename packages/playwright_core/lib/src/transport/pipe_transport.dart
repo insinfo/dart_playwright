@@ -61,6 +61,11 @@ class PipeTransport implements ConnectionTransport {
   void _handleClose(String reason) {
     if (_closed) return;
     _closed = true;
+    // The end of the pipe is not the end of the process. Chromium can drop
+    // the DevTools pipe and stay alive, and a browser that crashed still
+    // leaves its children running. Reaping here — not only in [close] — is
+    // what stops an unexpected disconnect from stranding a process tree.
+    _process.kill();
     _receivePort.close();
     _readerIsolate.kill();
     _messageController.close();
@@ -100,6 +105,8 @@ class PipeTransport implements ConnectionTransport {
   @override
   Future<void> close() async {
     _handleClose('User initiated close');
+    // Already reaped by _handleClose on the common path; this covers a
+    // close() that raced an end-of-pipe we never saw.
     _process.kill();
   }
 }

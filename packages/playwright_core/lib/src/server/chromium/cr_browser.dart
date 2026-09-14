@@ -35,18 +35,52 @@ class CrBrowser extends EventEmitter implements CoreBrowser {
     connection.on('Target.detachedFromTarget', _onDetachedFromTarget);
   }
 
+  /// Where this browser's downloads land when a context does not say.
+  String? launchDownloadsPath;
+
+  /// Where trace artifacts are written.
+  String? tracesDir;
+
+  /// Whether closing this browser should shut the process down.
+  ///
+  /// False for `connectOverCDP`: that browser belongs to whoever started it,
+  /// and `close()` must only drop our connection to it.
+  bool ownsBrowserProcess = true;
+
   /// Connect to a Chromium instance.
   static Future<CrBrowser> connect(
       CRConnection connection, Process? process, String? tempUserDataDir,
-      {bool persistentContext = false}) async {
+      {bool persistentContext = false,
+      CoreContextOptions contextOptions = const CoreContextOptions(),
+      String? downloadsPath,
+      String? tracesDir,
+      bool ownsBrowserProcess = true}) async {
     final browser = CrBrowser._(connection, process, tempUserDataDir);
+    browser.launchDownloadsPath = downloadsPath;
+    browser.tracesDir = tracesDir;
+    browser.ownsBrowserProcess = ownsBrowserProcess;
     await browser._initialize();
     if (persistentContext) {
-      browser._contexts.add(
-        CrBrowserContext(browser, null, const CoreContextOptions()),
-      );
+      // The browser's own default context — browserContextId null — is the
+      // one a persistent launch hands back, and the one a CDP connection
+      // finds the existing pages in.
+      final context = CrBrowserContext(browser, null, contextOptions);
+      browser._contexts.add(context);
+      await context.applyDownloadBehavior();
+      final permissions = contextOptions.permissions;
+      if (permissions != null && permissions.isNotEmpty) {
+        await context.grantPermissions(permissions);
+      }
     }
     return browser;
+  }
+
+  /// The default context of a persistent launch, or null for a plain launch.
+  CrBrowserContext? get defaultContext {
+    for (final context in _contexts) {
+      if (context.browserContextId == null) return context;
+    }
+    return null;
   }
 
   Future<void> _initialize() async {
@@ -225,13 +259,25 @@ class CrBrowser extends EventEmitter implements CoreBrowser {
   }
 
   /// Close the browser.
+  ///
+  /// Two things here are load-bearing for not leaking processes:
+  ///
+  /// The graceful `Browser.close` is bounded. A browser wedged on a
+  /// `beforeunload` dialog or a hung renderer never answers it, and an
+  /// unbounded await meant `close()` never returned — the run was interrupted
+  /// and Chromium, with its renderer and GPU children, outlived the Dart
+  /// process. Firefox and WebKit already bounded theirs; this matches them.
+  ///
+  /// And the transport is closed — which is what kills the process — even
+  /// when the connection already reported itself closed. Returning early on
+  /// `_isClosed` skipped the kill entirely whenever the pipe dropped first.
   Future<void> close() async {
-    if (_isClosed) return;
-
-    try {
-      await connection.send('Browser.close');
-    } catch (e) {
-      // Process might already be dead
+    if (ownsBrowserProcess) {
+      try {
+        await connection.send('Browser.close').timeout(_gracefulCloseTimeout);
+      } catch (_) {
+        // Already dead, or not answering. Either way the kill below settles it.
+      }
     }
 
     if (process != null) {
@@ -240,11 +286,18 @@ class CrBrowser extends EventEmitter implements CoreBrowser {
     await connection.close();
   }
 
+  static const _gracefulCloseTimeout = Duration(seconds: 3);
+
   String? _downloadsDirectory;
 
   /// A temporary directory for this browser's downloads, created on demand
   /// and removed when the browser closes.
   String _defaultDownloadsDirectory() {
+    final launchPath = launchDownloadsPath;
+    if (launchPath != null) {
+      Directory(launchPath).createSync(recursive: true);
+      return launchPath;
+    }
     return _downloadsDirectory ??= Directory.systemTemp
         .createTempSync('playwright-dart-downloads')
         .path;

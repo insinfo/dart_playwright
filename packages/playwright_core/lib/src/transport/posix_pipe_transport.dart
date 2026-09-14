@@ -66,6 +66,9 @@ class PosixPipeTransport implements ConnectionTransport {
   void _handleClose(String reason) {
     if (_closed) return;
     _closed = true;
+    // See PipeTransport._handleClose: the pipe closing does not mean the
+    // process — or its content/renderer children — went away.
+    _process.kill();
     _receivePort.close();
     _readerIsolate.kill();
     _messageController.close();
