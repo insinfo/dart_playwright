@@ -68,12 +68,12 @@ alvo marcado; e, com `sources`, a pilha Dart de cada ação mais os arquivos
 
 ### O que não grava, e por quê
 
-- **Screencast (o filmstrip do topo do visualizador).** Precisa de
-  `Page.startScreencast` e dos equivalentes nos outros dois motores, que
-  este porte não tem. A opção `screenshots` existe mas é o
-  `snapshots: { screen: true }` do upstream — um PNG por fase de ação —,
-  não o filmstrip; está dito na documentação do método e aqui.
-- **Vídeo** (`recordVideo`), que é outro assunto e outro caminho.
+- **Screencast (o filmstrip do topo do visualizador).** Gravado: a opção
+  `screenshots` liga a tira de filme de verdade, com entradas
+  `screencast-frame` e os recursos JPEG que elas apontam. O PNG por fase de
+  ação continua disponível como `actionScreenshots`. O que ainda não há é a
+  tira para o WebKit, cujo screencast grava direto num arquivo em vez de
+  entregar quadros.
 - **`tracing.group`/`groupEnd`**, `startHar`/`stopHar` e o modo `live` da UI.
 - **`aria-snapshot` por ação.** O `ariaSnapshot` existe no porte desde a
   rodada anterior; o que falta é gravá-lo no trace e o modo do visualizador
@@ -1223,7 +1223,9 @@ Faltam recursos completos de serialização entre Dart e runtime da página:
 - Implementar downloads e file chooser.
 - Implementar upload.
 - Implementar `APIRequestContext`.
-- ~~Implementar tracing~~ FEITO em 2026-09-14, menos screencast. Vídeo continua aberto.
+- ~~Implementar tracing~~ FEITO em 2026-09-14, com a tira de filme.
+- ~~Implementar vídeo~~ `recordVideo` e `page.video()` FEITOS; o screencast
+  dos motores e o muxer ffmpeg entram por contrato separado.
 - Implementar `page.pdf` para Chromium.
 
 ### Milestone 4 - Paridade de contexto e configuração

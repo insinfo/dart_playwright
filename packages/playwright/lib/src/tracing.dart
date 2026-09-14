@@ -23,10 +23,17 @@ abstract class Tracing {
   /// name is used otherwise. [title] is what the viewer shows as the title of
   /// the run.
   ///
-  /// [screenshots] captures a PNG of the page before, during and after each
-  /// action. Note this is **not** upstream's `screenshots: true`, which
-  /// records the screencast filmstrip; that needs `Page.startScreencast` and
-  /// is not ported. It is upstream's `snapshots: { screen: true }`.
+  /// [screenshots] records the filmstrip: the strip of frames the viewer runs
+  /// along the top of its timeline, and the image it shows while you scrub
+  /// through it. This is upstream's `screenshots: true`; the frames come from
+  /// the page's screencast, which is shared with `recordVideo` when both are
+  /// on.
+  ///
+  /// [actionScreenshots] is a different thing with a similar name: one PNG of
+  /// the page before, during and after each action, which is upstream's
+  /// internal `snapshots: { screen: true }`. Upstream's own `Tracing.start`
+  /// does not expose it; it is here because the viewer reads it and it costs
+  /// nothing to keep.
   ///
   /// [snapshots] captures the DOM of every frame before and after each action,
   /// which is what makes the viewer show the page as it was at that moment —
@@ -42,6 +49,7 @@ abstract class Tracing {
     String? name,
     String? title,
     bool screenshots = false,
+    bool actionScreenshots = false,
     bool snapshots = false,
     bool sources = false,
   });
@@ -75,12 +83,14 @@ class TracingImpl implements Tracing {
     String? name,
     String? title,
     bool screenshots = false,
+    bool actionScreenshots = false,
     bool snapshots = false,
     bool sources = false,
   }) async {
     _tracing.start(CoreTracingOptions(
       name: name,
       screenshots: screenshots,
+      actionScreenshots: actionScreenshots,
       snapshots: snapshots,
       sources: sources,
     ));

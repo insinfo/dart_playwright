@@ -5,6 +5,11 @@ import 'core_page.dart';
 import 'launch_options.dart';
 import 'trace/instrumentation.dart';
 import 'trace/tracing.dart';
+import 'video/core_video.dart';
+import 'video/record_video_options.dart';
+
+export 'video/core_video.dart' show CoreVideo;
+export 'video/record_video_options.dart' show CoreRecordVideoOptions;
 
 /// Options applied to every page of a browser context.
 /// Latitude, longitude and accuracy in metres.
@@ -80,6 +85,9 @@ class CoreContextOptions {
   /// engines take one per context, so this is not a Chromium special case.
   final CoreProxySettings? proxy;
 
+  /// Records a video of every page of this context. Null records nothing.
+  final CoreRecordVideoOptions? recordVideo;
+
   const CoreContextOptions({
     this.viewport,
     this.userAgent,
@@ -99,6 +107,7 @@ class CoreContextOptions {
     this.geolocation,
     this.permissions,
     this.proxy,
+    this.recordVideo,
   });
 
   /// Whether anything here needs emulation applied at all.
@@ -275,6 +284,16 @@ abstract class CoreBrowserContext extends EventEmitter {
   /// Deterministic time for every page of this context.
   CoreClock get clock;
 
+  /// Every video this context started, finished ones included.
+  List<CoreVideo> get videos;
+
+  /// Ends every video of this context and waits for the files to be closed.
+  ///
+  /// [close] does this itself; it is public because stopping a screencast
+  /// needs the page to still be alive, so anything that is about to take the
+  /// pages away has to come through here first.
+  Future<void> finishVideos();
+
   /// Disposes this context and every page that belongs to it.
   Future<void> close();
 }
@@ -293,6 +312,11 @@ mixin BrowserContextStorage on EventEmitter {
 
   /// Pages opened by this context, used to snapshot localStorage per origin.
   final List<CorePage> trackedPages = [];
+
+  /// Every video this context started, closed pages included: `saveAs` has to
+  /// work long after the page that was filmed is gone, so the artifact cannot
+  /// be dropped with the page.
+  final List<CoreVideo> videos = [];
 
   List<CorePage> get pages => List.unmodifiable(trackedPages);
 
@@ -325,6 +349,11 @@ mixin BrowserContextStorage on EventEmitter {
     }
     page.once('close', ([dynamic _]) => trackedPages.remove(page));
 
+    // Before anything else can happen to the page: upstream starts the
+    // recorder in the target-attached handler, ahead of `Target.resume`, so
+    // that the first painted frame is already being captured.
+    _startVideoRecording(page);
+
     // The opener sees the popup first: upstream resolves `waitForPopup`
     // before the context's `page` event listeners run.
     if (opener != null) opener.emit('popup', page);
@@ -345,11 +374,40 @@ mixin BrowserContextStorage on EventEmitter {
     emit('download', download);
   }
 
+  /// Starts this page's video, when the context asked for one, and arranges
+  /// for it to be finished however the page ends.
+  ///
+  /// A crash is its own ending: the page is not closed and never will be, so a
+  /// recorder waiting for `close` would keep the video open — and
+  /// `video.path()` with it — for the rest of the process. Upstream finishes
+  /// the artifact on both paths for the same reason.
+  void _startVideoRecording(CorePage page) {
+    final recording = VideoRecording.maybeStart(page);
+    if (recording == null) return;
+    videos.add(recording.video);
+    void finish([dynamic _]) => unawaited(recording.video.finish());
+    page.once('close', finish);
+    page.once('crash', finish);
+  }
+
+  /// Ends every video of this context and waits for the files to be closed.
+  ///
+  /// Called before the context is actually torn down, because stopping a
+  /// screencast needs the page that is being filmed to still be there.
+  Future<void> finishVideos() async {
+    if (videos.isEmpty) return;
+    await Future.wait([for (final video in videos) video.finish()]);
+  }
+
   /// Announces the context's own closure and releases its streams.
   void notifyClosed() {
     // Before the streams go: the recorder has to drop its listeners and its
     // temporary directory, and it cannot talk to a closed context.
     tracing.dispose();
+    // The browser can also die without anyone closing the context — a crash,
+    // a killed process. There is nothing left to await on, but the videos
+    // still have to stop resolving into futures nobody will ever complete.
+    unawaited(finishVideos());
     emit('close', true);
     (this as EventEmitter).disposeStreams();
   }

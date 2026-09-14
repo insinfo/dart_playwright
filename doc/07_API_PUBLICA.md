@@ -578,6 +578,7 @@ abstract class Tracing {
     String? name,
     String? title,
     bool screenshots = false,
+    bool actionScreenshots = false,
     bool snapshots = false,
     bool sources = false,
   });
@@ -607,16 +608,20 @@ corpos das respostas e as folhas de estilo sobrescritas) e, com `sources`,
 | `title` | o título que o visualizador mostra no topo |
 | `snapshots` | o DOM de cada frame antes e depois de cada ação — é isto que faz o painel mostrar a página como ela estava |
 | `sources` | a pilha Dart de cada ação, e os arquivos `.dart` que ela aponta dentro do arquivo, para a aba *Source* |
-| `screenshots` | um PNG da página em cada fase da ação |
+| `screenshots` | a tira de filme: os quadros do screencast da página, que o visualizador mostra na faixa do topo e ao arrastar o cursor pela linha do tempo |
+| `actionScreenshots` | um PNG da página em cada fase da ação |
 | `name` | o nome base dos arquivos dentro do diretório temporário |
 
 #### Divergências conhecidas em relação ao upstream
 
-- **`screenshots` não é o filmstrip.** No upstream, `screenshots: true`
-  liga o screencast que roda na faixa superior do visualizador, e isso
-  precisa de `Page.startScreencast`, que este porte não tem. Aqui a opção
-  captura um PNG por fase de ação, que é o `snapshots: { screen: true }`
-  do upstream.
+- **`actionScreenshots` não existe no upstream.** É o
+  `snapshots: { screen: true }` interno, que o test runner do upstream usa e
+  a API pública dele não expõe. `screenshots` aqui é o mesmo do upstream: a
+  tira de filme. Os quadros saem em JPEG, como no upstream, e o ffmpeg
+  empacotado só decodifica mjpeg.
+- **A tira de filme depende do screencast do motor.** O WebKit grava direto
+  num arquivo e não entrega quadros; nesse caminho o resto do trace continua
+  igual, só não há tira.
 - **O streamer de snapshot é instalado na primeira captura de cada
   documento**, não antes dos scripts da página, porque `addInitScript`
   ainda não existe aqui. O que se perde é a interceptação do CSSOM naquele

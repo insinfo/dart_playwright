@@ -19,6 +19,7 @@ import 'frames.dart';
 import 'mouse.dart';
 import 'injected/injected_script_source.dart';
 import 'init_scripts.dart';
+export 'video/core_video.dart' show CoreVideo;
 export 'core_download.dart' show CoreDownload;
 export 'core_file_chooser.dart' show CoreFileChooser;
 export 'core_screenshot.dart' show CoreRect, CoreScreenshotOptions;
@@ -81,6 +82,13 @@ abstract class CorePage extends EventEmitter {
   /// `target=_blank` link, or null for a page opened programmatically.
   CorePage? get opener;
   set opener(CorePage? value);
+
+  /// The video of this page, when its context was created with `recordVideo`.
+  ///
+  /// Available from the moment the page appears, but the file it names is
+  /// only complete once the page closes — see [CoreVideo].
+  CoreVideo? get video;
+  set video(CoreVideo? value);
 
   /// Whether the page has been closed (by [close], by the script, or because
   /// its context or browser went away).
@@ -350,6 +358,9 @@ String wrapEvaluationExpression(String expression) {
 mixin CorePageOwnership {
   CoreBrowserContext? browserContext;
   CorePage? opener;
+
+  /// See [CorePage.video]. Set by the context when it adopts the page.
+  CoreVideo? video;
 
   /// See [CorePage.guid].
   final String guid = 'page@${createGuid()}';

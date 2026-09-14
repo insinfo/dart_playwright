@@ -2,6 +2,7 @@ import 'package:playwright_core/src/server/core_browser.dart';
 import 'package:playwright_core/src/server/launch_options.dart';
 import 'browser_context.dart';
 import 'browser_type.dart' show ProxySettings;
+import 'video.dart';
 
 /// A browser instance.
 abstract class Browser {
@@ -33,6 +34,10 @@ abstract class Browser {
   /// [proxy] routes this context alone, overriding any proxy the browser was
   /// launched with. All three engines take one per context.
   ///
+  /// [recordVideo] films every page of the context into a directory. The file
+  /// of a page is only complete once that page closes, so read it through
+  /// [Page.video]; see [RecordVideoOptions].
+  ///
   /// [geolocation] sets what `navigator.geolocation` reports; it also needs
   /// `geolocation` in [permissions]. The permission names each engine knows
   /// differ a lot — Chromium seventeen, WebKit six, Firefox five — and asking
@@ -56,6 +61,7 @@ abstract class Browser {
     ({double latitude, double longitude, double accuracy})? geolocation,
     List<String>? permissions,
     ProxySettings? proxy,
+    RecordVideoOptions? recordVideo,
   });
 
   /// Currently open browser contexts.
@@ -99,6 +105,7 @@ class BrowserImpl implements Browser {
     ({double latitude, double longitude, double accuracy})? geolocation,
     List<String>? permissions,
     ProxySettings? proxy,
+    RecordVideoOptions? recordVideo,
   }) async {
     if (isMobile && viewport == null) {
       throw ArgumentError('isMobile needs a viewport');
@@ -130,6 +137,7 @@ class BrowserImpl implements Browser {
               username: proxy.username,
               password: proxy.password,
             ),
+      recordVideo: recordVideo?.toCore(),
     ));
     return BrowserContextImpl.forCore(coreContext);
   }

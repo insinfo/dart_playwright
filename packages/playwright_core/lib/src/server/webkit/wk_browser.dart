@@ -511,6 +511,10 @@ class WkBrowserContext extends EventEmitter
   Future<void> close() async {
     if (_closed) return;
     _closed = true;
+    // Stopping a screencast needs the page that is being filmed; do it while
+    // the pages are still there, which is the order upstream's
+    // `BrowserContext.close` uses too.
+    await finishVideos();
     if (isDefault) {
       // The default context belongs to the profile: there is nothing to
       // delete, and closing it means closing the browser, which is what

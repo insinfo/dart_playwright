@@ -7,6 +7,7 @@ import 'package:playwright_core/src/server/launch_options.dart';
 import 'package:playwright_core/src/server/webkit/webkit.dart';
 import 'browser.dart';
 import 'browser_context.dart';
+import 'video.dart';
 
 /// Proxy settings for a browser or for a single context.
 ///
@@ -122,6 +123,7 @@ abstract class BrowserType {
     ({String username, String password, String? origin})? httpCredentials,
     ({double latitude, double longitude, double accuracy})? geolocation,
     List<String>? permissions,
+    RecordVideoOptions? recordVideo,
   });
 
   /// Attach to a Chromium that is already running with a CDP endpoint.
@@ -325,6 +327,7 @@ class BrowserTypeImpl implements BrowserType {
     ({String username, String password, String? origin})? httpCredentials,
     ({double latitude, double longitude, double accuracy})? geolocation,
     List<String>? permissions,
+    RecordVideoOptions? recordVideo,
   }) async {
     if (isMobile && viewport == null) {
       throw ArgumentError('isMobile needs a viewport');
@@ -347,6 +350,7 @@ class BrowserTypeImpl implements BrowserType {
       httpCredentials: httpCredentials,
       geolocation: geolocation,
       permissions: permissions,
+      recordVideo: recordVideo?.toCore(),
     );
 
     final options = _options(

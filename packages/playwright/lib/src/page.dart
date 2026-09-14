@@ -23,6 +23,7 @@ import 'js_handle.dart';
 import 'element_handle.dart';
 import 'route.dart';
 import 'dialog.dart';
+import 'video.dart';
 import 'network.dart';
 import 'instrumented.dart';
 import 'package:playwright_core/src/accessibility.dart';
@@ -393,6 +394,13 @@ abstract class Page {
   /// Close the page.
   Future<void> close();
 
+  /// The video of this page, or null when the context was not created with
+  /// `recordVideo`.
+  ///
+  /// The object exists from the moment the page does; the file it names is
+  /// only finished when the page closes. See [Video].
+  Video? video();
+
   /// Event emitted when the page closes.
   Stream<void> get onClose;
 
@@ -504,6 +512,10 @@ abstract class Page {
 /// to hand back the *same* [Page] object for the same underlying page, or
 /// identity comparisons in user code silently fail.
 final Expando<PageImpl> _pageWrappers = Expando<PageImpl>('playwright.page');
+
+/// `page.video()` has to keep handing back the same object, the way
+/// `context.pages()` does: user code compares them.
+final Expando<VideoImpl> _videos = Expando<VideoImpl>('playwright.video');
 
 class PageImpl implements Page {
   final CorePage _corePage;
@@ -960,8 +972,20 @@ class PageImpl implements Page {
               state: state, timeout: timeout, strict: strict));
 
   @override
-  Future<void> close() =>
-      _call('Page', 'close', const {}, () => _corePage.close());
+  Future<void> close() => _call('Page', 'close', const {}, () async {
+        // The screencast has to be stopped while the page it films is still
+        // open — this is the order upstream's `Page._close` uses, and for
+        // WebKit, whose screencast writes the file itself, it is the only
+        // order that produces one.
+        await _corePage.video?.finish();
+        await _corePage.close();
+      });
+
+  @override
+  Video? video() {
+    final video = _corePage.video;
+    return video == null ? null : (_videos[video] ??= VideoImpl(video));
+  }
 
   @override
   Stream<void> get onClose => _corePage.stream<void>('close');

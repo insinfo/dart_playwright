@@ -55,6 +55,23 @@ Future<void> main(List<String> args) async {
     stdout.writeln('  - $t');
   }
 
+  // Film strip: the lanes only exist when the trace carries screencast
+  // frames, and each frame div's background-image is a `file/...` URL the
+  // viewer resolved out of the archive. An empty list here means the
+  // `screencast-frame` events pointed at resources the viewer could not find.
+  final filmStrip = await page.evaluate('''
+    () => {
+      const frames = [...document.querySelectorAll('.film-strip-frame')];
+      return {
+        lanes: document.querySelectorAll('.film-strip-lane').length,
+        frames: frames.length,
+        firstImage: frames.length
+            ? getComputedStyle(frames[0]).backgroundImage.slice(0, 120)
+            : null,
+      };
+    }''');
+  stdout.writeln('FILMSTRIP: $filmStrip');
+
   // Metadata pane: browser name, title, duration.
   final meta = await page
       .evaluate("() => document.body.innerText.includes('Trace probe')");
