@@ -51,7 +51,7 @@ jobs:
         run: |
           set -euo pipefail
           status=0
-          for package in playwright playwright_core playwright_protocol; do
+          for package in playwright playwright_core playwright_protocol playwright_mcp; do
             echo "::group::dart doc $package"
             output=$(cd "packages/$package" && dart doc --output ../../.dart_doc/"$package" 2>&1) || status=1
             echo "$output"
@@ -75,11 +75,10 @@ jobs:
           sdk: stable
       - name: Install dependencies
         run: dart pub get
-      # playwright_mcp is intentionally not published; see the README.
       - name: Dry run every publishable package
         run: |
           set -euo pipefail
-          for package in playwright_protocol playwright_core playwright; do
+          for package in playwright_protocol playwright_core playwright playwright_mcp; do
             echo "::group::dart pub publish --dry-run $package"
             (cd "packages/$package" && dart pub publish --dry-run)
             echo "::endgroup::"
@@ -130,4 +129,4 @@ jobs:
         env:
           # Surface browser stdout/stderr in the POSIX launcher for diagnosis.
           PLAYWRIGHT_DEBUG: '1'
-        run: dart test packages/playwright/test packages/playwright_core/test --reporter expanded --timeout 120s
+        run: dart test packages/playwright/test packages/playwright_core/test packages/playwright_mcp/test --reporter expanded --timeout 180s

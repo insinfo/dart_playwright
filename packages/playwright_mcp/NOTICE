@@ -1,0 +1,40 @@
+Playwright for Dart
+Copyright (c) 2025 Isaque Neves
+
+This product is part of a derivative work of Playwright
+(https://github.com/microsoft/playwright), Copyright (c) Microsoft
+Corporation, licensed under the Apache License, Version 2.0.
+
+Playwright itself contains code derived from the Puppeteer project
+(https://github.com/puppeteer/puppeteer), Copyright 2017 Google Inc.,
+available under the Apache License, Version 2.0
+(https://github.com/puppeteer/puppeteer/blob/master/LICENSE).
+
+This is an independent reimplementation in Dart. It is not produced,
+endorsed, or supported by Microsoft Corporation.
+
+"Playwright" is a trademark of Microsoft Corporation. The Apache License,
+Version 2.0 does not grant permission to use it; this project uses the name
+only to describe what it is compatible with.
+
+The Model Context Protocol is a specification published by Anthropic
+(https://modelcontextprotocol.io). This package is an independent
+implementation of that specification and is not produced or endorsed by
+Anthropic.
+
+--------------------------------------------------------------------------
+Files in this package derived from the upstream sources, and modified
+--------------------------------------------------------------------------
+
+lib/src/tools/browser_tools.dart
+    The tool names and their broad shapes follow the @playwright/mcp server
+    of the upstream project (browser_navigate, browser_snapshot,
+    browser_click, ...). The implementations are written from scratch in
+    Dart against this port's public API, and the tool set is smaller; the
+    README lists what is missing and why.
+
+lib/src/tools/snapshot.dart
+    The idea of a role/name/reference page snapshot comes from
+    @playwright/mcp. The DOM walk, the role and name computation and the
+    reference stamping are this port's own, because the upstream snapshot is
+    built on an ARIA implementation this port has not finished.
