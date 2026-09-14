@@ -128,14 +128,35 @@ class WkBrowser extends EventEmitter implements CoreBrowser {
 
   /// A temporary directory for this browser's downloads.
   String defaultDownloadsDirectory() {
+    final launchPath = launchDownloadsPath;
+    if (launchPath != null) {
+      Directory(launchPath).createSync(recursive: true);
+      return launchPath;
+    }
     return _downloadsDirectory ??= Directory.systemTemp
         .createTempSync('playwright-dart-downloads')
         .path;
   }
 
+  /// The context for [browserContextId], falling back to the profile's own
+  /// context.
+  ///
+  /// The fallback is not a nicety: the engines report a real id for the
+  /// default context, not a missing one, so a persistent context would never
+  /// recognise its own pages by id alone and every `newPage()` there would
+  /// time out waiting for a session that was quietly discarded. Upstream
+  /// takes the same fallback. For a non-persistent browser there is no
+  /// default context, so an unknown id still means "not ours".
   WkBrowserContext? _contextFor(String? browserContextId) {
     for (final context in _contexts) {
       if (context.browserContextId == browserContextId) return context;
+    }
+    return _defaultContextOrNull;
+  }
+
+  WkBrowserContext? get _defaultContextOrNull {
+    for (final context in _contexts) {
+      if (context.browserContextId == null) return context;
     }
     return null;
   }
@@ -154,8 +175,30 @@ class WkBrowser extends EventEmitter implements CoreBrowser {
     });
   }
 
-  Future<void> init() async {
+  /// Where this browser's downloads land when a context does not say.
+  String? launchDownloadsPath;
+
+  /// Where trace artifacts are written.
+  String? tracesDir;
+
+  /// The throwaway profile to delete when the browser closes, if any.
+  String? tempUserDataDir;
+
+  /// The default context of a persistent launch, or null for a plain launch.
+  WkBrowserContext? get defaultContext => _defaultContextOrNull;
+
+  /// [persistentContext] adopts WebKit's own default context — the one the
+  /// `--user-data-dir` profile belongs to — as the context we hand back.
+  Future<void> init(
+      {bool persistentContext = false,
+      CoreContextOptions contextOptions =
+          const CoreContextOptions()}) async {
     await connection.send('Playwright.enable', {});
+    if (persistentContext) {
+      final context = WkBrowserContext(this, null, contextOptions);
+      _contexts.add(context);
+      await applyContextOptions(context);
+    }
   }
 
   @override
@@ -167,6 +210,11 @@ class WkBrowser extends EventEmitter implements CoreBrowser {
           .send('Playwright.close', {}).timeout(const Duration(seconds: 3));
     } catch (_) {}
     await connection.transport.close();
+    // `close()` returning has to mean disconnected. The transport announces
+    // its closure through a stream, so _onClosed would otherwise land a tick
+    // later and `isConnected()` would still say true right after the await.
+    // _onClosed is idempotent, so the stream event that follows is a no-op.
+    _onClosed();
   }
 
   @override
@@ -185,9 +233,36 @@ class WkBrowser extends EventEmitter implements CoreBrowser {
   @override
   Future<CoreBrowserContext> createBrowserContext(
       {CoreContextOptions options = const CoreContextOptions()}) async {
-    final result = await connection.send('Playwright.createContext', {});
+    final proxy = options.proxy?.normalized();
+    // Known limitation of the Windows build: it routes through curl, whose
+    // proxy behaves as if it were process-wide, so creating a context
+    // without a proxy after one with a proxy stops the earlier context from
+    // using it. Ordering is the only workaround; there is no protocol
+    // command to re-apply a context's proxy afterwards.
+    final result = await connection.send('Playwright.createContext', {
+      if (proxy != null)
+        // The Windows build resolves SOCKS host names only with socks5h.
+        'proxyServer': Platform.isWindows
+            ? proxy.server.replaceFirst('socks5://', 'socks5h://')
+            : proxy.server,
+      if (proxy?.bypass != null) 'proxyBypassList': proxy!.bypass,
+    });
     final context =
         WkBrowserContext(this, result['browserContextId'] as String, options);
+    _contexts.add(context);
+    await applyContextOptions(context);
+    return context;
+  }
+
+  /// Applies [context]'s options to it. The default context of a persistent
+  /// launch carries no id, and WebKit addresses that one by leaving
+  /// `browserContextId` off the message.
+  Future<void> applyContextOptions(WkBrowserContext context) async {
+    final options = context.options;
+    final ctx = <String, dynamic>{
+      if (context.browserContextId != null)
+        'browserContextId': context.browserContextId,
+    };
     // WebKit only applies permissions when a page exists, so validate the
     // names now: otherwise an unknown one would surface much later, from a
     // call that has nothing to do with permissions.
@@ -195,17 +270,16 @@ class WkBrowser extends EventEmitter implements CoreBrowser {
     if (requested != null && requested.isNotEmpty) {
       CorePermissions.resolve(CorePermissions.webkit, requested);
     }
-    _contexts.add(context);
     if (options.locale != null) {
       await connection.send('Playwright.setLanguages', {
-        'browserContextId': context.browserContextId,
+        ...ctx,
         'languages': [options.locale],
       });
     }
     final geolocation = options.geolocation;
     if (geolocation != null) {
       await connection.send('Playwright.setGeolocationOverride', {
-        'browserContextId': context.browserContextId,
+        ...ctx,
         'geolocation': {
           // WebKit is the only engine that demands a timestamp.
           'timestamp': DateTime.now().millisecondsSinceEpoch,
@@ -217,10 +291,9 @@ class WkBrowser extends EventEmitter implements CoreBrowser {
     }
     await connection.send('Playwright.setDownloadBehavior', {
       'behavior': options.acceptDownloads ? 'allow' : 'deny',
-      'browserContextId': context.browserContextId,
+      ...ctx,
       if (options.acceptDownloads) 'downloadPath': context.downloadsDirectory,
     });
-    return context;
   }
 
   void _onClosed() {
@@ -238,6 +311,13 @@ class WkBrowser extends EventEmitter implements CoreBrowser {
     _contexts.clear();
     emit('disconnected', true);
     disposeStreams();
+    final profile = tempUserDataDir;
+    if (profile != null) {
+      tempUserDataDir = null;
+      try {
+        Directory(profile).deleteSync(recursive: true);
+      } catch (_) {}
+    }
   }
 }
 
@@ -246,7 +326,10 @@ class WkBrowserContext extends EventEmitter
     with BrowserContextStorage, CoreBrowserContextBindings
     implements CoreBrowserContext {
   final WkBrowser browser;
-  final String browserContextId;
+
+  /// Null for the default context of a persistent launch: WebKit addresses
+  /// that one by leaving `browserContextId` off the message entirely.
+  final String? browserContextId;
   final CoreContextOptions options;
   bool _closed = false;
 
@@ -254,6 +337,9 @@ class WkBrowserContext extends EventEmitter
 
   @override
   String get engineName => 'webkit';
+
+  /// Whether this is the profile's own context rather than one we created.
+  bool get isDefault => browserContextId == null;
 
   /// Where this context's downloads land.
   late final String downloadsDirectory =
@@ -266,7 +352,7 @@ class WkBrowserContext extends EventEmitter
   Future<CorePage> newPage() async {
     if (_closed) throw PlaywrightException('Context closed');
     final pageResult = await browser.connection.send('Playwright.createPage', {
-      'browserContextId': browserContextId,
+      if (browserContextId != null) 'browserContextId': browserContextId,
     });
     // Playwright.pageProxyCreated already arrived (it precedes the createPage
     // response); the handler builds and registers the page, exactly as it
@@ -370,7 +456,7 @@ class WkBrowserContext extends EventEmitter
   @override
   Future<List<Map<String, dynamic>>> cookies([List<String>? urls]) async {
     final result = await browser.connection.send('Playwright.getAllCookies', {
-      'browserContextId': browserContextId,
+      if (browserContextId != null) 'browserContextId': browserContextId,
     });
     final cookies = (result['cookies'] as List).cast<Map<String, dynamic>>();
     for (final c in cookies) {
@@ -406,7 +492,7 @@ class WkBrowserContext extends EventEmitter
     }).toList();
 
     await browser.connection.send('Playwright.setCookies', {
-      'browserContextId': browserContextId,
+      if (browserContextId != null) 'browserContextId': browserContextId,
       'cookies': cc,
     });
   }
@@ -414,7 +500,7 @@ class WkBrowserContext extends EventEmitter
   @override
   Future<void> clearCookies() async {
     await browser.connection.send('Playwright.deleteAllCookies', {
-      'browserContextId': browserContextId,
+      if (browserContextId != null) 'browserContextId': browserContextId,
     });
   }
 
@@ -425,6 +511,16 @@ class WkBrowserContext extends EventEmitter
   Future<void> close() async {
     if (_closed) return;
     _closed = true;
+    if (isDefault) {
+      // The default context belongs to the profile: there is nothing to
+      // delete, and closing it means closing the browser, which is what
+      // upstream does for a persistent context too.
+      trackedPages.clear();
+      browser._contexts.remove(this);
+      notifyClosed();
+      await browser.close();
+      return;
+    }
     // Deleting the context closes all pages that belong to it.
     await browser.connection.send('Playwright.deleteContext', {
       'browserContextId': browserContextId,

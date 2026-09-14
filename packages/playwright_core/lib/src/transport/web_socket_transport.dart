@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:logging/logging.dart';
 import 'package:playwright_protocol/playwright_protocol.dart';
+import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/status.dart' as status;
 
@@ -42,7 +43,11 @@ class WebSocketTransport implements ConnectionTransport {
     Duration? timeout,
   }) async {
     final uri = Uri.parse(url);
-    final channel = WebSocketChannel.connect(uri);
+    // IOWebSocketChannel, not WebSocketChannel.connect: only the dart:io one
+    // can carry the headers a guarded CDP endpoint asks for.
+    final WebSocketChannel channel = headers == null || headers.isEmpty
+        ? WebSocketChannel.connect(uri)
+        : IOWebSocketChannel.connect(uri, headers: headers);
 
     try {
       await channel.ready.timeout(timeout ?? const Duration(seconds: 30));
@@ -88,7 +93,10 @@ class WebSocketTransport implements ConnectionTransport {
   @override
   Future<void> close() async {
     if (_closed) return;
-    _closed = true;
+    // _onClose does the bookkeeping and announces the closure. Setting
+    // _closed here first would make it return early, and the connection
+    // would never hear that its transport went away — every pending command
+    // would wait forever.
     await _subscription.cancel();
     await _channel.sink.close(status.normalClosure);
     _onClose(null);

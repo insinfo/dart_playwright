@@ -71,6 +71,10 @@ class PosixPipeTransport implements ConnectionTransport {
     _messageController.close();
     _closeController.add(reason);
     _closeController.close();
+    // See PipeTransport._handleClose: the pipe closing does not mean the
+    // process — or its content/renderer children — went away, and a browser
+    // mid-shutdown is still writing its profile.
+    unawaited(_process.terminate());
   }
 
   @override
@@ -94,10 +98,11 @@ class PosixPipeTransport implements ConnectionTransport {
 
   @override
   Future<void> close() async {
-    // Kill the browser first: its death closes the fd4 FIFO, read() returns
-    // EOF and the reader isolate unblocks and exits.
-    _process.kill();
     _handleClose('User initiated close');
+    // Awaited, unlike the end-of-pipe path: `browser.close()` must not
+    // return until the browser has gone. The process dying closes the fd4
+    // FIFO, read() returns EOF and the reader isolate exits on its own.
+    await _process.terminate();
   }
 }
 

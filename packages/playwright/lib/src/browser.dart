@@ -1,5 +1,7 @@
 import 'package:playwright_core/src/server/core_browser.dart';
+import 'package:playwright_core/src/server/launch_options.dart';
 import 'browser_context.dart';
+import 'browser_type.dart' show ProxySettings;
 
 /// A browser instance.
 abstract class Browser {
@@ -28,6 +30,9 @@ abstract class Browser {
   /// [offline] cuts the pages off the network. [extraHTTPHeaders] are added
   /// to every request. [httpCredentials] answers HTTP basic auth challenges.
   ///
+  /// [proxy] routes this context alone, overriding any proxy the browser was
+  /// launched with. All three engines take one per context.
+  ///
   /// [geolocation] sets what `navigator.geolocation` reports; it also needs
   /// `geolocation` in [permissions]. The permission names each engine knows
   /// differ a lot — Chromium seventeen, WebKit six, Firefox five — and asking
@@ -50,6 +55,7 @@ abstract class Browser {
     ({String username, String password, String? origin})? httpCredentials,
     ({double latitude, double longitude, double accuracy})? geolocation,
     List<String>? permissions,
+    ProxySettings? proxy,
   });
 
   /// Currently open browser contexts.
@@ -92,6 +98,7 @@ class BrowserImpl implements Browser {
     ({String username, String password, String? origin})? httpCredentials,
     ({double latitude, double longitude, double accuracy})? geolocation,
     List<String>? permissions,
+    ProxySettings? proxy,
   }) async {
     if (isMobile && viewport == null) {
       throw ArgumentError('isMobile needs a viewport');
@@ -115,6 +122,14 @@ class BrowserImpl implements Browser {
       httpCredentials: httpCredentials,
       geolocation: geolocation,
       permissions: permissions,
+      proxy: proxy == null
+          ? null
+          : CoreProxySettings(
+              server: proxy.server,
+              bypass: proxy.bypass,
+              username: proxy.username,
+              password: proxy.password,
+            ),
     ));
     return BrowserContextImpl.forCore(coreContext);
   }

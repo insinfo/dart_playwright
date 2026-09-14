@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:async';
+
 import 'dart:convert';
 import 'dart:ffi';
 import 'dart:isolate';
@@ -66,6 +67,12 @@ class PipeTransport implements ConnectionTransport {
     _messageController.close();
     _closeController.add(reason);
     _closeController.close();
+    // The end of the pipe is not the end of the process. Chromium can drop
+    // the DevTools pipe and stay alive, and a browser that crashed still
+    // leaves its children running. Reaping here — not only in [close] — is
+    // what stops an unexpected disconnect from stranding a process tree.
+    // Nobody awaits this: an unexpected disconnect has no caller waiting.
+    unawaited(_process.terminate());
   }
 
   @override
@@ -100,7 +107,9 @@ class PipeTransport implements ConnectionTransport {
   @override
   Future<void> close() async {
     _handleClose('User initiated close');
-    _process.kill();
+    // Awaited here, unlike in the end-of-pipe path: `browser.close()` must
+    // not return until the browser has actually gone.
+    await _process.terminate();
   }
 }
 
