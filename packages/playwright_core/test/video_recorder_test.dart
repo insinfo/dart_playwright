@@ -219,6 +219,29 @@ void main() {
     }
   });
 
+  test('honours a non-default fps', () async {
+    final recorder = await VideoRecorder.start(
+        outputPath: outputPath, width: 64, height: 48, fps: 10);
+    for (var i = 0; i < 20; i++) {
+      recorder.writeFrame(movingRectangle(
+        width: 64,
+        height: 48,
+        index: i,
+        timestamp: Duration(milliseconds: i * 100),
+      ));
+    }
+    await recorder.stop();
+
+    final result = await probe(outputPath);
+    printOnFailure('probe: $result');
+    if (result.frameCount != null) {
+      // 1.9s de quadros mais 1s de cauda, a 10fps. Medido nesta maquina:
+      // 2.9s e 29 quadros; a 25fps seriam mais de 70.
+      expect(result.frameCount, lessThan(40));
+      expect(result.frameCount! / result.duration, closeTo(10, 1));
+    }
+  });
+
   test('drops out-of-order and duplicate frames', () async {
     final recorder = await VideoRecorder.start(
         outputPath: outputPath, width: 64, height: 48);
