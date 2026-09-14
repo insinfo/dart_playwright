@@ -209,7 +209,7 @@ abstract class Page {
 
   /// Locate an element by its test id attribute, in the main frame.
   Locator getByTestId(Pattern testId,
-      {String attributeName = Selectors.defaultTestIdAttribute});
+      {String? attributeName});
 
   /// Click an element using trusted protocol-level input events.
   ///
@@ -239,6 +239,17 @@ abstract class Page {
 
   /// The page mouse, dispatching trusted mouse events via the protocol.
   Mouse get mouse;
+
+  /// The page touchscreen.
+  ///
+  /// A tap only reaches the page when the context was created with
+  /// `hasTouch: true`; without it the engines discard the event.
+  Touchscreen get touchscreen;
+
+  /// Tap an element, as a finger would.
+  ///
+  /// Needs `hasTouch: true` on the context.
+  Future<void> tap(String selector, {({double x, double y})? position});
 
   /// Focus [selector] then press [key] (or a chord like 'Control+A').
   Future<void> press(String selector, String key);
@@ -565,6 +576,13 @@ class PageImpl implements Page {
   Mouse get mouse => _corePage.mouse;
 
   @override
+  Touchscreen get touchscreen => _corePage.touchscreen;
+
+  @override
+  Future<void> tap(String selector, {({double x, double y})? position}) =>
+      locator(selector).tap(position: position, strict: false);
+
+  @override
   Future<void> press(String selector, String key) =>
       _corePage.press(selector, key);
 
@@ -669,7 +687,7 @@ class PageImpl implements Page {
 
   @override
   Locator getByTestId(Pattern testId,
-          {String attributeName = Selectors.defaultTestIdAttribute}) =>
+          {String? attributeName}) =>
       _mainFrame.getByTestId(testId, attributeName: attributeName);
 
   @override

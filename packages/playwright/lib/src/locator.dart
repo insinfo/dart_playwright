@@ -10,6 +10,7 @@ import 'package:playwright_core/src/server/selectors.dart';
 
 import 'element_handle.dart';
 import 'frame.dart';
+import 'test_id.dart';
 import 'frame_locator.dart';
 import 'js_handle.dart';
 import 'page.dart';
@@ -121,8 +122,11 @@ mixin LocatorFactory {
 
   /// Locates an element by its test id attribute (`data-testid` by default).
   Locator getByTestId(Pattern testId,
-          {String attributeName = Selectors.defaultTestIdAttribute}) =>
-      byParts([Selectors.byTestId(testId, attributeName: attributeName)]);
+          {String? attributeName}) =>
+      byParts([
+        Selectors.byTestId(testId,
+            attributeName: attributeName ?? testIdAttributeName)
+      ]);
 
   /// A [FrameLocator] for the iframe matched by [selector].
   FrameLocator frameLocator(String selector) =>
@@ -209,6 +213,17 @@ abstract class Locator with LocatorFactory {
   /// yet. An empty list clears the input.
   Future<void> setInputFiles(List<String> paths,
       {Duration? timeout, bool strict = true});
+
+  /// Tap this element, as a finger would.
+  ///
+  /// Needs the context to have been created with `hasTouch: true`; without it
+  /// the engines discard the touch event and nothing happens.
+  Future<void> tap({
+    ({double x, double y})? position,
+    Duration? timeout,
+    bool strict = true,
+    bool force = false,
+  });
 
   /// Take a screenshot of this element.
   ///
@@ -698,6 +713,23 @@ class LocatorImpl extends Locator {
     } finally {
       await resolved.handle.dispose().catchError((Object _) {});
     }
+  }
+
+  @override
+  Future<void> tap({
+    ({double x, double y})? position,
+    Duration? timeout,
+    bool strict = true,
+    bool force = false,
+  }) async {
+    final target = await _waitForActionable(
+        states: _clickStates,
+        timeout: timeout,
+        strict: strict,
+        force: force,
+        position: position);
+    await _corePage.tapTarget(target.frame, target.resolver,
+        position: position);
   }
 
   @override

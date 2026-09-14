@@ -11,11 +11,45 @@ abstract class Browser {
   /// [acceptDownloads] decides whether downloads are written to disk at all;
   /// with it off the engines refuse them. [downloadsPath] is where they land,
   /// defaulting to a temporary directory removed when the browser closes.
+  ///
+  /// [locale] is a BCP 47 tag driving `navigator.language`, `Accept-Language`
+  /// and locale-dependent formatting. [timezoneId] is an IANA zone; an
+  /// unknown one is rejected with `Invalid timezone ID`.
+  ///
+  /// [colorScheme] (`light`, `dark`, `no-preference`), [reducedMotion]
+  /// (`reduce`, `no-preference`) and [forcedColors] (`active`, `none`) drive
+  /// the matching media queries.
+  ///
+  /// [deviceScaleFactor], [isMobile] and [hasTouch] emulate a device;
+  /// [isMobile] needs a [viewport], and [hasTouch] is what makes
+  /// [Page.tap] land — without it the engines discard the touch event. The
+  /// `devices` map has ready-made combinations.
+  ///
+  /// [offline] cuts the pages off the network. [extraHTTPHeaders] are added
+  /// to every request. [httpCredentials] answers HTTP basic auth challenges.
+  ///
+  /// [geolocation] sets what `navigator.geolocation` reports; it also needs
+  /// `geolocation` in [permissions]. The permission names each engine knows
+  /// differ a lot — Chromium seventeen, WebKit six, Firefox five — and asking
+  /// for one an engine does not have throws rather than passing silently.
   Future<BrowserContext> newContext({
     ({int width, int height})? viewport,
     String? userAgent,
     bool acceptDownloads,
     String? downloadsPath,
+    String? locale,
+    String? timezoneId,
+    String? colorScheme,
+    String? reducedMotion,
+    String? forcedColors,
+    double? deviceScaleFactor,
+    bool isMobile,
+    bool hasTouch,
+    bool offline,
+    Map<String, String>? extraHTTPHeaders,
+    ({String username, String password, String? origin})? httpCredentials,
+    ({double latitude, double longitude, double accuracy})? geolocation,
+    List<String>? permissions,
   });
 
   /// Currently open browser contexts.
@@ -45,13 +79,42 @@ class BrowserImpl implements Browser {
     String? userAgent,
     bool acceptDownloads = true,
     String? downloadsPath,
+    String? locale,
+    String? timezoneId,
+    String? colorScheme,
+    String? reducedMotion,
+    String? forcedColors,
+    double? deviceScaleFactor,
+    bool isMobile = false,
+    bool hasTouch = false,
+    bool offline = false,
+    Map<String, String>? extraHTTPHeaders,
+    ({String username, String password, String? origin})? httpCredentials,
+    ({double latitude, double longitude, double accuracy})? geolocation,
+    List<String>? permissions,
   }) async {
+    if (isMobile && viewport == null) {
+      throw ArgumentError('isMobile needs a viewport');
+    }
     final coreContext = await _coreBrowser.createBrowserContext(
         options: CoreContextOptions(
       viewport: viewport,
       userAgent: userAgent,
       acceptDownloads: acceptDownloads,
       downloadsPath: downloadsPath,
+      locale: locale,
+      timezoneId: timezoneId,
+      colorScheme: colorScheme,
+      reducedMotion: reducedMotion,
+      forcedColors: forcedColors,
+      deviceScaleFactor: deviceScaleFactor,
+      isMobile: isMobile,
+      hasTouch: hasTouch,
+      offline: offline,
+      extraHTTPHeaders: extraHTTPHeaders,
+      httpCredentials: httpCredentials,
+      geolocation: geolocation,
+      permissions: permissions,
     ));
     return BrowserContextImpl.forCore(coreContext);
   }

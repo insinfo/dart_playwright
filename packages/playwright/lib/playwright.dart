@@ -18,6 +18,8 @@ export 'src/element_handle.dart';
 export 'src/console_message.dart';
 export 'src/dialog.dart';
 export 'src/api_request.dart';
+export 'src/devices.dart';
+export 'src/test_id.dart';
 export 'src/download.dart';
 export 'src/file_chooser.dart';
 export 'src/page_error.dart';
