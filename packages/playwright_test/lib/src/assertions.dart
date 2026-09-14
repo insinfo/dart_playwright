@@ -1,6 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:playwright/playwright.dart';
+import 'package:test/test.dart' show Matcher, StringDescription, wrapMatcher;
+
+import 'soft_failures.dart';
 
 /// How long an assertion retries before giving up.
 const kDefaultAssertionTimeout = Duration(seconds: 5);
@@ -44,6 +48,12 @@ Future<void> _retry(
       final result = await probe();
       if (result.ok) return;
       actual = result.actual;
+    } on ArgumentError {
+      // Argumento errado e erro de quem escreveu o teste, nao condicao que
+      // ainda nao valeu: esperar o prazo inteiro para depois dizer "nao bateu"
+      // esconderia a causa real. Mesma regra que `Locator` ja usa para
+      // seletor invalido.
+      rethrow;
     } catch (error) {
       actual = 'error: $error';
     }
@@ -63,6 +73,43 @@ bool _matches(Pattern pattern, String value) {
 String _describe(Pattern pattern) =>
     pattern is RegExp ? 'match ${pattern.pattern}' : 'be "$pattern"';
 
+/// Roda uma assertion, deixando a falha passar ou guardando-a.
+///
+/// No modo soft a falha nao interrompe o teste: ela e guardada e o teste
+/// termina falhando com todas de uma vez.
+Future<void> _report(bool soft, Future<void> Function() run) async {
+  if (!soft) return run();
+  try {
+    await run();
+  } on AssertionFailure catch (failure) {
+    recordSoftFailure(failure);
+  }
+}
+
+/// Compara dois valores vindos do navegador em profundidade.
+///
+/// JSON nao tem inteiros e doubles separados e os motores discordam sobre qual
+/// dos dois devolvem, entao 1 e 1.0 sao o mesmo numero aqui.
+bool _deepEquals(Object? a, Object? b) {
+  if (a is num && b is num) return a.toDouble() == b.toDouble();
+  if (a is List && b is List) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (!_deepEquals(a[i], b[i])) return false;
+    }
+    return true;
+  }
+  if (a is Map && b is Map) {
+    if (a.length != b.length) return false;
+    for (final key in a.keys) {
+      if (!b.containsKey(key)) return false;
+      if (!_deepEquals(a[key], b[key])) return false;
+    }
+    return true;
+  }
+  return a == b;
+}
+
 /// Retrying assertions about a [Locator].
 ///
 /// Reached through [expectLocator].
@@ -70,24 +117,38 @@ class LocatorAssertions {
   final Locator _locator;
   final Duration _timeout;
   final bool _isNot;
+  final bool _isSoft;
 
   LocatorAssertions(this._locator,
-      {Duration timeout = kDefaultAssertionTimeout, bool isNot = false})
+      {Duration timeout = kDefaultAssertionTimeout,
+      bool isNot = false,
+      bool isSoft = false})
       : _timeout = timeout,
-        _isNot = isNot;
+        _isNot = isNot,
+        _isSoft = isSoft;
 
   /// The negated form: `expectLocator(l).not.toBeVisible()`.
-  LocatorAssertions get not =>
-      LocatorAssertions(_locator, timeout: _timeout, isNot: !_isNot);
+  LocatorAssertions get not => LocatorAssertions(_locator,
+      timeout: _timeout, isNot: !_isNot, isSoft: _isSoft);
+
+  /// A forma que nao interrompe o teste: `expectLocator(l).soft.toBeVisible()`.
+  ///
+  /// A falha e guardada e o teste segue; no fim ele falha com todas as falhas
+  /// soft juntas. E o `expect.soft` do upstream — em Dart nao da para pendurar
+  /// um membro no `expect` de `package:test`, entao ele vira um getter aqui.
+  LocatorAssertions get soft => LocatorAssertions(_locator,
+      timeout: _timeout, isNot: _isNot, isSoft: true);
 
   String get _what => 'locator';
 
   Future<void> _check(
       String expected, Future<({bool ok, String actual})> Function() probe) {
-    if (!_isNot) return _retry(_what, expected, _timeout, probe);
-    return _retry(_what, 'not $expected', _timeout, () async {
-      final result = await probe();
-      return (ok: !result.ok, actual: result.actual);
+    return _report(_isSoft, () {
+      if (!_isNot) return _retry(_what, expected, _timeout, probe);
+      return _retry(_what, 'not $expected', _timeout, () async {
+        final result = await probe();
+        return (ok: !result.ok, actual: result.actual);
+      });
     });
   }
 
@@ -234,6 +295,197 @@ class LocatorAssertions {
       _ariaSnapshotProbe(
           template, _locator.accessibilitySnapshot, _locator.ariaSnapshot));
 
+  // ------------------------------------------------------ novos matchers
+
+  /// O valor computado da propriedade CSS [name].
+  ///
+  /// E o valor *computado*, como no upstream: quem escreveu `color: red`
+  /// compara com `rgb(255, 0, 0)`. Nao ha normalizacao de espacos — um
+  /// shorthand computado vem com os espacos que o motor escolheu, e esconder
+  /// isso faria a assertion passar por acidente entre motores diferentes.
+  Future<void> toHaveCSS(String name, Pattern expected) =>
+      _check('have CSS $name that would ${_describe(expected)}', () async {
+        final value = await _locator.evaluate(
+            '(el) => getComputedStyle(el).getPropertyValue(${jsonEncode(name)})');
+        final actual = value?.toString() ?? '';
+        return (ok: _matches(expected, actual), actual: '"$actual"');
+      });
+
+  /// O atributo `id` do elemento.
+  Future<void> toHaveId(Pattern expected) =>
+      _check('have an id that would ${_describe(expected)}', () async {
+        final value = await _locator.evaluate('(el) => el.id');
+        final actual = value?.toString() ?? '';
+        return (ok: _matches(expected, actual), actual: '"$actual"');
+      });
+
+  /// A propriedade JavaScript [name] do elemento vale [expected].
+  ///
+  /// [name] aceita caminho com pontos (`dataset.estado`), como no upstream. A
+  /// comparacao e estrutural: listas e mapas sao comparados em profundidade, e
+  /// o valor precisa sobreviver a viagem em JSON.
+  Future<void> toHaveJSProperty(String name, Object? expected) =>
+      _check('have the JS property $name equal to ${jsonEncode(expected)}',
+          () async {
+        final result = await _locator.evaluate('''
+          (el) => {
+            let current = el;
+            for (const part of ${jsonEncode(name.split('.'))}) {
+              if (current === null || current === undefined) return { found: false };
+              current = current[part];
+            }
+            return { found: current !== undefined, value: current };
+          }
+        ''');
+        final map = (result as Map?) ?? const {};
+        if (map['found'] != true) return (ok: false, actual: 'undefined');
+        final actual = map['value'];
+        return (ok: _deepEquals(actual, expected), actual: jsonEncode(actual));
+      });
+
+  /// Os valores selecionados de um `<select multiple>`.
+  ///
+  /// A ordem e a do documento e a quantidade tem de bater exatamente, como no
+  /// upstream. O elemento tem de ser um `select` com `multiple`: qualquer outra
+  /// coisa e erro de quem escreveu o teste, nao assertion que falha.
+  Future<void> toHaveValues(List<Pattern> expected) => _check(
+        'have the selected values [${expected.map(_describe).join(', ')}]',
+        () async {
+          final result = await _locator.evaluate('''
+            (el) => {
+              if (el.nodeName !== 'SELECT' || !el.multiple)
+                return { error: el.nodeName };
+              return { values: Array.from(el.selectedOptions).map((o) => o.value) };
+            }
+          ''');
+          final map = (result as Map?) ?? const {};
+          if (map['error'] != null) {
+            throw ArgumentError('toHaveValues espera um <select multiple>, e o '
+                'locator resolveu para <${map['error']}>');
+          }
+          final values = (map['values'] as List).map((v) => '$v').toList();
+          final ok = values.length == expected.length &&
+              [
+                for (var i = 0; i < values.length; i++)
+                  _matches(expected[i], values[i])
+              ].every((match) => match);
+          return (ok: ok, actual: jsonEncode(values));
+        },
+      );
+
+  /// O elemento aparece dentro da janela.
+  ///
+  /// [ratio] e a fracao minima da area do elemento que precisa estar visivel;
+  /// sem ele basta qualquer pedaco. Um elemento de area zero nunca passa, nem
+  /// com `ratio: 0`.
+  ///
+  /// O upstream usa `IntersectionObserver`. Aqui a conta sai de
+  /// `getBoundingClientRect`, intersectada tambem com os ancestrais que cortam
+  /// (`overflow` diferente de `visible`), porque avaliar uma expressao num
+  /// locator neste port nao espera Promise — e o observer so responde por
+  /// callback. O que a diferenca custa: `IntersectionObserver` tambem para em
+  /// `visibility: hidden` e em `clip-path`, e esta conta nao.
+  Future<void> toBeInViewport({double? ratio}) => _check(
+        ratio == null
+            ? 'be in the viewport'
+            : 'be at least ${(ratio * 100).toStringAsFixed(0)}% in the viewport',
+        () async {
+          final result = await _locator.evaluate(r'''
+            (el) => {
+              const rect = el.getBoundingClientRect();
+              const area = rect.width * rect.height;
+              if (area <= 0) return 0;
+              let left = rect.left, top = rect.top;
+              let right = rect.right, bottom = rect.bottom;
+              const clip = (l, t, r, b) => {
+                left = Math.max(left, l); top = Math.max(top, t);
+                right = Math.min(right, r); bottom = Math.min(bottom, b);
+              };
+              clip(0, 0,
+                  window.innerWidth || document.documentElement.clientWidth,
+                  window.innerHeight || document.documentElement.clientHeight);
+              for (let node = el.parentElement; node; node = node.parentElement) {
+                const style = getComputedStyle(node);
+                if (style.overflow === 'visible' && style.overflowX === 'visible' &&
+                    style.overflowY === 'visible')
+                  continue;
+                const box = node.getBoundingClientRect();
+                clip(box.left, box.top, box.right, box.bottom);
+              }
+              const width = Math.max(0, right - left);
+              const height = Math.max(0, bottom - top);
+              return (width * height) / area;
+            }
+          ''');
+          final visible = (result as num?)?.toDouble() ?? 0;
+          // O epsilon e o do upstream: sem ele `ratio: 1` reprova por erro de
+          // ponto flutuante num elemento que esta inteiro na tela.
+          final ok = visible > 0 && visible > (ratio ?? 0) - 1e-9;
+          return (ok: ok, actual: '${(visible * 100).toStringAsFixed(1)}%');
+        },
+      );
+
+  /// O nome acessivel do elemento, com espacos normalizados.
+  Future<void> toHaveAccessibleName(Pattern expected) =>
+      _check('have an accessible name that would ${_describe(expected)}',
+          () async {
+        final name = await _locator.accessibleName();
+        return (ok: _matches(expected, name), actual: '"$name"');
+      });
+
+  /// A descricao acessivel do elemento, com espacos normalizados.
+  ///
+  /// A ordem e a do upstream: `aria-describedby` (o texto de cada elemento
+  /// referenciado, juntado por espaco), depois `aria-description`, depois
+  /// `title`.
+  ///
+  /// O texto de um elemento referenciado sai de `aria-label`, senao do nome
+  /// acessivel, senao do conteudo. Esse ultimo degrau existe porque o alvo de
+  /// um `aria-describedby` quase sempre e um `<span>` ou `<p>`, cujo papel nao
+  /// aceita nome vindo do conteudo — o nome acessivel dele e vazio, e so o
+  /// conteudo diz o que a descricao e. O upstream chega ao mesmo lugar por
+  /// dentro, com um passo de travessia que este port nao expoe.
+  Future<void> toHaveAccessibleDescription(Pattern expected) =>
+      _check('have an accessible description that would ${_describe(expected)}',
+          () async {
+        final value = await _locator.evaluate(r'''
+          (el) => {
+            const pw = window.__pwDart;
+            const flat = (text) => pw.normalizeWhiteSpace(text || '');
+            const textOf = (ref) => {
+              const label = ref.getAttribute('aria-label');
+              if (label && label.trim()) return label;
+              return pw.accessibleName(ref, true) || ref.textContent || '';
+            };
+            if (el.hasAttribute('aria-describedby')) {
+              const root = el.getRootNode();
+              const parts = el.getAttribute('aria-describedby').split(/\s+/)
+                  .filter(Boolean)
+                  .map((id) => root.getElementById ? root.getElementById(id) : null)
+                  .filter(Boolean)
+                  .map(textOf);
+              return flat(parts.join(' '));
+            }
+            if (el.hasAttribute('aria-description'))
+              return flat(el.getAttribute('aria-description'));
+            return flat(el.getAttribute('title'));
+          }
+        ''');
+        final actual = value?.toString() ?? '';
+        return (ok: _matches(expected, actual), actual: '"$actual"');
+      });
+
+  /// O papel ARIA computado do elemento.
+  ///
+  /// So aceita String, como no upstream: um papel ARIA sai de uma lista
+  /// fechada, e uma expressao regular ali quase sempre e um `toHaveAttribute`
+  /// escrito no lugar errado.
+  Future<void> toHaveRole(String expected) =>
+      _check('have the ARIA role "$expected"', () async {
+        final role = await _locator.ariaRole() ?? '';
+        return (ok: role == expected, actual: '"$role"');
+      });
+
   static String _normalize(String value) =>
       value.replaceAll(RegExp(r'\s+'), ' ').trim();
 }
@@ -264,20 +516,31 @@ class PageAssertions {
   final Duration _timeout;
   final bool _isNot;
 
+  final bool _isSoft;
+
   PageAssertions(this._page,
-      {Duration timeout = kDefaultAssertionTimeout, bool isNot = false})
+      {Duration timeout = kDefaultAssertionTimeout,
+      bool isNot = false,
+      bool isSoft = false})
       : _timeout = timeout,
-        _isNot = isNot;
+        _isNot = isNot,
+        _isSoft = isSoft;
 
   PageAssertions get not =>
-      PageAssertions(_page, timeout: _timeout, isNot: !_isNot);
+      PageAssertions(_page, timeout: _timeout, isNot: !_isNot, isSoft: _isSoft);
+
+  /// A forma que registra a falha e deixa o teste continuar.
+  PageAssertions get soft =>
+      PageAssertions(_page, timeout: _timeout, isNot: _isNot, isSoft: true);
 
   Future<void> _check(
       String expected, Future<({bool ok, String actual})> Function() probe) {
-    if (!_isNot) return _retry('page', expected, _timeout, probe);
-    return _retry('page', 'not $expected', _timeout, () async {
-      final result = await probe();
-      return (ok: !result.ok, actual: result.actual);
+    return _report(_isSoft, () {
+      if (!_isNot) return _retry('page', expected, _timeout, probe);
+      return _retry('page', 'not $expected', _timeout, () async {
+        final result = await probe();
+        return (ok: !result.ok, actual: result.actual);
+      });
     });
   }
 
@@ -310,22 +573,30 @@ class PageAssertions {
 class APIResponseAssertions {
   final APIResponse _response;
   final bool _isNot;
+  final bool _isSoft;
 
-  APIResponseAssertions(this._response, {bool isNot = false}) : _isNot = isNot;
+  APIResponseAssertions(this._response,
+      {bool isNot = false, bool isSoft = false})
+      : _isNot = isNot,
+        _isSoft = isSoft;
 
   APIResponseAssertions get not =>
-      APIResponseAssertions(_response, isNot: !_isNot);
+      APIResponseAssertions(_response, isNot: !_isNot, isSoft: _isSoft);
+
+  /// A forma que registra a falha e deixa o teste continuar.
+  APIResponseAssertions get soft =>
+      APIResponseAssertions(_response, isNot: _isNot, isSoft: true);
 
   /// The status is in the 200-299 range.
-  Future<void> toBeOK() async {
-    final ok = _response.ok();
-    if (ok != _isNot) return;
-    throw AssertionFailure(
-      description: 'response ${_response.url()}',
-      expected: _isNot ? 'not be OK' : 'be OK',
-      actual: '${_response.status()} ${_response.statusText()}',
-    );
-  }
+  Future<void> toBeOK() => _report(_isSoft, () async {
+        final ok = _response.ok();
+        if (ok != _isNot) return;
+        throw AssertionFailure(
+          description: 'response ${_response.url()}',
+          expected: _isNot ? 'not be OK' : 'be OK',
+          actual: '${_response.status()} ${_response.statusText()}',
+        );
+      });
 }
 
 /// Assertions about a locator: `await expectLocator(l).toBeVisible()`.
@@ -341,3 +612,69 @@ PageAssertions expectPage(Page page,
 /// Assertions about an API response.
 APIResponseAssertions expectResponse(APIResponse response) =>
     APIResponseAssertions(response);
+
+/// Os intervalos entre tentativas de [expectPoll], em milissegundos.
+///
+/// Sao os do upstream: rapido no comeco, porque a maioria das condicoes fica
+/// pronta quase de imediato, e o ultimo valor se repete ate o prazo acabar.
+const kDefaultPollIntervals = [
+  Duration(milliseconds: 100),
+  Duration(milliseconds: 250),
+  Duration(milliseconds: 500),
+  Duration(seconds: 1),
+];
+
+/// Repete [actual] ate que [matcher] aceite o valor, ou ate o prazo acabar.
+///
+/// E o `expect.poll` do upstream. Serve para o que nao e um locator e mesmo
+/// assim leva tempo para ficar pronto — uma API que ainda esta processando, um
+/// arquivo que o app vai escrever, um contador que sobe:
+///
+/// ```dart
+/// await expectPoll(
+///   () async => (await t.context.request.get('/api/jobs/7')).status(),
+///   equals(200),
+/// );
+/// ```
+///
+/// [matcher] e um `Matcher` de `package:test`, ou um valor simples (que vira
+/// `equals`). Com [soft] a falha e guardada e o teste segue, falhando no fim.
+Future<void> expectPoll<T>(
+  FutureOr<T> Function() actual,
+  Object? matcher, {
+  Duration timeout = kDefaultAssertionTimeout,
+  List<Duration> intervals = kDefaultPollIntervals,
+  String? reason,
+  bool soft = false,
+}) {
+  final Matcher wrapped = wrapMatcher(matcher);
+  return _report(soft, () async {
+    final deadline = DateTime.now().add(timeout);
+    var attempt = 0;
+    var last = '(never evaluated)';
+    while (true) {
+      try {
+        final value = await actual();
+        if (wrapped.matches(value, <Object?, Object?>{})) return;
+        last = StringDescription().addDescriptionOf(value).toString();
+      } catch (error) {
+        // Uma funcao que ainda explode e uma condicao que ainda nao valeu: o
+        // motivo entra na mensagem final e a proxima tentativa acontece.
+        last = 'error: $error';
+      }
+      if (!DateTime.now().isBefore(deadline)) {
+        throw AssertionFailure(
+          description: reason ?? 'polled value',
+          expected: StringDescription().addDescriptionOf(wrapped).toString(),
+          actual: last,
+        );
+      }
+      final interval = intervals.isEmpty
+          ? const Duration(milliseconds: 100)
+          : intervals[
+              attempt < intervals.length ? attempt : intervals.length - 1];
+      attempt++;
+      await Future<void>.delayed(interval);
+    }
+  });
+}

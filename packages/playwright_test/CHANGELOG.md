@@ -1,5 +1,45 @@
 # Changelog
 
+## Unreleased
+
+### Fixtures proprias
+
+- `defineFixture(name, setUp, tearDown:, scope:)` declara uma fixture. O objeto
+  devolvido e a chave tipada: `t.use(chave)` devolve `Future<T>`, sem cast e
+  sem geracao de codigo.
+- `FixtureScope.test` (padrao) e `FixtureScope.worker` (uma vez por arquivo e
+  motor, desfeita pelo `playwrightGroup`).
+- O teardown roda na ordem inversa do setup, **inclusive quando o teste falha**.
+- `FixtureContext` da as fixtures embutidas mais `use` e `onTeardown`, entao uma
+  fixture compoe com outra.
+- `defineOption(name, padrao)` e `opcao.overrideWith(valor)` para fixtures de
+  opcao; `fixture.asAuto` para as automaticas. Ambos entram em
+  `PlaywrightTestOptions.fixtures`.
+
+### storageState
+
+- `StorageState(path:, logIn:, verify:, maxAge:)` loga uma vez e reaplica o
+  estado a cada contexto, via `PlaywrightTestOptions.storageState`.
+- Estado vencido e detectado por cookie expirado no arquivo, por idade do
+  arquivo e por `verify`, que refaz o login uma unica vez.
+
+### test.step
+
+- `step(titulo, corpo)` grava um par `before`/`after` como
+  `Tracing.tracingGroup`, que o visualizador oficial desenha. As acoes de
+  dentro aninham embaixo do passo, e passos aninham entre si.
+
+### Assertions
+
+- Novos matchers de locator: `toHaveCSS`, `toHaveId`, `toHaveJSProperty`,
+  `toHaveValues`, `toBeInViewport`, `toHaveAccessibleName`,
+  `toHaveAccessibleDescription` e `toHaveRole`.
+- `expectPoll(funcao, matcher)` repete uma funcao ate a condicao valer.
+- `.soft` nas classes de assertion acumula a falha e derruba o teste no fim com
+  todas juntas.
+- Argumento invalido (um `toHaveValues` sobre um `<select>` sem `multiple`)
+  sobe na hora em vez de esperar o prazo inteiro.
+
 ## 0.1.0
 
 First release.

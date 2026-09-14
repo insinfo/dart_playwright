@@ -5,29 +5,68 @@ import 'package:path/path.dart' as p;
 import 'package:playwright/playwright.dart';
 import 'package:test/test.dart';
 
+import 'fixture.dart';
+import 'soft_failures.dart';
+import 'step.dart';
+import 'storage_state.dart';
+
 /// What a Playwright test body receives.
 ///
 /// The page is fresh for every test, in a context of its own, so nothing
 /// leaks between tests: no cookies, no storage, no leftover tabs.
-class PlaywrightFixtures {
+class PlaywrightFixtures implements FixtureContext {
   /// Which engine this run is using: `chromium`, `firefox` or `webkit`.
+  @override
   final String browserName;
 
   /// The browser, shared by every test in this file for this engine.
+  @override
   final Browser browser;
 
   /// A context created for this test alone.
+  @override
   final BrowserContext context;
 
   /// A page created for this test alone.
+  @override
   final Page page;
+
+  final FixtureResolver _resolver;
 
   PlaywrightFixtures({
     required this.browserName,
     required this.browser,
     required this.context,
     required this.page,
-  });
+    FixtureResolver? resolver,
+  }) : _resolver = resolver ??
+            FixtureResolver.test(
+              worker: FixtureResolver.worker(
+                  browserName: browserName, browser: browser),
+              context: context,
+              page: page,
+            );
+
+  /// O valor de [fixture], criando-a na primeira vez que este teste a pede.
+  ///
+  /// ```dart
+  /// final page = await t.use(loggedInPage);
+  /// ```
+  ///
+  /// Uma fixture de escopo [FixtureScope.test] e criada e desfeita dentro
+  /// deste teste; uma de [FixtureScope.worker] e compartilhada pelo arquivo
+  /// inteiro, por motor, e so e desfeita quando o `playwrightGroup` acaba.
+  ///
+  /// O tipo do retorno vem de [fixture]: nao ha `dynamic` nem `as` no corpo do
+  /// teste, que e o ponto onde uma traducao literal do `test.extend()` do JS
+  /// daria errado em Dart.
+  @override
+  Future<T> use<T>(Fixture<T> fixture) => _resolver.use(fixture);
+
+  /// Registra uma limpeza que roda no fim deste teste, mesmo que ele falhe.
+  @override
+  void onTeardown(Future<void> Function() callback) =>
+      _resolver.onTeardown(callback);
 }
 
 /// Options for [playwrightTest] and [playwrightGroup].
@@ -47,6 +86,19 @@ class PlaywrightTestOptions {
   /// Where a failure screenshot is written. Null turns the capture off.
   final String? artifactsPath;
 
+  /// Fixtures automaticas e trocas de opcao que valem para estes testes.
+  ///
+  /// Uma fixture comum nao precisa aparecer aqui: `t.use(f)` ja traz tudo de
+  /// que ela depende. Esta lista e para o que o teste nao pede pelo nome —
+  /// `minhaFixture.asAuto` e `minhaOpcao.overrideWith(valor)`.
+  final List<FixtureRegistration> fixtures;
+
+  /// Um login gravado em disco e reaproveitado pelos testes.
+  ///
+  /// O estado e produzido uma vez por arquivo e motor, e aplicado ao contexto
+  /// de cada teste antes de a pagina abrir. Ver [StorageState].
+  final StorageState? storageState;
+
   const PlaywrightTestOptions({
     this.browsers = const ['chromium'],
     this.headless = true,
@@ -57,6 +109,8 @@ class PlaywrightTestOptions {
     this.hasTouch = false,
     this.baseURL,
     this.artifactsPath = 'test-results',
+    this.fixtures = const [],
+    this.storageState,
   });
 }
 
@@ -133,7 +187,11 @@ void playwrightTest(
 /// browsers stay open until the process exits.
 void playwrightGroup(String description, void Function() body) {
   group(description, () {
+    // Ordem importa: `tearDownAll` roda na ordem inversa do registro, e as
+    // fixtures de worker podem guardar contextos deste navegador — desfaze-las
+    // depois de fecha-lo daria um erro em cima de cada uma.
     tearDownAll(_BrowserPool.closeAll);
+    tearDownAll(WorkerFixtureScopes.tearDownAll);
     body();
   });
 }
@@ -146,6 +204,21 @@ Future<void> _runOne(
 ) async {
   final browser =
       await _BrowserPool.get(browserName, headless: options.headless);
+  final worker = WorkerFixtureScopes.of(
+    browserName,
+    browser,
+    headless: options.headless,
+    registrations: options.fixtures,
+  );
+  await worker.ensureAutoFixtures();
+
+  // O estado de login sai do escopo de worker, entao o login roda uma vez por
+  // arquivo e motor. Resolve-se antes do contexto porque e ele que diz o que o
+  // contexto ja nasce sabendo.
+  final storageState = options.storageState;
+  final state =
+      storageState == null ? null : await worker.use(storageState.fixture);
+
   final context = await browser.newContext(
     viewport: options.viewport,
     locale: options.locale,
@@ -153,16 +226,32 @@ Future<void> _runOne(
     colorScheme: options.colorScheme,
     hasTouch: options.hasTouch,
   );
+  if (state != null) await applyStorageState(context, state);
   final page = await context.newPage();
+  final resolver = FixtureResolver.test(
+    worker: worker,
+    context: context,
+    page: page,
+    registrations: options.fixtures,
+  );
   final fixtures = PlaywrightFixtures(
     browserName: browserName,
     browser: browser,
     context: context,
     page: page,
+    resolver: resolver,
   );
 
   try {
-    await body(fixtures);
+    await resolver.ensureAutoFixtures();
+    await runWithCurrentPage(page, () => body(fixtures));
+    // Uma falha soft nao interrompe o corpo, entao o screenshot dela tem de
+    // ser tirado aqui, com a pagina ainda aberta.
+    if (hasPendingSoftFailures) {
+      final soft = await _captureFailure(
+          page, description, browserName, options.artifactsPath);
+      if (soft != null) noteSoftFailureArtifact(soft);
+    }
   } catch (error) {
     final shot = await _captureFailure(
         page, description, browserName, options.artifactsPath);
@@ -171,7 +260,14 @@ Future<void> _runOne(
     // failure.
     throw StateError('$error\n\nScreenshot of the failure: $shot');
   } finally {
-    await context.close();
+    // As fixtures do teste saem antes do contexto: uma delas pode guardar uma
+    // pagina, e fechar o contexto primeiro faria o teardown falhar em cima de
+    // um recurso ja morto.
+    try {
+      await resolver.tearDown();
+    } finally {
+      await context.close();
+    }
   }
 }
 
