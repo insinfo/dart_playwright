@@ -24,3 +24,5 @@ export 'package:test/test.dart';
 
 export 'src/assertions.dart';
 export 'src/fixtures.dart';
+export 'src/source_maps.dart';
+export 'src/web_server.dart';
