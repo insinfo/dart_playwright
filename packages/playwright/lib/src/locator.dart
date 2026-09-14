@@ -44,6 +44,17 @@ class StrictModeViolation extends PlaywrightException {
   String toString() => 'StrictModeViolation: $message';
 }
 
+/// Thrown when a selector cannot be parsed or uses an engine wrongly.
+///
+/// Mirrors upstream's `InvalidSelectorError`: a malformed selector is a bug in
+/// the test, so it is reported at once instead of being retried until the
+/// locator times out.
+class InvalidSelectorError extends PlaywrightException {
+  InvalidSelectorError(super.message);
+  @override
+  String toString() => 'InvalidSelectorError: $message';
+}
+
 /// The `getBy*` family and `locator`, shared by [Page], [Frame], [Locator]
 /// and [FrameLocator].
 ///
@@ -454,8 +465,8 @@ class LocatorImpl extends Locator {
     var frame = _frame.coreFrame;
     for (var i = 0; i < groups.length - 1; i++) {
       final group = groups[i];
-      final probe = await frame.evaluateInjected(
-          '() => !!${_resolverJs(group, strict)}');
+      final probe = _unwrapGuard(await frame.evaluateInjected(
+          '() => window.__pwDart.guard(() => !!${_resolverJs(group, strict)})'));
       if (probe != true) {
         throw _NotResolved(
             'frame locator ${ParsedSelector(group).description} did not match');
@@ -482,6 +493,9 @@ class LocatorImpl extends Locator {
         return await attempt();
       } on StrictModeViolation {
         // A strict violation is a test bug, not a timing problem.
+        rethrow;
+      } on InvalidSelectorError {
+        // Neither is a selector that does not parse: waiting cannot fix it.
         rethrow;
       } on _NotResolved catch (error) {
         lastReason = error.reason;
@@ -523,6 +537,9 @@ class LocatorImpl extends Locator {
     if (map == null) throw _NotResolved('evaluation returned nothing');
     if (map['ok'] == true) return map['value'];
     switch (map['error']) {
+      case 'invalid':
+        throw InvalidSelectorError(map['message']?.toString() ??
+            'invalid selector: ${_selector.description}');
       case 'strict':
         throw StrictModeViolation(map['message']?.toString() ??
             'strict mode violation: ${_selector.description}');
@@ -542,6 +559,18 @@ class LocatorImpl extends Locator {
     }
   }
 
+  /// Unwraps the `{ok}`/`{error}` envelope of `window.__pwDart.guard`, which
+  /// the calls that do not go through [_run] use to report a bad selector.
+  dynamic _unwrapGuard(dynamic result) {
+    final map = result as Map?;
+    if (map == null) return null;
+    if (map['error'] == 'invalid') {
+      throw InvalidSelectorError(map['message']?.toString() ??
+          'invalid selector: ${_selector.description}');
+    }
+    return map['value'];
+  }
+
   /// Like [_run], but without retrying: used by the state getters that
   /// upstream answers immediately.
   Future<dynamic> _runOnce(String body,
@@ -553,6 +582,10 @@ class LocatorImpl extends Locator {
     ''');
     final map = result as Map?;
     if (map != null && map['ok'] == true) return map['value'];
+    if (map != null && map['error'] == 'invalid') {
+      throw InvalidSelectorError(map['message']?.toString() ??
+          'invalid selector: ${_selector.description}');
+    }
     if (map != null && map['error'] == 'strict') {
       throw StrictModeViolation(map['message']?.toString() ??
           'strict mode violation: ${_selector.description}');
@@ -982,8 +1015,9 @@ class LocatorImpl extends Locator {
   Future<int> count() async {
     final resolved = await _resolveFrames(false);
     final result = await resolved.frame.evaluateInjected(
-        '() => window.__pwDart.count(${jsonEncode(resolved.parts)})');
-    return (result as num).toInt();
+        '() => window.__pwDart.guard('
+        '() => window.__pwDart.count(${jsonEncode(resolved.parts)}))');
+    return (_unwrapGuard(result) as num).toInt();
   }
 
   @override
@@ -1085,8 +1119,10 @@ class LocatorImpl extends Locator {
   @override
   Future<dynamic> evaluateAll(String expression) async {
     final resolved = await _resolveFrames(false);
-    return resolved.frame.evaluateInjected(
-        '() => ($expression)(window.__pwDart.queryAll(${jsonEncode(resolved.parts)}))');
+    final result = await resolved.frame.evaluateInjected(
+        '() => window.__pwDart.guard(() => ($expression)('
+        'window.__pwDart.queryAll(${jsonEncode(resolved.parts)})))');
+    return _unwrapGuard(result);
   }
 
   @override
