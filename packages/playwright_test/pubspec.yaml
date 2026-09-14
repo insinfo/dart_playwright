@@ -21,3 +21,7 @@ dependencies:
   playwright: ^0.1.0
   path: ^1.9.0
   test: ^1.25.0
+
+dev_dependencies:
+  # Le de volta o arquivo de trace nos testes de test.step.
+  archive: ^4.0.0

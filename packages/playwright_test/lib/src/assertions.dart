@@ -48,6 +48,12 @@ Future<void> _retry(
       final result = await probe();
       if (result.ok) return;
       actual = result.actual;
+    } on ArgumentError {
+      // Argumento errado e erro de quem escreveu o teste, nao condicao que
+      // ainda nao valeu: esperar o prazo inteiro para depois dizer "nao bateu"
+      // esconderia a causa real. Mesma regra que `Locator` ja usa para
+      // seletor invalido.
+      rethrow;
     } catch (error) {
       actual = 'error: $error';
     }
@@ -429,9 +435,16 @@ class LocatorAssertions {
 
   /// A descricao acessivel do elemento, com espacos normalizados.
   ///
-  /// A ordem e a do upstream: `aria-describedby` (o nome acessivel de cada
-  /// elemento referenciado, juntados por espaco), depois `aria-description`,
-  /// depois `title`.
+  /// A ordem e a do upstream: `aria-describedby` (o texto de cada elemento
+  /// referenciado, juntado por espaco), depois `aria-description`, depois
+  /// `title`.
+  ///
+  /// O texto de um elemento referenciado sai de `aria-label`, senao do nome
+  /// acessivel, senao do conteudo. Esse ultimo degrau existe porque o alvo de
+  /// um `aria-describedby` quase sempre e um `<span>` ou `<p>`, cujo papel nao
+  /// aceita nome vindo do conteudo — o nome acessivel dele e vazio, e so o
+  /// conteudo diz o que a descricao e. O upstream chega ao mesmo lugar por
+  /// dentro, com um passo de travessia que este port nao expoe.
   Future<void> toHaveAccessibleDescription(Pattern expected) =>
       _check('have an accessible description that would ${_describe(expected)}',
           () async {
@@ -439,13 +452,18 @@ class LocatorAssertions {
           (el) => {
             const pw = window.__pwDart;
             const flat = (text) => pw.normalizeWhiteSpace(text || '');
+            const textOf = (ref) => {
+              const label = ref.getAttribute('aria-label');
+              if (label && label.trim()) return label;
+              return pw.accessibleName(ref, true) || ref.textContent || '';
+            };
             if (el.hasAttribute('aria-describedby')) {
               const root = el.getRootNode();
               const parts = el.getAttribute('aria-describedby').split(/\s+/)
                   .filter(Boolean)
                   .map((id) => root.getElementById ? root.getElementById(id) : null)
                   .filter(Boolean)
-                  .map((ref) => pw.accessibleName(ref, true));
+                  .map(textOf);
               return flat(parts.join(' '));
             }
             if (el.hasAttribute('aria-description'))
