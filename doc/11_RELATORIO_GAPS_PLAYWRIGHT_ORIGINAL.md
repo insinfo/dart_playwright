@@ -311,9 +311,25 @@ valores, sem âncoras para agir depois.
   outros dois motores.
 - **`addInitScript`, `exposeFunction`, `exposeBinding`.** Dependem de
   `Page.addScriptToEvaluateOnNewDocument` e de um canal de binding por motor.
-- **`BrowserType.connect`, `connectOverCDP`, `launchPersistentContext`,
-  `launchServer`.**
-- **Proxy por contexto.**
+- ~~**`BrowserType.connectOverCDP` e `launchPersistentContext`**~~ — FEITO em
+  2026-09-14, junto com as opcoes de `launch` que faltavam (`channel`,
+  `executablePath`, `downloadsPath`, `env`, `slowMo`, `timeout`, `tracesDir`,
+  `chromiumSandbox`, `firefoxUserPrefs`, `ignoreDefaultArgs`,
+  `handleSIGINT`/`SIGTERM`/`SIGHUP`). `connectOverCDP` e so Chromium: CDP e o
+  protocolo do Chromium, e nem Juggler nem o inspetor do WebKit o
+  implementam.
+- **`BrowserType.connect` e `launchServer`.** Sao os dois que sobraram, e
+  sobraram juntos por um motivo: os dois falam o *protocolo do Playwright*,
+  nao o protocolo do motor. O upstream tem uma camada de RPC por canais
+  (`channels`, `dispatchers`, `connection.ts`) que serializa cada objeto da
+  API — `Browser`, `BrowserContext`, `Page`, `Locator`, `Route` — como um
+  canal remoto. Esta porta nao tem essa camada: ela fala CDP, Juggler e
+  WebKit direto, sem nenhum dispatcher no meio. `launchServer` teria de
+  expor essa camada num WebSocket e `connect` teria de consumi-la, entao os
+  dois sao "portar a camada de RPC do Playwright", nao "adicionar dois
+  metodos".
+- ~~**Proxy por contexto.**~~ — FEITO em 2026-09-14 nos tres motores, alem do
+  proxy no launch.
 <<<<<<< HEAD
 - ~~**Extensões CSS do Playwright** (`:has-text()`, `:visible`, seletores de
   layout) e shadow-piercing no motor `css`~~ — FEITO em 2026-09-13:
@@ -777,12 +793,14 @@ Faltam:
 
 Faltam:
 
-- `executablePath`
-- `connect`
-- `connectOverCDP`
-- `launchPersistentContext`
-- `launchServer`
-- opções completas de `launch`, como `channel`, `executablePath`, `downloadsPath`, `env`, `proxy`, `slowMo`, `timeout`, `tracesDir`, `chromiumSandbox`, `firefoxUserPrefs`, `ignoreDefaultArgs`, `handleSIGINT`, `handleSIGTERM`, `handleSIGHUP`.
+- `connect` e `launchServer` (ver acima: dependem da camada de RPC do
+  Playwright, que esta porta nao tem)
+
+Feito em 2026-09-14: `connectOverCDP` (só Chromium), `launchPersistentContext`,
+`executablePath` e as opções de `launch` (`channel`, `downloadsPath`, `env`,
+`proxy`, `slowMo`, `timeout`, `tracesDir`, `chromiumSandbox`,
+`firefoxUserPrefs`, `ignoreDefaultArgs`, `handleSIGINT`, `handleSIGTERM`,
+`handleSIGHUP`).
 
 2. Completar `Browser`
 
