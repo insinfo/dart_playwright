@@ -290,10 +290,12 @@ class Selectors {
   /// Parses a Playwright selector string into engine parts.
   ///
   /// Supports the forms the port actually needs: `>>` chaining, the `css=`,
-  /// `xpath=`, `text=`, `id=`, `nth=` and `visible=` prefixes, and upstream's
-  /// implicit detection (`//`/`..` is XPath, a quoted string is text, anything
-  /// else is CSS). Playwright's CSS extensions (`:has-text()`, `:visible`,
-  /// layout selectors) and custom registered engines are not supported.
+  /// `css:light=`, `xpath=`, `text=`, `id=`, `nth=` and `visible=` prefixes,
+  /// and upstream's implicit detection (`//`/`..` is XPath, a quoted string is
+  /// text, anything else is CSS). The CSS body itself is parsed in the page by
+  /// the ported `cssParser`, so Playwright's CSS extensions (`:has-text()`,
+  /// `:visible`, `:nth-match()`, the layout selectors, `:light()`) all work.
+  /// Custom registered engines are not supported.
   static ParsedSelector parse(String selector) {
     final parts = <Map<String, dynamic>>[];
     for (final chunk in _splitChain(selector)) {
@@ -344,6 +346,11 @@ class Selectors {
       throw ArgumentError('Selector part must not be empty');
     }
     if (body.startsWith('css=')) return css(body.substring(4));
+    // `css:light=` is upstream's opt-out from shadow piercing; it is spelled
+    // `:light()` once it reaches the evaluator.
+    if (body.startsWith('css:light=')) {
+      return css(':light(${body.substring(10)})');
+    }
     if (body.startsWith('xpath=')) return xpath(body.substring(6));
     if (body.startsWith('nth=')) {
       final raw = body.substring(4);
