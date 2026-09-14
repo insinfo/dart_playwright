@@ -53,22 +53,31 @@ void main() {
     Directory nextDir() =>
         Directory('${outputDir.path}/videos-${ordinal++}')..createSync();
 
-    /// Waits until [file] holds more than [threshold] bytes and returns the
-    /// size it reached.
+    /// Waits until the recording of [file] is demonstrably under way.
     ///
-    /// Not a fixed delay: it stops on an observable fact — the recorder has
-    /// written — with a deadline only as a failure mode. Which is what keeps
-    /// these tests meaningful when the encoder underneath changes pace.
-    Future<int> sizeAbove(File file, int threshold,
-        {Duration timeout = const Duration(seconds: 40)}) async {
+    /// Not "until the file grows": the muxer is ffmpeg writing Matroska, and
+    /// it holds the stream until the recording is finalized — measured on this
+    /// port, a page recorded for three seconds sits at **0 bytes** on disk the
+    /// whole time and becomes 22 kB the moment the page closes. An earlier
+    /// version of these tests waited for growth and passed only because the
+    /// stand-in backend wrote incrementally; against the real encoder that
+    /// wait can never end.
+    ///
+    /// So what is waited on is the fact that does hold: the encoder has opened
+    /// the file, and enough time has passed for frames to be flowing into it.
+    /// That the bytes are really there is asserted after the close, where they
+    /// exist — which is also the point these tests are making.
+    Future<void> recordingUnderWay(File file,
+        {Duration timeout = const Duration(seconds: 30)}) async {
       final deadline = DateTime.now().add(timeout);
       while (DateTime.now().isBefore(deadline)) {
-        final size = file.existsSync() ? file.lengthSync() : 0;
-        if (size > threshold) return size;
+        if (file.existsSync()) {
+          await Future<void>.delayed(const Duration(milliseconds: 600));
+          return;
+        }
         await Future<void>.delayed(const Duration(milliseconds: 50));
       }
-      throw StateError(
-          'o gravador nao passou de $threshold bytes em ${file.path}');
+      throw StateError('o gravador nao chegou a abrir ${file.path}');
     }
 
     /// A recorded page that actually paints.
@@ -85,7 +94,7 @@ void main() {
     /// doing. The engine backends do not, so anything asserting that the
     /// recorder wrote has to record a page that gives it something to write.
     Future<Page> recordedPage(BrowserContext context) async {
-      final page = await recordedPage(context);
+      final page = await context.newPage();
       await page.goto(server.url('/animated'));
       return page;
     }
@@ -134,7 +143,7 @@ void main() {
           final context =
               await browser.newContext(viewport: (width: 640, height: 480));
           try {
-            final page = await recordedPage(context);
+            final page = await context.newPage();
             expect(page.video(), isNull);
           } finally {
             await context.close();
@@ -146,7 +155,7 @@ void main() {
           final dir = nextDir();
           final context = await recordingContext(dir);
           try {
-            final page = await recordedPage(context);
+            final page = await context.newPage();
             final video = page.video();
             expect(video, isNotNull);
             // Duas chamadas tem de devolver o mesmo objeto: codigo de usuario
@@ -172,15 +181,15 @@ void main() {
           });
 
           final file = await videoFileIn(dir);
-          // Duas leituras crescentes: a segunda prova que o gravador ainda
-          // estava escrevendo no arquivo. Qualquer caminho entregue entre elas
-          // apontaria para um video cortado no meio.
-          final firstBytes = await sizeAbove(file, 0);
-          final secondBytes = await sizeAbove(file, firstBytes);
-          expect(secondBytes, greaterThan(firstBytes));
+          await recordingUnderWay(file);
+          // O que um `path()` apressado entregaria: com o encoder ainda
+          // segurando o stream, o arquivo em disco nao e um video — e
+          // tipicamente nem tem bytes. E exatamente por isso que `path()` nao
+          // pode resolver aqui.
           expect(resolved, isFalse,
               reason: 'path() resolveu com a pagina aberta e o arquivo ainda '
                   'sendo escrito');
+          final duranteAGravacao = file.lengthSync();
 
           await page.close();
           final path = await pathFuture.timeout(const Duration(seconds: 60));
@@ -189,7 +198,12 @@ void main() {
 
           final finished = File(path);
           expect(finished.existsSync(), isTrue);
-          expect(finished.lengthSync(), greaterThanOrEqualTo(secondBytes));
+          expect(finished.lengthSync(), greaterThan(duranteAGravacao),
+              reason: 'o arquivo nao ganhou bytes ao ser finalizado');
+          expect(finished.readAsBytesSync().take(4).toList(),
+              [0x1A, 0x45, 0xDF, 0xA3],
+              reason: 'o caminho so pode ser entregue quando o arquivo ja e '
+                  'um WebM de verdade');
 
           // E esta estavel: ninguem continua escrevendo nele.
           final settled = finished.lengthSync();
@@ -217,8 +231,8 @@ void main() {
           // Os dois arquivos existem e estao sendo escritos antes de fechar.
           final files = await videoFilesIn(dir, count: 2);
           expect(files, hasLength(2));
-          await sizeAbove(files[0], 0);
-          await sizeAbove(files[1], 0);
+          await recordingUnderWay(files[0]);
+          await recordingUnderWay(files[1]);
           expect(resolvedA, isFalse);
 
           // Ninguem fechou pagina nenhuma: fechar o contexto e que finaliza.
@@ -240,7 +254,7 @@ void main() {
           final context = await recordingContext(dir);
           final page = await recordedPage(context);
           final video = page.video()!;
-          await sizeAbove(await videoFileIn(dir), 0);
+          await recordingUnderWay(await videoFileIn(dir));
 
           await context.close();
           expect(context.isClosed(), isTrue);
@@ -262,13 +276,13 @@ void main() {
           final page = await recordedPage(context);
           final video = page.video()!;
           final file = await videoFileIn(dir);
-          await sizeAbove(file, 0);
+          await recordingUnderWay(file);
 
           final target = '${dir.path}/early/copy.webm';
           var saved = false;
           final save = video.saveAs(target).then((_) => saved = true);
 
-          await sizeAbove(file, file.lengthSync());
+          await Future<void>.delayed(const Duration(seconds: 1));
           expect(saved, isFalse,
               reason: 'saveAs copiou o arquivo ainda em gravacao');
 
@@ -283,7 +297,7 @@ void main() {
           final context = await recordingContext(dir);
           final page = await recordedPage(context);
           final video = page.video()!;
-          await sizeAbove(await videoFileIn(dir), 0);
+          await recordingUnderWay(await videoFileIn(dir));
           await context.close();
 
           final path = await video.path();
@@ -313,7 +327,7 @@ void main() {
             final video = page.video()!;
 
             final file = await videoFileIn(dir);
-            await sizeAbove(file, 0);
+            await recordingUnderWay(file);
 
             final tracePath = '${dir.path}/trace.zip';
             await context.tracing.stop(path: tracePath);
@@ -339,7 +353,7 @@ void main() {
           final context = await recordingContext(dir);
           final page = await recordedPage(context);
           final video = page.video()!;
-          await sizeAbove(await videoFileIn(dir), 0);
+          await recordingUnderWay(await videoFileIn(dir));
           await context.close();
 
           // Existir e ter bytes nao prova nada: esta sessao ja viu um `.webm`
@@ -371,7 +385,7 @@ void main() {
             final files = await videoFilesIn(dir, count: 2);
             expect(files, hasLength(2));
             for (final file in files) {
-              await sizeAbove(file, 0);
+              await recordingUnderWay(file);
             }
 
             // O site fecha a propria janela; ninguem chamou `close()`.
@@ -449,7 +463,7 @@ void main() {
         final page = await recordedPage(context);
         final video = page.video();
         expect(video, isNotNull);
-        await sizeAbove(await videoFileIn(dir), 0);
+        await recordingUnderWay(await videoFileIn(dir));
         await context.close();
         final path = await video!.path().timeout(const Duration(seconds: 60));
         expect(File(path).lengthSync(), greaterThan(0));
