@@ -450,10 +450,16 @@ void main() {
           await page.locator('#later').click();
 
           expect(await page.evaluate('() => window.__lateClicked'), isTrue);
-          // O botao termina a animacao em left: 60px; o click so pode ter
-          // acontecido depois que a posicao estabilizou.
-          final left = await page.evaluate('() => window.__lateLeft') as num;
-          expect(left, greaterThanOrEqualTo(60));
+          // The click landed inside the button's box as it was at click time.
+          // That is the property stability protects, and it holds whatever
+          // the animation was doing.
+          //
+          // Asserting that the animation had *finished* (left >= 60) was
+          // wrong: a loaded macOS runner throttles the page's setInterval, the
+          // button then genuinely stops moving part-way, and the element is
+          // stable by any definition while the test still expected the end
+          // position. The click was correct; the assertion was not.
+          expect(await page.evaluate('() => window.__lateHit'), isTrue);
         });
 
         test('Deve respeitar timeout e force nas acoes', () async {

@@ -256,8 +256,16 @@ void main() {
           await other.goto(server.url('/popup'));
           final popupFuture =
               other.waitForPopup(timeout: const Duration(seconds: 20));
+          // Attach the expectation *before* closing. How fast the rejection
+          // arrives is engine and platform specific -- WebKit on Linux and
+          // macOS rejects while close() is still being awaited -- and a
+          // rejection that lands while nothing is listening is reported as an
+          // unhandled async error, failing the test even though the wait was
+          // cancelled exactly as it should be.
+          final cancelled =
+              expectLater(popupFuture, throwsA(isA<PlaywrightException>()));
           await other.close();
-          await expectLater(popupFuture, throwsA(isA<PlaywrightException>()));
+          await cancelled;
         });
 
         test('context.waitForPage deve ser cancelado quando o contexto fecha',
@@ -266,8 +274,10 @@ void main() {
           await other.newPage();
           final pageFuture =
               other.waitForPage(timeout: const Duration(seconds: 20));
+          final cancelled =
+              expectLater(pageFuture, throwsA(isA<PlaywrightException>()));
           await other.close();
-          await expectLater(pageFuture, throwsA(isA<PlaywrightException>()));
+          await cancelled;
         });
 
         // ------------------------------------- viewport e headers extras

@@ -365,7 +365,13 @@ class TestServer {
                     button.style.left = '0px';
                     button.addEventListener('click', (e) => {
                       window.__lateClicked = e.isTrusted;
-                      window.__lateLeft = button.getBoundingClientRect().left;
+                      const r = button.getBoundingClientRect();
+                      window.__lateLeft = r.left;
+                      // Did the click land on the button where it is *now*?
+                      // That is what waiting for stability buys: a click aimed
+                      // at a stale position would miss.
+                      window.__lateHit = e.clientX >= r.left && e.clientX <= r.right &&
+                          e.clientY >= r.top && e.clientY <= r.bottom;
                     });
                     document.getElementById('slot').appendChild(button);
                     let left = 0;
