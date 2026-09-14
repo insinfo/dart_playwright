@@ -1,0 +1,23 @@
+name: playwright_test
+description: >-
+  Browser fixtures and retrying assertions for Playwright for Dart, on top of
+  package:test. A layer over `dart test`, not a runner of its own.
+version: 0.1.0
+repository: https://github.com/insinfo/dart_playwright
+issue_tracker: https://github.com/insinfo/dart_playwright/issues
+
+topics:
+  - playwright
+  - testing
+  - e2e
+  - browser
+
+environment:
+  sdk: ^3.6.2
+
+resolution: workspace
+
+dependencies:
+  playwright: ^0.1.0
+  path: ^1.9.0
+  test: ^1.25.0
