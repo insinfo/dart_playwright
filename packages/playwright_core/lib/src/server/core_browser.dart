@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:playwright_protocol/playwright_protocol.dart';
+import 'core_clock.dart';
 import 'core_page.dart';
 
 /// Options applied to every page of a browser context.
@@ -231,6 +232,12 @@ abstract class CoreBrowserContext extends EventEmitter {
 
   /// Functions exposed on this context.
   Map<String, CoreBinding> get contextBindings;
+
+  /// The engine this context belongs to: `chromium`, `firefox` or `webkit`.
+  String get engineName;
+
+  /// Deterministic time for every page of this context.
+  CoreClock get clock;
 
   /// Disposes this context and every page that belongs to it.
   Future<void> close();

@@ -252,6 +252,9 @@ class WkBrowserContext extends EventEmitter
 
   WkBrowserContext(this.browser, this.browserContextId, this.options);
 
+  @override
+  String get engineName => 'webkit';
+
   /// Where this context's downloads land.
   late final String downloadsDirectory =
       options.downloadsPath ?? browser.defaultDownloadsDirectory();

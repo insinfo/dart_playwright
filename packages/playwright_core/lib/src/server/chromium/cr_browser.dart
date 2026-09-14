@@ -291,6 +291,9 @@ class CrBrowserContext extends EventEmitter
   CrBrowserContext(this.browser, this.browserContextId, this.options);
 
   @override
+  String get engineName => 'chromium';
+
+  @override
   bool get isClosed => _closed;
 
   @override

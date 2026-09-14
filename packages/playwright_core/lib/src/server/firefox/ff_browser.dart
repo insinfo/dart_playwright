@@ -321,6 +321,9 @@ class FfBrowserContext extends EventEmitter
 
   FfBrowserContext(this.browser, this.browserContextId, this.options);
 
+  @override
+  String get engineName => 'firefox';
+
   /// Where this context's downloads land.
   late final String downloadsDirectory =
       options.downloadsPath ?? browser.defaultDownloadsDirectory();

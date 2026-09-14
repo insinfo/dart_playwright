@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:playwright_protocol/playwright_protocol.dart';
 
 import 'core_browser.dart';
+import 'core_clock.dart';
 import 'core_page.dart';
 import 'injected/injected_bindings_source.dart';
 
@@ -286,6 +287,13 @@ mixin CorePageInitScripts on CorePageFrameEvaluation {
 mixin CoreBrowserContextBindings on EventEmitter {
   /// Pages owned by this context, supplied by `BrowserContextStorage`.
   List<CorePage> get trackedPages;
+
+  /// The engine this context belongs to: `chromium`, `firefox` or `webkit`.
+  String get engineName;
+
+  /// Deterministic time for every page of this context, created on first use.
+  late final CoreClock clock =
+      CoreClock(this as CoreBrowserContext, engineName);
 
   final List<CoreInitScript> contextInitScripts = <CoreInitScript>[];
   final Map<String, CoreBinding> contextBindings = <String, CoreBinding>{};

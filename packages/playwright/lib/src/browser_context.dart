@@ -8,6 +8,7 @@ import 'package:playwright_core/src/server/dialog.dart' as core;
 import 'package:playwright_protocol/playwright_protocol.dart';
 import 'api_request.dart';
 import 'binding_source.dart';
+import 'clock.dart';
 import 'console_message.dart';
 import 'dialog.dart';
 import 'download.dart';
@@ -64,6 +65,11 @@ abstract class BrowserContext {
   /// Like [exposeFunction], but the callback is also told which page and
   /// frame called it. See [Page.exposeBinding].
   Future<void> exposeBinding(String name, BindingCallback callback);
+
+  /// Deterministic time for every page of this context.
+  ///
+  /// See [Clock]: the same object is reachable as `page.clock`.
+  Clock get clock;
 
   /// Close the context and every page that belongs to it.
   Future<void> close();
@@ -175,6 +181,11 @@ class BrowserContextImpl implements BrowserContext {
   Future<void> exposeBinding(String name, BindingCallback callback) =>
       _coreContext.exposeBinding(name, adaptBindingCallback(callback),
           noGlobal: false);
+
+  late final Clock _clock = ClockImpl(_coreContext.clock);
+
+  @override
+  Clock get clock => _clock;
 
   @override
   Future<void> close() => _coreContext.close();
