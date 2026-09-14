@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:playwright_protocol/playwright_protocol.dart';
+import 'core_clock.dart';
 import 'core_page.dart';
 
 /// Options applied to every page of a browser context.
@@ -218,6 +219,25 @@ abstract class CoreBrowserContext extends EventEmitter {
   /// Captures cookies and per-origin localStorage as a portable snapshot:
   /// `{ 'cookies': [...], 'origins': [{ 'origin': ..., 'localStorage': [...] }] }`.
   Future<Map<String, dynamic>> storageState();
+
+  /// Adds [source] to the scripts every new document of every page of this
+  /// context runs before any of its own. See
+  /// [CoreBrowserContextBindings.addInitScript].
+  Future<CoreInitScript> addInitScript(String source);
+
+  /// Exposes [name] as a function on every page of this context. See
+  /// [CoreBrowserContextBindings.exposeBinding].
+  Future<void> exposeBinding(String name, CoreBindingCallback callback,
+      {bool noGlobal});
+
+  /// Functions exposed on this context.
+  Map<String, CoreBinding> get contextBindings;
+
+  /// The engine this context belongs to: `chromium`, `firefox` or `webkit`.
+  String get engineName;
+
+  /// Deterministic time for every page of this context.
+  CoreClock get clock;
 
   /// Disposes this context and every page that belongs to it.
   Future<void> close();

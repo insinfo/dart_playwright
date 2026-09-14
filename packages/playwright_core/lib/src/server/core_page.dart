@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:playwright_protocol/playwright_protocol.dart';
 import '../accessibility.dart';
 import 'core_browser.dart';
+import 'core_coverage.dart';
 import 'core_events.dart';
 import 'core_file_chooser.dart';
 import 'core_screenshot.dart';
@@ -16,6 +17,7 @@ import 'core_route.dart';
 import 'frames.dart';
 import 'mouse.dart';
 import 'injected/injected_script_source.dart';
+import 'init_scripts.dart';
 export 'core_download.dart' show CoreDownload;
 export 'core_file_chooser.dart' show CoreFileChooser;
 export 'core_screenshot.dart'
@@ -27,6 +29,17 @@ export 'keyboard.dart' show Keyboard;
 export 'mouse.dart'
     show Mouse, RawMouse, RawTouchscreen, Touchscreen;
 export 'frames.dart' show CoreFrame, CoreFrameManager;
+export 'core_coverage.dart';
+export 'init_scripts.dart'
+    show
+        CoreBinding,
+        CoreBindingCallback,
+        CoreBindingSource,
+        CoreBrowserContextBindings,
+        CoreInitScript,
+        CorePageInitScripts,
+        initScriptSource,
+        kBindingChannelName;
 
 enum WaitUntilState {
   load,
@@ -270,18 +283,57 @@ abstract class CorePage extends EventEmitter {
   /// handler, dialogs are auto-dismissed.
   void onDialog(void Function(Dialog dialog) handler);
 
+  // --------------------------------------------------- init scripts
+
+  /// Adds [source] to the scripts every new document of this page runs before
+  /// any of its own. See [CorePageInitScripts.addInitScript].
+  Future<CoreInitScript> addInitScript(String source);
+
+  /// Exposes [name] as a function on this page. See
+  /// [CorePageInitScripts.exposeBinding].
+  Future<void> exposeBinding(String name, CoreBindingCallback callback,
+      {bool noGlobal});
+
+  /// Functions exposed on this page only.
+  Map<String, CoreBinding> get pageBindings;
+
+  /// Every init script this page installs, context's included.
+  List<CoreInitScript> get allInitScripts;
+
+  /// Engine hook, see [CorePageInitScripts.applyInitScripts].
+  Future<void> applyInitScripts(List<CoreInitScript> scripts);
+
+  /// Engine hook, see [CorePageInitScripts.installBindingChannel].
+  Future<void> installBindingChannel(String name);
+
+  /// Declares [binding] in the documents that are already open.
+  Future<void> installBindingInLiveFrames(CoreBinding binding);
+
+  /// JavaScript and CSS coverage.
+  ///
+  /// **Chromium only.** Firefox and WebKit throw [UnsupportedError]: their
+  /// protocols have no equivalent, and upstream Playwright exposes
+  /// `page.coverage` on the Chromium page alone. See [CoreCoverage].
+  CoreCoverage get coverage;
+
   Future<void> close();
+}
+
+/// Whether [expression] is a function the caller means to be *called*, rather
+/// than a value to evaluate. Shared by `evaluate` and by the init scripts, so
+/// both agree on what counts as a function.
+bool isFunctionExpression(String expression) {
+  final trimmed = expression.trim();
+  return trimmed.startsWith('function') ||
+      trimmed.startsWith('async function') ||
+      RegExp(r'^(?:async\s+)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>')
+          .hasMatch(trimmed);
 }
 
 /// Wraps a bare arrow/function expression in a call, so that both
 /// `() => 2 + 2` and `2 + 2` evaluate to `4`.
 String wrapEvaluationExpression(String expression) {
-  final trimmed = expression.trim();
-  final isFunction = trimmed.startsWith('function') ||
-      trimmed.startsWith('async function') ||
-      RegExp(r'^(?:async\s+)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>')
-          .hasMatch(trimmed);
-  return isFunction ? '($expression)()' : expression;
+  return isFunctionExpression(expression) ? '($expression)()' : expression;
 }
 
 /// Ownership links every page carries: the context that owns it and the page

@@ -116,6 +116,45 @@ class TestServer {
             ..write('<html><body><h1 id="hello">Hello</h1></body></html>');
           break;
         
+        case '/init-probe':
+          // Records what the init script left behind, read at three moments:
+          // while <head> parses, while <body> parses, and after load. A page
+          // script can only see a value an init script set if the init script
+          // really ran first.
+          request.response
+            ..statusCode = 200
+            ..headers.contentType = ContentType.html
+            ..write('''
+              <html><head><script>
+                window.__seenInHead = window.__seed;
+              </script></head><body>
+                <div id="out">nothing</div>
+                <script>
+                  window.__seenInBody = window.__seed;
+                  document.getElementById('out').textContent =
+                      String(window.__seed);
+                </script>
+              </body></html>
+            ''');
+          break;
+
+        case '/init-frames':
+          // A host page with one child frame, both loading /init-probe, so a
+          // test can prove an init script reaches child frames too.
+          request.response
+            ..statusCode = 200
+            ..headers.contentType = ContentType.html
+            ..write('''
+              <html><head><script>
+                window.__seenInHead = window.__seed;
+              </script></head><body>
+                <div id="out">host</div>
+                <iframe id="child" name="init-child" src="/init-probe"
+                        style="width:200px;height:80px"></iframe>
+              </body></html>
+            ''');
+          break;
+
         case '/title':
           request.response
             ..statusCode = 200
@@ -549,6 +588,47 @@ class TestServer {
               <html><head><link rel="stylesheet" href="/style.css"></head>
               <body><p id="styled">styled</p></body></html>
             """);
+          break;
+
+        // A page with one external script and one external stylesheet, both
+        // half used, so a coverage run has something to report that is not
+        // trivially all-or-nothing.
+        case '/coverage':
+          request.response
+            ..statusCode = 200
+            ..headers.contentType = ContentType.html
+            ..write('''
+              <html><head><link rel="stylesheet" href="/coverage.css"></head>
+              <body>
+                <p id="used">used</p>
+                <script src="/coverage.js"></script>
+              </body></html>
+            ''');
+          break;
+
+        case '/coverage.js':
+          request.response
+            ..statusCode = 200
+            ..headers.contentType = ContentType('application', 'javascript')
+            ..write('''
+function usedFunction() {
+  window.__coverageMark = 'ran';
+  return 1;
+}
+function neverCalledFunction() {
+  window.__neverHappens = 'this line is never reached at all';
+  return 2;
+}
+usedFunction();
+''');
+          break;
+
+        case '/coverage.css':
+          request.response
+            ..statusCode = 200
+            ..headers.contentType = ContentType('text', 'css')
+            ..write('#used { color: rgb(1, 2, 3); }\n'
+                '#missing { color: rgb(4, 5, 6); background: rgb(7, 8, 9); }\n');
           break;
 
         case '/style.css':

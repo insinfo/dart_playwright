@@ -7,6 +7,9 @@ import 'package:playwright_core/src/server/dialog.dart' as core;
 // public API uses.
 import 'package:playwright_protocol/playwright_protocol.dart'
     hide WaitForSelectorState;
+import 'binding_source.dart';
+import 'clock.dart';
+import 'coverage.dart';
 import 'browser_context.dart';
 import 'console_message.dart';
 import 'download.dart';
@@ -195,6 +198,74 @@ abstract class Page {
 
   /// Evaluate JavaScript expression and return a handle.
   Future<JSHandle> evaluateHandle(String expression);
+
+  /// Run [script] at the start of every document this page loads, before any
+  /// of the page's own scripts.
+  ///
+  /// This is how a page is seeded before it can react: overriding
+  /// `Math.random`, freezing `navigator.language`, planting a flag a bundle
+  /// reads while it boots. It runs on the main frame and on every child
+  /// frame, after each navigation, and it does **not** touch the document
+  /// that is open right now — add it before [goto], not after.
+  ///
+  /// A function expression is called; anything else runs as a statement
+  /// list, so both of these work:
+  ///
+  /// ```dart
+  /// await page.addInitScript('window.__seeded = 1;');
+  /// await page.addInitScript('(value) => { window.__seeded = value; }',
+  ///     arg: 42);
+  /// ```
+  ///
+  /// [arg] is encoded as JSON, so it carries what `jsonEncode` carries and
+  /// needs a function to receive it. To run a file, read it first:
+  /// `addInitScript(File(path).readAsStringSync())`.
+  ///
+  /// Scripts of the page's context run before the page's own; within each
+  /// group they run in the order they were added.
+  Future<void> addInitScript(String script, {Object? arg});
+
+  /// Expose [callback] to the page as `window.<name>`.
+  ///
+  /// The page calls it like any async function — `await window.<name>(1, 2)`
+  /// — and the arguments and the result travel as JSON, which is the same
+  /// reach [evaluate] has: `undefined` inside an object, functions, `Date`,
+  /// `Map`, `Set`, cyclic references and `NaN` do not survive the trip. A
+  /// value that cannot be encoded rejects the page's promise instead of
+  /// arriving mangled, and a callback that throws rejects it too, carrying
+  /// the Dart error's message.
+  ///
+  /// The function survives navigation: it is installed through
+  /// [addInitScript], and also declared in the document that is already open,
+  /// so it works whether it is exposed before or after [goto].
+  ///
+  /// Registering a name twice on the same page, or one the context already
+  /// exposes, throws.
+  Future<void> exposeFunction(String name, ExposedFunction callback);
+
+  /// Like [exposeFunction], but the callback is also told where the call came
+  /// from: the page, the frame and the context.
+  ///
+  /// Upstream's `handle: true` mode — which hands the callback a `JSHandle`
+  /// to the first argument instead of a value — is not available here;
+  /// arguments always arrive by value.
+  Future<void> exposeBinding(String name, BindingCallback callback);
+
+  /// Deterministic time for this page.
+  ///
+  /// This is the clock of the page's **context**, which is what upstream
+  /// exposes here too: faking time affects every page of the context, not
+  /// this one alone. See [Clock].
+  Clock get clock;
+
+  /// JavaScript and CSS coverage.
+  ///
+  /// **Chromium only.** On Firefox and WebKit reading this property throws
+  /// [UnsupportedError]: the counts come from V8 and from Blink's CSS engine,
+  /// and neither of the other two protocols has an equivalent. Upstream
+  /// Playwright exposes `page.coverage` on the Chromium page alone. See
+  /// [Coverage].
+  Coverage get coverage;
 
   /// Create a locator for an element in the page's main frame.
   ///
@@ -643,6 +714,36 @@ class PageImpl implements Page {
   @override
   Future<JSHandle> evaluateHandle(String expression) =>
       _mainFrame.evaluateHandle(expression);
+
+  @override
+  Future<void> addInitScript(String script, {Object? arg}) async {
+    await _corePage.addInitScript(initScriptSource(script, arg: arg));
+  }
+
+  @override
+  Future<void> exposeFunction(String name, ExposedFunction callback) =>
+      _corePage.exposeBinding(
+          name, (source, args) => callback(args),
+          noGlobal: false);
+
+  @override
+  Future<void> exposeBinding(String name, BindingCallback callback) =>
+      _corePage.exposeBinding(name, adaptBindingCallback(callback),
+          noGlobal: false);
+
+  @override
+  Coverage get coverage => CoverageImpl(_corePage.coverage);
+
+  @override
+  Clock get clock {
+    final context = _corePage.browserContext;
+    if (context == null) {
+      throw PlaywrightException(
+          'This page has no browser context, and the clock belongs to the '
+          'context.');
+    }
+    return ClockImpl(context.clock);
+  }
 
   /// The main frame, typed so locators can be built from it.
   FrameImpl get _mainFrame => FrameImpl(_corePage.mainFrame, this);

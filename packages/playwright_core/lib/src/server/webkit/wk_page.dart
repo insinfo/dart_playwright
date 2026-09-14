@@ -23,6 +23,7 @@ class WkPage extends EventEmitter
         CorePageFileChooser,
         CorePageScreenshot,
         CorePageFrameEvaluation,
+        CorePageInitScripts,
         CorePageAccessibility,
         CorePageInputHelpers,
         CorePageDialogs,
@@ -53,6 +54,7 @@ class WkPage extends EventEmitter
     session.on('Dialog.javascriptDialogOpening', _onDialogOpening);
     session.on('Page.fileChooserOpened', _onFileChooserOpened);
     session.on('Console.messageAdded', _onConsoleMessageAdded);
+    session.on('Runtime.bindingCalled', _onBindingCalled);
     // WebKit has no crash event: the target simply goes away with a flag.
     session.on('Target.targetDestroyed', (params) {
       if (params['crashed'] == true) emit('crash', true);
@@ -208,6 +210,54 @@ class WkPage extends EventEmitter
 
   @override
   List<CoreFrame> get frames => frameManager.frames;
+
+
+  @override
+  CoreCoverage get coverage {
+    throw UnsupportedError(
+        'page.coverage is Chromium-only: the counts come from V8 and from '
+        "Blink's CSS engine, and the WebKit inspector protocol has no "
+        'equivalent. Upstream Playwright has the same limit.');
+  }
+
+  // --------------------------------------------------- init scripts
+
+  /// Binding channels already opened on this page.
+  final _bindingChannels = <String>{};
+
+  @override
+  Future<void> applyInitScripts(List<CoreInitScript> scripts) async {
+    // WebKit has one bootstrap script per page, not a list, so the whole set
+    // is concatenated. Each script is already its own IIFE, which is what
+    // keeps them from seeing one another's declarations.
+    await session.sendToTarget('Page.setBootstrapScript', {
+      'source': [for (final script in scripts) script.source].join(';\n'),
+    });
+  }
+
+  @override
+  Future<void> installBindingChannel(String name) async {
+    if (!_bindingChannels.add(name)) return;
+    try {
+      await session.sendToTarget('Runtime.addBinding', {'name': name});
+    } catch (error) {
+      _bindingChannels.remove(name);
+      rethrow;
+    }
+  }
+
+  @override
+  Object? contextIdOf(CoreFrame frame) =>
+      _contexts.contextFor(frame.id)?.contextId;
+
+  void _onBindingCalled(Map<String, dynamic> params) {
+    if (params['name'] != kBindingChannelName) return;
+    // WebKit calls the payload `argument` and the context `contextId`.
+    final payload = params['argument'];
+    final contextId = (params['contextId'] as num?)?.toInt();
+    if (payload is! String || contextId == null) return;
+    dispatchBindingCall(payload, WkExecutionContext(session, contextId));
+  }
 
   @override
   Future<CoreExecutionContext> executionContextFor(CoreFrame frame,

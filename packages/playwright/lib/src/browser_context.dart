@@ -3,10 +3,12 @@ import 'dart:async';
 import 'package:playwright_core/src/server/core_browser.dart';
 import 'package:playwright_core/src/server/core_events.dart' as core_events;
 import 'package:playwright_core/src/server/core_page.dart'
-    show CoreDownload, CorePage;
+    show CoreDownload, CorePage, initScriptSource;
 import 'package:playwright_core/src/server/dialog.dart' as core;
 import 'package:playwright_protocol/playwright_protocol.dart';
 import 'api_request.dart';
+import 'binding_source.dart';
+import 'clock.dart';
 import 'console_message.dart';
 import 'dialog.dart';
 import 'download.dart';
@@ -45,6 +47,29 @@ abstract class BrowserContext {
 
   /// Capture cookies and per-origin localStorage as a portable snapshot.
   Future<Map<String, dynamic>> storageState();
+
+  /// Run [script] at the start of every document of every page of this
+  /// context, before any of the page's own scripts.
+  ///
+  /// Applies to the pages that already exist and to the ones created later,
+  /// popups included. See [Page.addInitScript] for what [arg] carries and for
+  /// why the document that is already open is left alone.
+  Future<void> addInitScript(String script, {Object? arg});
+
+  /// Expose [callback] as `window.<name>` on every page of this context,
+  /// present and future.
+  ///
+  /// See [Page.exposeFunction]; the only difference is the reach.
+  Future<void> exposeFunction(String name, ExposedFunction callback);
+
+  /// Like [exposeFunction], but the callback is also told which page and
+  /// frame called it. See [Page.exposeBinding].
+  Future<void> exposeBinding(String name, BindingCallback callback);
+
+  /// Deterministic time for every page of this context.
+  ///
+  /// See [Clock]: the same object is reachable as `page.clock`.
+  Clock get clock;
 
   /// Close the context and every page that belongs to it.
   Future<void> close();
@@ -141,6 +166,26 @@ class BrowserContextImpl implements BrowserContext {
 
   @override
   Future<Map<String, dynamic>> storageState() => _coreContext.storageState();
+
+  @override
+  Future<void> addInitScript(String script, {Object? arg}) async {
+    await _coreContext.addInitScript(initScriptSource(script, arg: arg));
+  }
+
+  @override
+  Future<void> exposeFunction(String name, ExposedFunction callback) =>
+      _coreContext.exposeBinding(name, (source, args) => callback(args),
+          noGlobal: false);
+
+  @override
+  Future<void> exposeBinding(String name, BindingCallback callback) =>
+      _coreContext.exposeBinding(name, adaptBindingCallback(callback),
+          noGlobal: false);
+
+  late final Clock _clock = ClockImpl(_coreContext.clock);
+
+  @override
+  Clock get clock => _clock;
 
   @override
   Future<void> close() => _coreContext.close();

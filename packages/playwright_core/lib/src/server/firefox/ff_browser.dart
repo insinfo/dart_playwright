@@ -62,6 +62,10 @@ class FfBrowser extends EventEmitter implements CoreBrowser {
     final contextId = targetInfo['browserContextId'] as String?;
     final context = _contextFor(contextId);
     if (context != null) {
+      // The page must carry the context's init scripts and bindings before
+      // anyone can navigate it.
+      page.browserContext = context;
+      await context.initializePage(page);
       final openerId = targetInfo['openerId'] as String?;
       context.registerPage(page,
           opener: openerId == null ? null : _pagesByTarget[openerId]);
@@ -308,7 +312,7 @@ class FfBrowser extends EventEmitter implements CoreBrowser {
 
 /// An isolated Firefox (Juggler) browser context.
 class FfBrowserContext extends EventEmitter
-    with BrowserContextStorage
+    with BrowserContextStorage, CoreBrowserContextBindings
     implements CoreBrowserContext {
   final FfBrowser browser;
   final String browserContextId;
@@ -316,6 +320,9 @@ class FfBrowserContext extends EventEmitter
   bool _closed = false;
 
   FfBrowserContext(this.browser, this.browserContextId, this.options);
+
+  @override
+  String get engineName => 'firefox';
 
   /// Where this context's downloads land.
   late final String downloadsDirectory =
