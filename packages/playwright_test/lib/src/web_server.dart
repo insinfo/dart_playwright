@@ -73,12 +73,19 @@ class PlaywrightWebServer {
   /// mantido por compatibilidade de semantica. Com [url], e uma requisicao
   /// HTTP bem-sucedida.
   ///
-  /// [readyUrl] existe porque nenhum dos dois basta para um app Dart: o
-  /// servidor de desenvolvimento abre a porta e serve o `index.html` estatico
-  /// **antes** de terminar a primeira compilacao, e um teste que corre nessa
-  /// janela pega 404 no bundle ou o bundle da execucao anterior. Aponte
-  /// [readyUrl] para o artefato que so existe depois do build -- tipicamente
-  /// `main.dart.js` -- e a espera passa a medir o build, nao o socket.
+  /// Medido nesta maquina com `webdev serve` 3.7.1: a porta abre 7,8s antes
+  /// da primeira resposta HTTP no build frio (15,2s contra 23,0s) e 0,6s
+  /// antes no build quente. Ou seja, o modo [port] volta cedo demais, e o modo
+  /// [url] volta na hora certa -- o `build_runner` segura as requisicoes ate o
+  /// build terminar, entao uma resposta 200 dele ja significa "compilado".
+  ///
+  /// [readyUrl] existe para o outro jeito de servir um app Dart: um servidor
+  /// de arquivos comum na frente da saida de `dart compile js`. Esse responde
+  /// o `index.html` imediatamente e 404 no bundle enquanto o compilador roda,
+  /// e um teste que corre nessa janela pega 404 ou o bundle da execucao
+  /// anterior. Aponte [readyUrl] para o artefato que so existe depois do
+  /// build -- tipicamente `main.dart.js` -- e a espera passa a medir o build,
+  /// nao o socket.
   ///
   /// [readyBody] aperta mais um grau: o corpo da resposta tem de casar com o
   /// padrao. Util quando o servidor responde 200 com uma pagina de "compilando".

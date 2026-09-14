@@ -122,15 +122,22 @@ tearDownAll(() => server.stop());
 
 Three things separate this from the process spawn everybody writes by hand:
 
-- **It waits for the build, not for the socket.** `webdev serve` and
-  `dart run build_runner serve` open the port and serve the static
-  `index.html` *before* the first dart2js compile finishes. A test that runs in
-  that window gets a 404 on the bundle, or the bundle from the previous run.
-  Point `readyUrl` at the artifact that only exists after the build —
-  usually `main.dart.js` — and the wait measures the build. `readyBody`
-  tightens it one more notch by requiring the response body to match, for a
-  server that answers 200 with a "compiling" placeholder. `waitForStdout` and
-  `waitForStderr` are upstream's `wait`, for servers that announce themselves.
+- **It waits for the build, not for the socket.** Measured here against
+  `webdev serve` 3.7.1: the port opens **7.8 s before** the first successful
+  HTTP request on a cold build (15.2 s vs 23.0 s), and 0.6 s before it on a
+  warm one. So upstream's port-only mode returns far too early, while its
+  `url` mode returns at the right moment — `build_runner` holds requests
+  until the build finishes, so a 200 from it already means "compiled".
+  `readyUrl` is for the other way to serve a Dart app: a plain file server in
+  front of `dart compile js` output, which answers `index.html` immediately
+  and 404s the bundle while the compiler runs. Point it at the artifact that
+  only exists after the build. `readyBody` tightens it one more notch by
+  requiring the response body to match, for a server that answers 200 with a
+  "compiling" placeholder. `waitForStdout` and `waitForStderr` are upstream's
+  `wait`, for servers that announce themselves.
+
+  With `webdev` in debug mode, note that `main.dart.js` is a small DDC
+  bootstrap; the app code is in `main.ddc.js`, with its own `.map`.
 - **It kills the process tree.** The command runs under a shell, and tools like
   `webdev` launch the real server in a child of their own. Killing only the
   process the command created leaves the grandchild holding the port, and the
