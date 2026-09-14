@@ -626,7 +626,7 @@ class LocatorImpl extends Locator {
       final resolved = await _resolveFrames(strict);
       final result = await resolved.frame.evaluateInjected('''
         () => window.__pwDart.run(${jsonEncode(resolved.parts)}, $strict,
-            ${jsonEncode(effectiveStates)}, (el) => true, undefined, $options)
+            ${jsonEncode(effectiveStates)}, $_markTargetJs, undefined, $options)
       ''');
       _unwrap(result);
       return (
@@ -635,6 +635,17 @@ class LocatorImpl extends Locator {
       );
     });
   }
+
+  /// The action callback handed to the injected `run`: it tells the trace
+  /// snapshot streamer which element this action is about.
+  ///
+  /// The streamer listens for `__playwright_mark_target__` and stamps the
+  /// element, so the DOM snapshot carries `__playwright_target__` and the
+  /// viewer can draw the box around what was clicked. When nothing is
+  /// recording nobody listens and the event costs one dispatch.
+  static const String _markTargetJs = '(el) => { '
+      'el.dispatchEvent(new CustomEvent("__playwright_mark_target__", '
+      '{ bubbles: true, composed: true })); return true; }';
 
   CorePage get _corePage => _frame.coreFrame.page;
 

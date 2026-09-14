@@ -16,6 +16,7 @@ import '../core_page.dart';
 import 'har_tracer.dart';
 import 'instrumentation.dart';
 import 'serialized_fs.dart';
+import 'snapshotter.dart';
 import 'trace_events.dart';
 import 'trace_utils.dart';
 
@@ -37,9 +38,9 @@ class CoreTracingOptions {
   /// viewer does with these.
   final bool screenshots;
 
-  /// Capture the DOM around each action. Not implemented yet; see
-  /// [CoreTracing.start], which refuses it rather than recording a trace whose
-  /// snapshot pane is silently empty.
+  /// Capture the DOM of every frame around each action, which is what makes
+  /// the viewer show the page as it was. See [Snapshotter] for the two ways
+  /// this differs from upstream.
   final bool snapshots;
 
   /// Record the caller's stack with each action, and put the Dart files it
@@ -96,10 +97,15 @@ class _RecordingState {
 /// born in a handler would vanish with the error inside it. Writes are
 /// enqueued on [SerializedFs] instead, and the failure surfaces from
 /// [stopChunk], where a caller is waiting.
-class CoreTracing implements HarTracerDelegate, CoreInstrumentationListener {
+class CoreTracing
+    implements
+        HarTracerDelegate,
+        CoreInstrumentationListener,
+        SnapshotterDelegate {
   final CoreBrowserContext _context;
   final _fs = SerializedFs();
   late final HarTracer _harTracer = HarTracer(_context, this);
+  late final Snapshotter _snapshotter = Snapshotter(this);
 
   _RecordingState? _state;
   bool _isStopping = false;
@@ -119,14 +125,6 @@ class CoreTracing implements HarTracerDelegate, CoreInstrumentationListener {
       throw StateError('Cannot start tracing while stopping');
     }
     if (_state != null) throw StateError('Tracing has been already started');
-    if (options.snapshots) {
-      throw UnsupportedError(
-          'snapshots: true records the DOM around each action, which needs the '
-          'snapshot streamer injected into every frame. That is not ported '
-          'yet, and a trace recorded without it shows an empty snapshot pane '
-          'instead of saying why. Record with snapshots: false, or with '
-          'screenshots: true for a picture of each action.');
-    }
 
     final tracesDir = _createTracesDirIfNeeded();
     final traceName = options.name ?? createGuid();
@@ -181,6 +179,7 @@ class CoreTracing implements HarTracerDelegate, CoreInstrumentationListener {
       ),
     ));
 
+    if (state.options.snapshots) _snapshotter.start();
     _context.instrumentation.captureStacks = state.options.sources;
     _context.instrumentation.addListener(this);
     _listen('console',
@@ -210,6 +209,7 @@ class CoreTracing implements HarTracerDelegate, CoreInstrumentationListener {
       }
 
       _detachListeners();
+      _snapshotter.stop();
 
       // The response bodies still in flight belong to this chunk, and each one
       // that lands adds a `resources/` file. The archive can only be listed
@@ -313,7 +313,7 @@ class CoreTracing implements HarTracerDelegate, CoreInstrumentationListener {
       stack: metadata.stack,
       parentId: metadata.parentId,
     ));
-    await _captureScreenshot(metadata, 'before');
+    await _capture(metadata, 'before');
   }
 
   @override
@@ -329,7 +329,7 @@ class CoreTracing implements HarTracerDelegate, CoreInstrumentationListener {
       point: point,
       box: box,
     ));
-    await _captureScreenshot(metadata, 'action');
+    await _capture(metadata, 'action');
   }
 
   @override
@@ -353,7 +353,7 @@ class CoreTracing implements HarTracerDelegate, CoreInstrumentationListener {
           metadata.endTime == 0 ? TraceClock.monotonicTime() : metadata.endTime,
       error: metadata.error,
     ));
-    await _captureScreenshot(metadata, 'after');
+    await _capture(metadata, 'after');
   }
 
   // -------------------------------------------------------- context events
@@ -466,6 +466,21 @@ class CoreTracing implements HarTracerDelegate, CoreInstrumentationListener {
     return file;
   }
 
+  // ------------------------------------------------------- snapshot sink
+
+  @override
+  String onSnapshotterBlob(String shortName, List<int> bytes) {
+    final file = 'resources/$shortName';
+    _state?.chunkFiles.add(file);
+    _appendResource(file, bytes);
+    return file;
+  }
+
+  @override
+  void onFrameSnapshot(Map<String, dynamic> snapshot) {
+    _appendTraceEvent(FrameSnapshotTraceEvent(snapshot));
+  }
+
   /// Writes the entries whose request never finished, so a trace stopped
   /// mid-flight still lists them.
   void _flushPendingHarEntries() {
@@ -480,6 +495,23 @@ class CoreTracing implements HarTracerDelegate, CoreInstrumentationListener {
   }
 
   // ---------------------------------------------------------------- inside
+
+  /// Captures whatever the options asked for around one action.
+  ///
+  /// Node references are only reset by the first snapshot of an action, which
+  /// is what lets the later phases of the same action point back at it instead
+  /// of re-serializing the page.
+  Future<void> _capture(CoreCallMetadata metadata, String phase) async {
+    final page = metadata.page;
+    // A context-level call (`newPage`, `close`) has no page to snapshot, which
+    // is also how upstream decides there is nothing to capture.
+    if (page == null) return;
+    if (_snapshotter.started) {
+      await _snapshotter.captureSnapshot(page, metadata.id, phase,
+          resetTargets: phase == 'before');
+    }
+    await _captureScreenshot(metadata, phase);
+  }
 
   Future<void> _captureScreenshot(
       CoreCallMetadata metadata, String phase) async {

@@ -74,7 +74,8 @@ Future<void> main(List<String> args) async {
   final browser = await browserType.launch();
   final context = await browser.newContext(viewport: (width: 900, height: 600));
 
-  await context.tracing.start(title: 'Dart port probe', sources: true);
+  await context.tracing
+      .start(title: 'Dart port probe', snapshots: true, sources: true);
 
   final page = await context.newPage();
   await page.goto('$base/');

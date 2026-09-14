@@ -47,9 +47,12 @@ lib/src/server/trace/
     Port of the trace recorder: tracing.ts, harTracer.ts and the har.ts entry
     shape, serializedFS.ts and instrumentation.ts from
     packages/playwright-core/src/server; trace_events.dart reproduces
-    packages/isomorphic/trace/versions/traceV9.ts. Modified: writes format
-    version 9 (the newest a released viewer reads), has no DOM snapshotter
-    and no screencast, and caps each response-body read with a timeout.
+    packages/isomorphic/trace/versions/traceV9.ts; snapshotter.ts and
+    snapshotterInjected.ts are ported in snapshotter.dart and
+    snapshotter_injected.dart. Modified: writes format version 9 (the newest
+    a released viewer reads), installs the snapshot streamer on first capture
+    instead of through an init script, caps each capture and each
+    response-body read with a timeout, and has no screencast.
 
 lib/src/registry/browsers_json.dart
     The browser revision table from packages/playwright-core/browsers.json,

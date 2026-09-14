@@ -365,3 +365,17 @@ class ResourceSnapshotTraceEvent extends TraceEvent {
         'snapshot': snapshot,
       };
 }
+
+/// `frame-snapshot`: the serialized DOM of one frame at one phase of one
+/// action. This is what the viewer renders in the snapshot pane.
+class FrameSnapshotTraceEvent extends TraceEvent {
+  final Map<String, dynamic> snapshot;
+
+  const FrameSnapshotTraceEvent(this.snapshot);
+
+  @override
+  Map<String, dynamic> toJson() => {
+        'type': 'frame-snapshot',
+        'snapshot': snapshot,
+      };
+}

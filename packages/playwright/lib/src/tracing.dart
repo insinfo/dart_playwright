@@ -28,9 +28,13 @@ abstract class Tracing {
   /// records the screencast filmstrip; that needs `Page.startScreencast` and
   /// is not ported. It is upstream's `snapshots: { screen: true }`.
   ///
-  /// [snapshots] would capture the DOM around each action. It is **not
-  /// implemented** and throws instead of recording a trace whose snapshot pane
-  /// is silently empty.
+  /// [snapshots] captures the DOM of every frame before and after each action,
+  /// which is what makes the viewer show the page as it was at that moment —
+  /// rendered, selectable and inspectable, not a picture of it. Two things
+  /// differ from upstream and are documented on `Snapshotter`: the streamer is
+  /// installed on first capture instead of before the page's own scripts
+  /// (`addInitScript` is not ported), and a capture has a deadline instead of
+  /// being non-stalling.
   ///
   /// [sources] records the Dart stack of each action and puts the files it
   /// points at into the archive, which is what fills the viewer's Source tab.

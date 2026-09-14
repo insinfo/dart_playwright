@@ -50,9 +50,12 @@ been modified:
       ordered writer) and instrumentation.ts (the call metadata), all from
       packages/playwright-core/src/server. trace_events.dart reproduces the
       event shapes of packages/isomorphic/trace/versions/traceV9.ts. The DOM
-      snapshotter (snapshotter.ts, snapshotterInjected.ts) and the screencast
-      recorder are not ported; the recorder refuses `snapshots: true` rather
-      than writing a trace whose snapshot pane is empty.
+      DOM snapshotter is ported too: snapshotter_injected.dart is
+      snapshotterInjected.ts with the TypeScript removed and the class fields
+      moved into the constructor, and snapshotter.dart is snapshotter.ts with
+      the streamer installed on first capture instead of through an init
+      script, and with a deadline instead of a non-stalling evaluation. The
+      screencast recorder is not ported.
 
   packages/playwright_core/lib/src/server/us_keyboard_layout.dart
       Port of packages/playwright-core/src/server/usKeyboardLayout.ts.

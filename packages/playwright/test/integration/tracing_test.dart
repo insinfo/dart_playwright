@@ -196,6 +196,46 @@ void main() {
           expect(messages.first['location'], isA<Map<String, dynamic>>());
         });
 
+        test('snapshots deve gravar o DOM antes e depois de cada ação',
+            () async {
+          await context.tracing.start(snapshots: true);
+          page = await context.newPage();
+          await page.goto(server.url('/input'));
+          await page.locator('input[name=search]').fill('gravado');
+          final path = nextPath();
+          await context.tracing.stop(path: path);
+
+          final trace = _Trace.read(path);
+          final pageId = trace
+              .ofType('event')
+              .firstWhere((e) => e['method'] == 'page')['params']['pageId'];
+          final snapshots = trace
+              .ofType('frame-snapshot')
+              .map((event) => event['snapshot'] as Map<String, dynamic>)
+              .toList();
+          expect(snapshots, isNotEmpty);
+          expect(snapshots.map((s) => s['phase']).toSet(),
+              containsAll(<String>['before', 'after']));
+          expect(snapshots.every((s) => s['isMainFrame'] == true), isTrue);
+          expect(snapshots.every((s) => s['pageId'] == pageId), isTrue);
+          expect(snapshots.every((s) => s['frameId'] != null), isTrue);
+          expect(snapshots.last['viewport'], {'width': 800, 'height': 600});
+
+          // The serialized DOM has to carry what the HTML does not: the live
+          // value of the input, and the element the action targeted. Without
+          // those the viewer shows an empty field and highlights nothing.
+          final flattened = jsonEncode(snapshots.last['html']);
+          expect(flattened, contains('__playwright_value_'));
+          expect(
+              snapshots
+                  .where((s) => s['phase'] == 'after')
+                  .map((s) => jsonEncode(s['html']))
+                  .join(),
+              contains('gravado'));
+          expect(snapshots.map((s) => jsonEncode(s['html'])).join(),
+              contains('__playwright_target__'));
+        });
+
         test('Deve registrar o erro de uma ação que falhou', () async {
           await context.tracing.start();
           page = await context.newPage();
@@ -320,10 +360,40 @@ void main() {
             anyElement(endsWith('/hello')));
       });
 
-      test('deve recusar snapshots: true em vez de gravar um painel vazio',
+      test('um iframe no snapshot deve apontar para o snapshot do filho',
           () async {
-        expect(() => context.tracing.start(snapshots: true),
-            throwsA(isA<UnsupportedError>()));
+        await context.tracing.start(snapshots: true);
+        final page = await context.newPage();
+        await page.goto(server.url('/frames'));
+        await page.locator('#host').innerText();
+        final path = nextPath();
+        await context.tracing.stop(path: path);
+
+        final snapshots = _Trace.read(path)
+            .ofType('frame-snapshot')
+            .map((event) => event['snapshot'] as Map<String, dynamic>)
+            .toList();
+        final frameIds = snapshots.map((s) => s['frameId']).toSet();
+        // Host, the two siblings and the nested one.
+        expect(frameIds.length, greaterThanOrEqualTo(4));
+
+        // Only the snapshot that first serialized the iframe carries its
+        // `src`; the later ones replace the unchanged subtree with a
+        // back-reference, which is the whole point of the node cache.
+        final html = snapshots
+            .where((s) => s['isMainFrame'] == true)
+            .map((s) => jsonEncode(s['html']))
+            .join();
+        // The engines report a frame's own id, never the element that owns it;
+        // the recorder builds the mapping by asking the page which frame each
+        // iframe element contains. Without it the viewer renders an empty box
+        // where the iframe was.
+        final referenced = RegExp(r'/snapshot/(frame@[0-9a-f]+)')
+            .allMatches(html)
+            .map((m) => m.group(1))
+            .toSet();
+        expect(referenced, isNotEmpty);
+        expect(frameIds, containsAll(referenced));
       });
 
       test('stop deve apagar o diretório temporário', () async {
