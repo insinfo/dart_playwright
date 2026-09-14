@@ -75,6 +75,25 @@ class BrowserRegistry {
     return execPath != null && File(execPath).existsSync();
   }
 
+  /// Caminho do ffmpeg, ou um erro que diz como instala-lo.
+  ///
+  /// O upstream trata o ffmpeg como um executavel a parte justamente por causa
+  /// desta mensagem: sem ela o gravador de video falha com "arquivo nao
+  /// encontrado" e ninguem descobre que faltou `playwright install ffmpeg`.
+  String ffmpegExecutablePathOrDie() {
+    final execPath = executablePath('ffmpeg');
+    if (execPath == null) {
+      throw PlaywrightException(
+          'ffmpeg is not supported on ${HostPlatform.detect()}');
+    }
+    if (!File(execPath).existsSync()) {
+      throw PlaywrightException('Video rendering requires ffmpeg binary.\n'
+          'Please run the following command to download it:\n'
+          '    dart run playwright install ffmpeg');
+    }
+    return execPath;
+  }
+
   /// Get the executable path for a browser.
   String? executablePath(String browserName) {
     final descriptor = getDescriptor(browserName);
@@ -93,6 +112,31 @@ class BrowserRegistry {
     return path.join(_cacheDir, '$browserName-$revision');
   }
 
+  /// Caminho do zip deste executavel no CDN, relativo ao mirror, ou `null` se
+  /// a plataforma atual nao tem build.
+  ///
+  /// Separado do [install] para poder ser conferido sem baixar nada: uma
+  /// entrada faltando na tabela so aparece, de outro modo, no meio de um
+  /// `playwright install`.
+  String? downloadUrl(String browserName) {
+    final descriptor = getDescriptor(browserName);
+    if (descriptor == null) return null;
+    final platform = HostPlatform.detect();
+    final downloadPath = _downloadPaths[browserName]?[platform];
+    if (downloadPath != null) {
+      return downloadPath.replaceFirst(
+          '%s', descriptor.effectiveRevision(platform));
+    }
+    if (browserName == 'chromium') {
+      // Chromium uses Chrome for Testing (CFT) URLs
+      final suffix = _cftSuffixes[platform];
+      if (suffix != null && descriptor.browserVersion != null) {
+        return 'builds/cft/${descriptor.browserVersion}/$suffix';
+      }
+    }
+    return null;
+  }
+
   /// Install a specific browser.
   Future<void> install(String browserName,
       {void Function(double progress)? onProgress}) async {
@@ -107,27 +151,16 @@ class BrowserRegistry {
 
     final platform = HostPlatform.detect();
     final revision = descriptor.effectiveRevision(platform);
-    final downloadPath = _downloadPaths[browserName]?[platform];
+    final url = downloadUrl(browserName);
 
-    String? downloadUrl;
-    if (downloadPath != null) {
-      downloadUrl = downloadPath.replaceFirst('%s', revision);
-    } else if (browserName == 'chromium') {
-      // Chromium uses Chrome for Testing (CFT) URLs
-      final suffix = _cftSuffixes[platform];
-      if (suffix != null && descriptor.browserVersion != null) {
-        downloadUrl = 'builds/cft/${descriptor.browserVersion}/$suffix';
-      }
-    }
-
-    if (downloadUrl == null) {
+    if (url == null) {
       throw PlaywrightException('$browserName is not available for $platform');
     }
 
     final browserDir = _browserDirectory(browserName, revision);
 
     await BrowserFetcher.downloadAndExtract(
-      url: downloadUrl,
+      url: url,
       destinationDir: browserDir,
       onProgress: onProgress,
     );
@@ -204,6 +237,13 @@ const _downloadPaths = <String, Map<String, String?>>{
     'mac-arm64': 'builds/webkit/%s/webkit-mac-15-arm64.zip',
     'linux-x64': 'builds/webkit/%s/webkit-ubuntu-22.04.zip',
     'linux-arm64': 'builds/webkit/%s/webkit-ubuntu-22.04-arm64.zip',
+  },
+  'ffmpeg': {
+    'win-x64': 'builds/ffmpeg/%s/ffmpeg-win64.zip',
+    'mac-x64': 'builds/ffmpeg/%s/ffmpeg-mac.zip',
+    'mac-arm64': 'builds/ffmpeg/%s/ffmpeg-mac-arm64.zip',
+    'linux-x64': 'builds/ffmpeg/%s/ffmpeg-linux.zip',
+    'linux-arm64': 'builds/ffmpeg/%s/ffmpeg-linux-arm64.zip',
   },
 };
 

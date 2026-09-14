@@ -17,3 +17,6 @@ export 'src/server/core_request.dart';
 export 'src/server/core_response.dart';
 export 'src/server/core_route.dart';
 export 'src/server/frames.dart';
+
+export 'src/server/video/video_frame.dart';
+export 'src/server/video/video_recorder.dart';
