@@ -27,13 +27,29 @@ abstract class PageScreencast {
       {required int width, required int height, int quality = 90});
 
   /// Só quando [kind] é [ScreencastKind.frames].
+  ///
+  /// **Assinatura unica, de proposito.** Nao e broadcast e nao pode virar:
+  /// o ack do protocolo e a contrapressao da gravacao, e so da para segurar o
+  /// ack enquanto *o* consumidor esta pausado se houver um consumidor so.
+  /// Num broadcast, um assinante lento nao pausa nada — os quadros se
+  /// acumulariam na memoria sem limite e ninguem perceberia. Uma segunda
+  /// chamada a `listen` lanca `Bad state: Stream has already been listened
+  /// to`, entao quem precisa de dois consumidores (video e filmstrip, por
+  /// exemplo) assina uma vez e reparte por conta propria.
+  ///
+  /// O stream fecha quando [stop] e chamado, quando a pagina fecha ou crasha,
+  /// e quando a sessao do motor cai — nunca fica aberto esperando quadro que
+  /// nao vem mais.
   Stream<VideoFrame> get frames;
 
   /// Caminho do arquivo produzido; só quando [kind] é
   /// [ScreencastKind.directFile].
   ///
   /// Em [ScreencastKind.frames] `stop` continua sendo o jeito de desligar a
-  /// gravacao e fechar [frames]; devolve string vazia porque nao ha arquivo.
+  /// gravacao e fechar [frames], e devolve string vazia — vazio aqui quer
+  /// dizer "nao ha arquivo", nao "o arquivo tem nome vazio". Um
+  /// `Future<String?>` diria isso melhor, mas o tipo e parte do contrato
+  /// fixo; trocar depois e mecanico.
   Future<String> stop();
 }
 
@@ -68,6 +84,9 @@ abstract class FramesScreencast implements PageScreencast {
   DateTime? _firstFrameAt;
   double? _firstEngineSeconds;
   Duration _firstFrameOffset = Duration.zero;
+
+  /// O ultimo carimbo entregue, para que o proximo nunca seja menor.
+  Duration _lastTimestamp = Duration.zero;
 
   FramesScreencast(this.page) {
     _controller = StreamController<VideoFrame>(
@@ -234,6 +253,7 @@ abstract class FramesScreencast implements PageScreencast {
       _firstFrameAt = now;
       _firstEngineSeconds = engineSeconds;
       _firstFrameOffset = now.difference(startedAt);
+      _lastTimestamp = _firstFrameOffset;
       return _firstFrameOffset;
     }
     // O relogio do motor e o unico que mede o intervalo entre dois quadros
@@ -247,6 +267,15 @@ abstract class FramesScreencast implements PageScreencast {
       sinceFirst = now.difference(_firstFrameAt!);
     }
     final total = _firstFrameOffset + sinceFirst;
-    return total.isNegative ? Duration.zero : total;
+    // Nunca anda para tras. Os carimbos dos motores sao monotonicos quase
+    // sempre — medido em 360 quadros no Chromium, 129 no Firefox e 107 no
+    // WebKit sem uma inversao — mas o Chromium entregou uma vez dois quadros
+    // trocados, 29ms para tras, num teste que rodou logo depois quinze vezes
+    // limpo. Raro, e destrutivo do outro lado: o WebM exige carimbo de
+    // cluster nao decrescente, entao um quadro fora de ordem estraga o
+    // arquivo inteiro num run em cem. Repetir o carimbo anterior custa um
+    // quadro com duracao zero; a alternativa e um bug que ninguem reproduz.
+    _lastTimestamp = total < _lastTimestamp ? _lastTimestamp : total;
+    return _lastTimestamp.isNegative ? Duration.zero : _lastTimestamp;
   }
 }

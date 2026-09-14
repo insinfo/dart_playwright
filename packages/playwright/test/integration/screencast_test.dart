@@ -215,6 +215,18 @@ void main() {
           expect(await screencast.stop(), '');
         });
 
+        test('Deve recusar um segundo assinante', () async {
+          // O stream e de assinatura unica de proposito: segurar o ack
+          // enquanto o consumidor esta pausado so funciona com um consumidor.
+          // Quem precisa de dois (video e filmstrip) assina uma vez e
+          // reparte; o contrato calado sobre isso ja custou um defeito.
+          final (_, screencast) = await recording();
+          final subscription = screencast.frames.listen((_) {});
+          expect(() => screencast.frames.listen((_) {}), throwsStateError);
+          await subscription.cancel();
+          await screencast.stop();
+        });
+
         test('Deve fechar o stream quando a pagina ja estava fechada',
             () async {
           final page = await context.newPage();
