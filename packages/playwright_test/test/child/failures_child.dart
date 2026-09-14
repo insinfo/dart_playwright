@@ -41,6 +41,9 @@ void main() {
       await expectLocator(t.page.locator('#pintado'), timeout: curto)
           .soft
           .toHaveId('outro');
+      await expectPage(t.page, timeout: curto).soft.toHaveTitle('inexistente');
+      await expectPoll(() => 1, equals(2),
+          timeout: curto, reason: 'o contador', soft: true);
       // Se soft interrompesse o corpo, este marcador nao existiria.
       _marcador('soft.txt').writeAsStringSync('o corpo chegou ao fim');
     }, options: opcoes);

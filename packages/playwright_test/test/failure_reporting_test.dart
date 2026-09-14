@@ -46,10 +46,13 @@ void main() {
               .existsSync(),
           isTrue,
           reason: 'soft nao pode interromper o corpo:\n$saida');
-      expect(saida, contains('2 soft assertion(s) failed'),
-          reason: 'o teste tem de falhar no fim com as duas falhas juntas');
+      expect(saida, contains('4 soft assertion(s) failed'),
+          reason: 'o teste tem de falhar no fim com as quatro falhas juntas');
       expect(saida, contains('Expected locator to be visible'));
       expect(saida, contains('have an id that would be "outro"'));
+      // Soft vale para as tres portas de entrada, nao so para o locator.
+      expect(saida, contains('Expected page to have a title'));
+      expect(saida, contains('Expected o contador to'));
 
       // Um soft que passou nao pode contaminar o teste seguinte.
       expect(
