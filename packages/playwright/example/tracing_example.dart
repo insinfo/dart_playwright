@@ -74,8 +74,11 @@ Future<void> main(List<String> args) async {
   final browser = await browserType.launch();
   final context = await browser.newContext(viewport: (width: 900, height: 600));
 
-  await context.tracing
-      .start(title: 'Dart port probe', snapshots: true, sources: true);
+  await context.tracing.start(
+      title: 'Dart port probe',
+      screenshots: true,
+      snapshots: true,
+      sources: true);
 
   final page = await context.newPage();
   await page.goto('$base/');
@@ -83,6 +86,9 @@ Future<void> main(List<String> args) async {
   await page.locator('li').first.waitFor();
   final text = await page.locator('#items').innerText();
   await page.title();
+  // A tira de filme segue o relogio, nao as acoes: sem tempo com a pagina
+  // aberta o trace sai com um quadro so e nao ha o que olhar no visualizador.
+  await page.waitForTimeout(const Duration(seconds: 3));
 
   final path = await context.tracing.stop(path: out);
 
