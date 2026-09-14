@@ -317,8 +317,15 @@ class WkBrowserContext extends EventEmitter
       await session
           .sendToTarget('Network.setEmulateOfflineState', {'offline': true});
     }
-    final headers = options.extraHTTPHeaders;
-    if (headers != null && headers.isNotEmpty) {
+    // WebKit's Playwright.setLanguages drives navigator.language but not the
+    // Accept-Language header, so upstream sends that one itself
+    // (wkPage.ts:678). Without this, a context with a locale asks the server
+    // in the browser's own language.
+    final headers = <String, String>{
+      if (options.locale != null) 'Accept-Language': options.locale!,
+      ...?options.extraHTTPHeaders,
+    };
+    if (headers.isNotEmpty) {
       await session
           .sendToTarget('Network.setExtraHTTPHeaders', {'headers': headers});
     }
