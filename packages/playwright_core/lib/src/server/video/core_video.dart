@@ -172,8 +172,7 @@ class VideoRecording {
   static VideoRecording? maybeStart(CorePage page) {
     final options = page.browserContext?.options.recordVideo;
     if (options == null) return null;
-    final size =
-        ScreencastHub.defaultSizeFor(page, requested: options.size);
+    final size = ScreencastHub.defaultSizeFor(page, requested: options.size);
     // Upstream names the file after the page and nothing else, so two videos
     // of the same URL in the same directory cannot collide.
     final video = CoreVideo(p.join(options.dir, '${page.guid}.webm'));
@@ -182,8 +181,8 @@ class VideoRecording {
   }
 
   Future<void> _start() async {
-    final subscription = await ScreencastHub.forPage(page)
-        .addClient(size: size, quality: 90);
+    final subscription =
+        await ScreencastHub.forPage(page).addClient(size: size, quality: 90);
     _subscription = subscription;
     if (subscription.kind == ScreencastKind.directFile) {
       // The engine is writing the file itself; there is nothing to mux.

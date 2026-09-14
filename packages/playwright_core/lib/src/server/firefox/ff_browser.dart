@@ -49,8 +49,8 @@ class FfBrowser extends EventEmitter implements CoreBrowser {
     // Uma falha aqui nao pode ser engolida: sem completar o completer com o
     // erro, `newPage()` espera para sempre em vez de saber que a pagina nao
     // nasceu. E manipulador de evento, entao ninguem aguarda este future.
-    _adoptPage(page, targetId, targetInfo).catchError((Object error,
-        StackTrace stack) {
+    _adoptPage(page, targetId, targetInfo)
+        .catchError((Object error, StackTrace stack) {
       final completer = _pendingPages.remove(targetId);
       if (completer != null && !completer.isCompleted) {
         completer.completeError(error, stack);
@@ -58,8 +58,8 @@ class FfBrowser extends EventEmitter implements CoreBrowser {
     });
   }
 
-  Future<void> _adoptPage(FfPage page, String targetId,
-      Map<String, dynamic> targetInfo) async {
+  Future<void> _adoptPage(
+      FfPage page, String targetId, Map<String, dynamic> targetInfo) async {
     // Page.ready is Juggler's equivalent of "the session is usable"; nothing
     // else can be sent to the page before it.
     await page.initialize();
@@ -105,9 +105,8 @@ class FfBrowser extends EventEmitter implements CoreBrowser {
     for (final context in _contexts) {
       final download = context.downloads[uuid];
       if (download == null) continue;
-      download.markFinished(params['canceled'] == true
-          ? 'canceled'
-          : params['error'] as String?);
+      download.markFinished(
+          params['canceled'] == true ? 'canceled' : params['error'] as String?);
       return;
     }
   }
@@ -121,9 +120,8 @@ class FfBrowser extends EventEmitter implements CoreBrowser {
       Directory(launchPath).createSync(recursive: true);
       return launchPath;
     }
-    return _downloadsDirectory ??= Directory.systemTemp
-        .createTempSync('playwright-dart-downloads')
-        .path;
+    return _downloadsDirectory ??=
+        Directory.systemTemp.createTempSync('playwright-dart-downloads').path;
   }
 
   /// The context for [browserContextId], falling back to the profile's own
@@ -377,8 +375,7 @@ class FfBrowser extends EventEmitter implements CoreBrowser {
   Future<FfPage> waitForPage(String targetId) {
     final completer =
         _pendingPages.putIfAbsent(targetId, () => Completer<FfPage>());
-    return completer.future
-        .timeout(const Duration(seconds: 30), onTimeout: () {
+    return completer.future.timeout(const Duration(seconds: 30), onTimeout: () {
       _pendingPages.remove(targetId);
       throw PlaywrightException('Timeout waiting for Firefox page session');
     });
@@ -466,8 +463,7 @@ class FfBrowserContext extends EventEmitter
       // Juggler validates the timezone when it builds the page, not when the
       // override is set, so this is where a bad one surfaces.
       if ('$error'.contains('Failed to override timezone')) {
-        throw PlaywrightException(
-            'Invalid timezone ID: ${options.timezoneId}');
+        throw PlaywrightException('Invalid timezone ID: ${options.timezoneId}');
       }
       rethrow;
     }

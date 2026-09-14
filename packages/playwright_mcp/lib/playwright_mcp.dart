@@ -12,7 +12,8 @@
 /// ```
 library playwright_mcp;
 
-export 'src/browser_session.dart' show BrowserSession, ConsoleEntry, NetworkEntry;
+export 'src/browser_session.dart'
+    show BrowserSession, ConsoleEntry, NetworkEntry;
 export 'src/mcp_server.dart' show McpErrorCodes, PlaywrightMcpServer;
 export 'src/mcp_tool.dart' show McpResult, McpTool, requireString;
 export 'src/tools/browser_tools.dart' show defaultTools;

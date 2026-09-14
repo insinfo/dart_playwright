@@ -16,8 +16,8 @@ class _Tool extends McpTool {
   @override
   final Map<String, dynamic> inputSchema;
 
-  final Future<McpResult> Function(BrowserSession session, Map<String, dynamic> args)
-      _run;
+  final Future<McpResult> Function(
+      BrowserSession session, Map<String, dynamic> args) _run;
 
   _Tool({
     required this.name,
@@ -197,8 +197,9 @@ List<McpTool> defaultTools() => [
           if (values == null || values.isEmpty) {
             throw ArgumentError('browser_select_option requires "values"');
           }
-          final selected = await resolveTarget(page, args, 'browser_select_option')
-              .selectOption(values.map((v) => '$v').toList());
+          final selected =
+              await resolveTarget(page, args, 'browser_select_option')
+                  .selectOption(values.map((v) => '$v').toList());
           return McpResult.text(
               await _withSnapshot(page, 'Selected: ${selected.join(', ')}.'));
         },
@@ -214,7 +215,8 @@ List<McpTool> defaultTools() => [
         required: ['key'],
         run: (session, args) async {
           final page = await session.currentPage();
-          await page.keyboard.press(requireString(args, 'key', 'browser_press_key'));
+          await page.keyboard
+              .press(requireString(args, 'key', 'browser_press_key'));
           return McpResult.text(await _withSnapshot(page, 'Key pressed.'));
         },
       ),
@@ -274,7 +276,10 @@ List<McpTool> defaultTools() => [
           }
           final page = await session.currentPage();
           return McpResult.text(await _withSnapshot(
-              page, args['accept'] == true ? 'Dialog accepted.' : 'Dialog dismissed.'));
+              page,
+              args['accept'] == true
+                  ? 'Dialog accepted.'
+                  : 'Dialog dismissed.'));
         },
       ),
 
@@ -288,7 +293,8 @@ List<McpTool> defaultTools() => [
           for (var i = 0; i < session.tabs.length; i++) {
             final page = session.tabs[i];
             final marker = i == session.currentTabIndex ? '*' : ' ';
-            lines.add('$marker [$i] ${await page.url()} - ${await page.title()}');
+            lines.add(
+                '$marker [$i] ${await page.url()} - ${await page.title()}');
           }
           return McpResult.text(lines.join('\n'));
         },
@@ -317,7 +323,8 @@ List<McpTool> defaultTools() => [
         run: (session, args) async {
           final index = args['index'];
           if (index is! int) {
-            throw ArgumentError('browser_tab_select requires an integer "index"');
+            throw ArgumentError(
+                'browser_tab_select requires an integer "index"');
           }
           session.selectTab(index);
           final page = await session.currentPage();
@@ -333,7 +340,8 @@ List<McpTool> defaultTools() => [
         },
         run: (session, args) async {
           final index = args['index'];
-          await session.closeTab(index is int ? index : session.currentTabIndex);
+          await session
+              .closeTab(index is int ? index : session.currentTabIndex);
           return McpResult.text('Tab closed. ${session.tabs.length} left.');
         },
       ),
@@ -396,8 +404,7 @@ List<McpTool> defaultTools() => [
       // ------------------------------------------------ page inspection
       _Tool(
         name: 'browser_console_messages',
-        description:
-            'The console output and uncaught page errors seen so far.',
+        description: 'The console output and uncaught page errors seen so far.',
         run: (session, args) async {
           if (session.consoleMessages.isEmpty) {
             return McpResult.text('No console messages.');
@@ -462,8 +469,8 @@ List<McpTool> defaultTools() => [
         }),
         run: (session, args) async {
           final page = await session.currentPage();
-          final timeout = Duration(
-              milliseconds: (args['timeoutMs'] as int?) ?? 10000);
+          final timeout =
+              Duration(milliseconds: (args['timeoutMs'] as int?) ?? 10000);
           final text = args['text'];
           if (text is String && text.isNotEmpty) {
             await page.getByText(text).first.waitFor(timeout: timeout);
@@ -473,7 +480,8 @@ List<McpTool> defaultTools() => [
           final delay = args['timeMs'];
           if (delay is int) {
             await page.waitForTimeout(Duration(milliseconds: delay));
-            return McpResult.text(await _withSnapshot(page, 'Waited ${delay}ms.'));
+            return McpResult.text(
+                await _withSnapshot(page, 'Waited ${delay}ms.'));
           }
           final state = switch (args['state']) {
             'attached' => WaitForSelectorState.attached,
@@ -483,8 +491,8 @@ List<McpTool> defaultTools() => [
           };
           await resolveTarget(page, args, 'browser_wait_for')
               .waitFor(state: state, timeout: timeout);
-          return McpResult.text(
-              await _withSnapshot(page, 'Element reached ${args['state'] ?? 'visible'}.'));
+          return McpResult.text(await _withSnapshot(
+              page, 'Element reached ${args['state'] ?? 'visible'}.'));
         },
       ),
 

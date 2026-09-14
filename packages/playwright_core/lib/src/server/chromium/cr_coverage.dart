@@ -108,8 +108,8 @@ class _JSCoverage {
     session.on('Debugger.paused', _onPausedListener);
 
     await session.send('Profiler.enable');
-    await session.send('Profiler.startPreciseCoverage',
-        {'callCount': true, 'detailed': true});
+    await session.send(
+        'Profiler.startPreciseCoverage', {'callCount': true, 'detailed': true});
     await session.send('Debugger.enable');
     await session.send('Debugger.setSkipAllPauses', {'skip': true});
   }
@@ -243,8 +243,8 @@ class _CSSCoverage {
   Future<List<CSSCoverageEntry>> stop() async {
     if (!_enabled) return const <CSSCoverageEntry>[];
 
-    final tracking = await session.send('CSS.stopRuleUsageTracking')
-        as Map<String, dynamic>;
+    final tracking =
+        await session.send('CSS.stopRuleUsageTracking') as Map<String, dynamic>;
     await Future.wait(_pendingSources);
     _pendingSources.clear();
     await session.send('CSS.disable');

@@ -49,8 +49,9 @@ class ScreencastHub {
   /// numbers, because vp8 refuses odd ones.
   static ({int width, int height}) defaultSizeFor(CorePage page,
       {({int width, int height})? requested}) {
-    var size =
-        requested ?? page.browserContext?.options.viewport ?? (width: 800, height: 600);
+    var size = requested ??
+        page.browserContext?.options.viewport ??
+        (width: 800, height: 600);
     if (requested == null) {
       final longest = size.width > size.height ? size.width : size.height;
       final scale = longest > 800 ? 800 / longest : 1.0;
@@ -112,8 +113,7 @@ class ScreencastSubscription {
 
   /// The size the screencast is actually running at, which is not necessarily
   /// the size this subscriber asked for: the first subscriber decides.
-  ({int width, int height}) get size =>
-      _hub.size ?? (width: 0, height: 0);
+  ({int width, int height}) get size => _hub.size ?? (width: 0, height: 0);
 
   /// Only meaningful for [ScreencastKind.frames].
   Stream<VideoFrame> get frames =>

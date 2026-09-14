@@ -187,7 +187,9 @@ class BrowserTypeImpl implements BrowserType {
 
     if (extensionPaths.isNotEmpty) {
       if (name != 'chromium') {
-        throw ArgumentError.value(extensionPaths, 'extensionPaths',
+        throw ArgumentError.value(
+            extensionPaths,
+            'extensionPaths',
             'Loading unpacked extensions is a Chromium option; $name has no '
                 'equivalent switch');
       }

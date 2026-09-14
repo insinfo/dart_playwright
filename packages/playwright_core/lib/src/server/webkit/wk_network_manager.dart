@@ -241,10 +241,11 @@ class WkNetworkManager extends EventEmitter {
         if (parsed != null) response.remoteAddr = parsed;
         final connection = metrics['securityConnection'];
         final certificate = ((responsePayload?['response']
-                as Map<String, dynamic>?)?['security'] as Map?)?['certificate'];
+            as Map<String, dynamic>?)?['security'] as Map?)?['certificate'];
         if (connection is Map || certificate is Map) {
           response.securityDetails = CoreSecurityDetails(
-            protocol: connection is Map ? connection['protocol'] as String? : null,
+            protocol:
+                connection is Map ? connection['protocol'] as String? : null,
             subjectName:
                 certificate is Map ? certificate['subject'] as String? : null,
             // WebKit does not report the certificate issuer.

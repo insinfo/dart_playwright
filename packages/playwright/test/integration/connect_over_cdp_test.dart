@@ -120,8 +120,7 @@ void main() {
     test('a websocket endpoint is taken as given', () async {
       final portFile = File('${profile!.path}/DevToolsActivePort');
       final lines = portFile.readAsLinesSync();
-      final wsEndpoint =
-          'ws://127.0.0.1:${lines[0].trim()}${lines[1].trim()}';
+      final wsEndpoint = 'ws://127.0.0.1:${lines[0].trim()}${lines[1].trim()}';
       final browser = await playwright.chromium.connectOverCDP(wsEndpoint);
       try {
         expect(browser.isConnected(), isTrue);
@@ -130,8 +129,7 @@ void main() {
       }
     });
 
-    test('an endpoint that answers nothing fails instead of hanging',
-        () async {
+    test('an endpoint that answers nothing fails instead of hanging', () async {
       await expectLater(
         playwright.chromium.connectOverCDP('http://127.0.0.1:1',
             timeout: const Duration(seconds: 5)),

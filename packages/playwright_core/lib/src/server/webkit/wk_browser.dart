@@ -136,9 +136,8 @@ class WkBrowser extends EventEmitter implements CoreBrowser {
       Directory(launchPath).createSync(recursive: true);
       return launchPath;
     }
-    return _downloadsDirectory ??= Directory.systemTemp
-        .createTempSync('playwright-dart-downloads')
-        .path;
+    return _downloadsDirectory ??=
+        Directory.systemTemp.createTempSync('playwright-dart-downloads').path;
   }
 
   /// The context for [browserContextId], falling back to the profile's own
@@ -194,8 +193,7 @@ class WkBrowser extends EventEmitter implements CoreBrowser {
   /// `--user-data-dir` profile belongs to — as the context we hand back.
   Future<void> init(
       {bool persistentContext = false,
-      CoreContextOptions contextOptions =
-          const CoreContextOptions()}) async {
+      CoreContextOptions contextOptions = const CoreContextOptions()}) async {
     await connection.send('Playwright.enable', {});
     if (persistentContext) {
       final context = WkBrowserContext(this, null, contextOptions);
@@ -396,8 +394,7 @@ class WkBrowserContext extends EventEmitter
         await session
             .sendToTarget('Page.setTimeZone', {'timeZone': options.timezoneId});
       } catch (_) {
-        throw PlaywrightException(
-            'Invalid timezone ID: ${options.timezoneId}');
+        throw PlaywrightException('Invalid timezone ID: ${options.timezoneId}');
       }
     }
     if (options.colorScheme != null) {

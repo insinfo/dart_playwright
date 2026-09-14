@@ -26,7 +26,9 @@ class ChromiumBrowserType {
   List<String> defaultArgs(CoreLaunchOptions options, String userDataDir) {
     for (final arg in options.args) {
       if (arg.startsWith('--user-data-dir')) {
-        throw ArgumentError.value(arg, 'args',
+        throw ArgumentError.value(
+            arg,
+            'args',
             'Pass userDataDir to launchPersistentContext instead of '
                 '--user-data-dir');
       }
@@ -52,7 +54,8 @@ class ChromiumBrowserType {
     chromeArgs.add('--remote-debugging-pipe');
     // A persistent context is expected to come with a page already open; a
     // plain launch starts with no window and creates its own contexts.
-    chromeArgs.add(options.isPersistent ? 'about:blank' : '--no-startup-window');
+    chromeArgs
+        .add(options.isPersistent ? 'about:blank' : '--no-startup-window');
     return chromeArgs;
   }
 
@@ -192,8 +195,8 @@ class ChromiumBrowserType {
 
   /// Turns an HTTP endpoint into the browser's WebSocket debugger URL, the
   /// way `connectOverCDP('http://localhost:9222')` is expected to work.
-  Future<String> _resolveCdpEndpoint(
-      String endpointURL, Map<String, String>? headers, Duration timeout) async {
+  Future<String> _resolveCdpEndpoint(String endpointURL,
+      Map<String, String>? headers, Duration timeout) async {
     final uri = Uri.parse(endpointURL);
     if (uri.scheme == 'ws' || uri.scheme == 'wss') return endpointURL;
     if (uri.scheme != 'http' && uri.scheme != 'https') {

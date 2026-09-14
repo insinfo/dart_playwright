@@ -321,7 +321,8 @@ void main() {
             expect(file, startsWith('screenshots/'));
             expect(trace.files.keys, contains(file));
             // Assinatura de PNG.
-            expect(trace.files[file]!.take(4).toList(), [0x89, 0x50, 0x4E, 0x47]);
+            expect(
+                trace.files[file]!.take(4).toList(), [0x89, 0x50, 0x4E, 0x47]);
           }
           // E nenhuma tira de filme: as duas opções são independentes.
           expect(trace.ofType('screencast-frame'), isEmpty);

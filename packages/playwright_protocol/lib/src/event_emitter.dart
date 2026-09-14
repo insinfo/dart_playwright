@@ -11,6 +11,7 @@ import 'dart:async';
 class EventEmitter {
   final _listeners = <String, List<Function>>{};
   final _onceListeners = <String, List<Function>>{};
+
   /// Set maximum number of listeners per event. 0 = unlimited.
   void setMaxListeners(int n) {
     // Currently unimplemented logic for max listeners
@@ -58,8 +59,7 @@ class EventEmitter {
   /// Emit an [event] with up to three optional arguments.
   /// Returns true if there were any listeners.
   bool emit(String event, [dynamic arg1, dynamic arg2, dynamic arg3]) {
-    final hasListeners =
-        (_listeners[event]?.isNotEmpty ?? false) ||
+    final hasListeners = (_listeners[event]?.isNotEmpty ?? false) ||
         (_onceListeners[event]?.isNotEmpty ?? false);
 
     // Call regular listeners

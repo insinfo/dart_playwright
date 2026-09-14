@@ -56,7 +56,8 @@ void main() {
 
   test('path() falha com o erro da gravacao em vez de pendurar', () async {
     final video = CoreVideo(pathIn('b.webm'));
-    video.attachRecording(() => Future<void>.error(StateError('ffmpeg morreu')));
+    video
+        .attachRecording(() => Future<void>.error(StateError('ffmpeg morreu')));
 
     unawaited(video.finish());
     await expectLater(video.pathAfterFinished(), throwsA(isA<StateError>()));
