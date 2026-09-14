@@ -305,38 +305,32 @@ valores, sem âncoras para agir depois.
   cabem numa rodada curta.
 - **Multipart no `APIRequestContext`** e `storageState` num contexto avulso.
 - **`WebSocket`, `WebSocketRoute`, `Worker`.**
-- **`Clock` e `Coverage`.** O `Clock` exige portar o `clock.ts` inteiro
-  (~700 linhas de JS que substituem `Date`, `setTimeout` e amigos no início de
-  cada documento); o `Coverage` é CDP-only e dá uma API que não existiria nos
-  outros dois motores.
-- **`addInitScript`, `exposeFunction`, `exposeBinding`.** Dependem de
-  `Page.addScriptToEvaluateOnNewDocument` e de um canal de binding por motor.
+- ~~**`Clock` e `Coverage`.**~~ — FEITOS em 2026-09-14. O `clock.ts` está
+  portado inteiro (`injected/injected_clock_source.dart`) e responde igual nos
+  três motores. O `Coverage` é mesmo CDP-only, e por isso Firefox e WebKit
+  lançam `UnsupportedError` explicando a razão em vez de devolver lista vazia:
+  os contadores saem do V8 e do motor de CSS do Blink, e nem o Juggler nem o
+  inspector do WebKit têm equivalente — o upstream expõe `page.coverage` só no
+  tipo de página do Chromium.
+- ~~**`addInitScript`, `exposeFunction`, `exposeBinding`.**~~ — FEITOS em
+  2026-09-14, nos três motores:
+  `Page.addScriptToEvaluateOnNewDocument` (Chromium), `Page.setInitScripts`
+  (Juggler) e `Page.setBootstrapScript` (WebKit), com o canal de binding em
+  `Runtime.addBinding` / `Page.addBinding`.
 - **`BrowserType.connect`, `connectOverCDP`, `launchPersistentContext`,
   `launchServer`.**
 - **Proxy por contexto.**
-<<<<<<< HEAD
 - ~~**Extensões CSS do Playwright** (`:has-text()`, `:visible`, seletores de
   layout) e shadow-piercing no motor `css`~~ — FEITO em 2026-09-13:
   `cssTokenizer.ts`, `cssParser.ts`, `layoutSelectorUtils.ts` e
   `selectorEvaluator.ts` estão portados no script injetado.
-- **`ariaSnapshot`** e as assertions de snapshot/screenshot do
-  `playwright_test`.
-- **`accessibilitySnapshot` real no Firefox e no WebKit.** Hoje só o Chromium
-  responde; os outros dois devolvem um esqueleto. O `playwright_mcp` contorna
-  isso com um snapshot próprio, mas a API pública continua mentindo nesses
-  dois motores — é a lacuna que eu atacaria primeiro na próxima rodada.
-=======
-- **Extensões CSS do Playwright** (`:has-text()`, `:visible`, seletores de
-  layout) e shadow-piercing no motor `css`: continuam exigindo portar
-  `selectorEvaluator.ts` + `cssParser.ts` + `cssTokenizer.ts`.
-- ~~**`ariaSnapshot`** e a assertion `toMatchAriaSnapshot`~~ FEITOS em
+- ~~**`ariaSnapshot`** e a assertion `toMatchAriaSnapshot`~~ — FEITOS em
   2026-09-14. Falta `toHaveScreenshot`, que depende de baseline em disco e de
   comparação de imagem.
-- ~~**`accessibilitySnapshot` real no Firefox e no WebKit.**~~ FEITO em
-  2026-09-14, e não do jeito que esta linha imaginava: o upstream removeu os
-  três backends por protocolo, e o porte seguiu a árvore injetada que os
-  substituiu.
->>>>>>> feat/a11y-snapshot
+- ~~**`accessibilitySnapshot` real no Firefox e no WebKit.**~~ — FEITO em
+  2026-09-14, e não do jeito que a linha original imaginava: o upstream
+  removeu os três backends por protocolo, e o porte seguiu a árvore injetada
+  que os substituiu.
 
 ## Progresso da rodada de 2026-09-13 (eventos P0)
 
@@ -687,8 +681,8 @@ Os arquivos `docs/src/api/class-*.md` do upstream indicam uma superfície muito 
 | `Download` | 9 | Ausente |
 | `WebSocket` | 7 + eventos | Ausente |
 | `Worker` | 7 + eventos | Ausente |
-| `Clock` | 7 | Ausente |
-| `Coverage` | 4 | Ausente |
+| `Clock` | 7 | 7 métodos (completo) |
+| `Coverage` | 4 | 4 métodos, Chromium only (CDP) |
 | `FrameLocator` | 13 | 13 métodos (completo) |
 | Assertions | dezenas de métodos | Ausentes |
 
