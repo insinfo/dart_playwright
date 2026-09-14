@@ -12,11 +12,12 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# Note on `dart format`: there is deliberately no formatting gate. The
-# formatter's output changes between Dart releases, so such a gate is only
-# meaningful pinned to one exact SDK, and adopting it today would rewrite 44
-# of the 99 files in the repository. If it is ever added, pin it to a single
-# SDK version and never put it in a matrix.
+# Note on `dart format`: the gate below is pinned to one exact SDK, on
+# purpose. The formatter's output changes between Dart releases -- 3.7
+# rewrote the style wholesale -- so the same tree cannot satisfy two SDKs at
+# once, and a gate in a matrix would be red forever no matter how the code is
+# formatted. 3.6.2 is the minimum the packages declare, which is the one
+# version every contributor must already be able to run.
 
 jobs:
   analyze:
@@ -32,6 +33,22 @@ jobs:
         run: dart pub get
       - name: Analyze packages
         run: dart analyze packages
+
+  format:
+    name: Format
+    needs: analyze
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          # Pinned, not `stable`: see the note above the jobs.
+          sdk: 3.6.2
+      - name: Install dependencies
+        run: dart pub get
+      - name: Check formatting
+        run: dart format --output=none --set-exit-if-changed .
 
   docs:
     name: Docs

@@ -262,8 +262,10 @@ Being precise, because "CI is green" means different things in different
 repositories:
 
 - `dart analyze packages` on Ubuntu.
-- `dart format --output=none --set-exit-if-changed` on Ubuntu only. The
-  formatter changes between Dart releases, so this gate is pinned to one SDK.
+- `dart format --output=none --set-exit-if-changed .` on Ubuntu, pinned to
+  Dart 3.6.2 — the minimum the packages declare. The formatter's style changed
+  wholesale in 3.7, so the same tree cannot satisfy two SDKs at once and this
+  gate can never go in a matrix.
 - `dart doc` for each published package, on Ubuntu, failing unless the output
   says `Found 0 warnings and 0 errors` — `dart doc` exits 0 even when it warns,
   so the exit code alone would prove nothing.
