@@ -1,7 +1,7 @@
 # Relatório de gaps para paridade com o Playwright original
 
 Data da análise: 2026-07-19
-Última atualização: 2026-09-13 — ver "Progresso da rodada de 2026-09-13 (eventos P0)".
+Última atualização: 2026-09-14 — ver "Progresso da rodada de 2026-09-14 (Milestones 3, 4 e 5)".
 
 Referências locais usadas:
 
@@ -31,6 +31,164 @@ Onze commits (`146c69a`..`11d0c7a`) levaram a suíte de paridade de "toda em tim
   - **Firefox**: em nível de contexto no Juggler (`Browser.setDefaultViewport` com o shape `{viewport: {viewportSize: {...}}}` e `Browser.setUserAgentOverride`), aplicados antes de existir qualquer página — idêntico ao upstream (`ffBrowser.ts:191`).
   - **WebKit**: `Emulation.setDeviceMetricsOverride` no pageProxy + `Page.overrideUserAgent` no target (`wkPage.ts:713`).
   - *Teste de paridade*: cria um contexto 640×480 com UA customizado e verifica `window.innerWidth`/`innerHeight` e `navigator.userAgent` nos três engines — passou de primeira em todos.
+
+## Progresso da rodada de 2026-09-14 (Milestones 3, 4 e 5)
+
+Fecha os Milestones 3, 4 e 5, mais o defeito de hit target. A suíte saiu de
+209 para **410 testes verdes**, todos rodados de fato em Chromium, Firefox e
+WebKit nesta máquina. O repositório passou de quatro para **cinco pacotes, os
+cinco publicáveis**.
+
+### Correção de correção: hit target
+
+Era o item mais grave em aberto, e não era falta de recurso: um elemento
+coberto por outro era clicado assim mesmo, porque a actionability checava
+`visible`/`stable`/`enabled`/`editable` e nunca perguntava se o ponteiro
+chegava lá. O clique ia para o overlay e o teste passava achando que tinha
+clicado no botão.
+
+Novo estado `receivesEvents`, porte de `injectedScript.ts#expectHitTarget`:
+desce pelos shadow roots de fora para dentro com `elementsFromPoint` e aceita
+o hit quando quem responde é o próprio elemento, um descendente dele, ou um
+`<label>` que aponta para ele. O ponto testado é o mesmo que a ação vai mirar,
+e a mensagem de timeout diz o que interceptou o clique.
+
+### Milestone 3 — rede e artefatos
+
+- **`Route`**: `continue_` com overrides de url/método/headers/corpo (cada
+  motor quer um shape diferente: array de `{name,value}` no Chromium e no
+  Firefox, objeto no WebKit); `fallback`, que transforma os handlers numa
+  cadeia rodando do mais novo para o mais antigo e não toca em protocolo
+  nenhum; `abort` com as tabelas de erro por motor — o WebKit só distingue
+  quatro resultados, e o Juggler não tem tabela.
+- **`Request`**: `resourceType` (o Firefox é o único sem campo `type` e deriva
+  de `cause`/`internalCause`), `failure`, `isNavigationRequest`, `response`,
+  `redirectedFrom`/`redirectedTo`, `allHeaders`/`headersArray`/`headerValue`,
+  `postDataBuffer`, `postDataJSON`, `timing` e `sizes`.
+- **`Response`**: `headers`, `allHeaders`, `headersArray`, `headerValue`,
+  `headerValues`, `serverAddr`, `securityDetails`, `fromServiceWorker`,
+  `finished`.
+- **Upload**: `Locator.setInputFiles`, `Page.setInputFiles` e `FileChooser`.
+- **Download**: `Download` com `path`/`saveAs`/`failure`/`cancel`/`delete`,
+  eventos na página e no contexto, opções `acceptDownloads` e `downloadsPath`.
+- **Screenshot**: `type`, `quality`, `fullPage`, `clip`, `scale` e
+  `Locator.screenshot`.
+- **`page.pdf`** no Chromium, lido pelo stream `IO`.
+- **`APIRequestContext`**: `playwright.request.newContext()` e
+  `context.request`, compartilhando o pote de cookies nos dois sentidos.
+
+Onde o motor não mede, o valor é `-1`, não zero: o Firefox não reporta tamanho
+de header e o WebKit não reporta transfer size. Inventar zero seria pior que
+admitir a lacuna.
+
+### Milestone 4 — contexto e configuração
+
+`locale`, `timezoneId`, `colorScheme`, `reducedMotion`, `forcedColors`,
+`deviceScaleFactor`, `isMobile`, `hasTouch`, `offline`, `extraHTTPHeaders`,
+`httpCredentials`, `geolocation` e `permissions`; `Touchscreen`, `Page.tap` e
+`Locator.tap`; catálogo `devices`; `setTestIdAttribute`.
+
+Cada motor aplica isso numa camada diferente, e errar a camada dá
+`'<cmd>' wasn't found`:
+
+| Opção | Chromium | Firefox | WebKit |
+| --- | --- | --- | --- |
+| locale | página | contexto | browser (`Playwright.setLanguages`) |
+| timezoneId | página | contexto | target |
+| colorScheme / reducedMotion | página (`setEmulatedMedia`) | contexto | target (`overrideUserPreference`) |
+| deviceScaleFactor / isMobile | página | contexto | pageProxy + target |
+| hasTouch | página | contexto | target |
+| offline | página | contexto | target |
+| httpCredentials | interceptação `Fetch` | contexto | pageProxy |
+| geolocation | página | contexto | browser |
+| permissions | contexto | contexto | pageProxy, por página |
+| tap | página | página | pageProxy |
+
+As tabelas de permissão têm os tamanhos que os motores de fato têm: 17 no
+Chromium, 6 no WebKit, 5 no Firefox. Pedir uma que o motor não conhece lança,
+em vez de passar calada — passar calada deixaria um teste verde pelo motivo
+errado.
+
+### Milestone 5 — `playwright_test`
+
+Pacote novo, camada sobre `package:test` e não runner próprio: o `dart test` já
+roda, reporta, filtra, repete e paraleliza. `playwrightTest` roda o corpo uma
+vez por motor, com navegador compartilhado por arquivo e contexto/página novos
+por teste; 18 assertions que repetem até passar ou estourar o prazo, todas com
+`.not`; screenshot de página inteira na falha.
+
+### `playwright_mcp` deixou de ser interno
+
+Era interno com bom motivo — sem biblioteca pública, sem teste, seis
+ferramentas sobre uma API que se mexia. Agora: servidor **dual-era** (revisão
+moderna `2026-07-28` com versão por requisição no `_meta` e `server/discover`
+obrigatório, mais o handshake `initialize` das revisões `2025-11-25` e
+anteriores), 22 ferramentas, biblioteca pública e 6 testes que sobem o servidor
+como processo e falam JSON-RPC pelo pipe.
+
+`browser_snapshot` percorre o DOM na página em vez de usar
+`page.accessibilitySnapshot()`: essa só o Chromium responde de verdade, o
+Firefox e o WebKit devolvem um esqueleto. É uma lacuna do porte que vale
+registrar aqui.
+
+### Defeitos encontrados e corrigidos
+
+1. **`Runtime.runIfWaitingForDebugger` faltava no Chromium.** Com auto-attach
+   ligado, o renderer do opener fica preso dentro de `window.open` até o
+   target novo ser retomado — o clique ou o `evaluate` que abriu o popup nunca
+   retornava. `target=_blank` funcionava, o que escondia o problema.
+2. **`page.evaluate` não resolvia promise no WebKit.** Só o Chromium mandava
+   `awaitPromise`. Agora passa por `Runtime.awaitPromise`. **O Firefox não tem
+   equivalente nenhum** e continua sem: o Juggler não tem `awaitPromise` nem
+   em `evaluate` nem em `callFunction`. Está documentado no README.
+3. **A biblioteca escrevia diagnóstico no stdout.** O launcher POSIX usava
+   `print` para `[browser stdout]`, `[browser stderr]` e `[browser exit]`.
+   Para um servidor de protocolo por stdio — o nosso próprio `playwright_mcp`
+   — o stdout *é* o canal, e uma linha dessas corrompe a sessão inteira. Só
+   aparecia no Linux e no macOS, e só com `PLAYWRIGHT_DEBUG=1`, que é o que o
+   CI liga.
+4. **Firefox não ligava um redirect cujo hop anterior já tinha terminado**: o
+   request terminado saía do mapa antes do próximo chegar.
+5. **`DOM.setFileInputFiles` do Chromium ignora lista vazia**, então limpar um
+   input passa pelo DOM.
+6. **Caminhos de arquivo precisam ser absolutos e nativos**: o Firefox monta
+   um `nsIFile` e recusa caminho do Windows com barra normal.
+7. **Dois testes só passavam no Windows** (achados pelo CI): um anexava a
+   expectativa depois do `close`, e a rejeição chegava sem ninguém escutando;
+   o outro exigia que uma animação tivesse terminado, o que um runner macOS
+   carregado não garante porque estrangula o `setInterval` da página.
+
+### O que ficou de fora, e por quê
+
+- **Tracing e vídeo.** O tracing exige escrever o formato de trace do upstream
+  (um zip com `trace.trace` mais recursos) para ser útil de verdade, e esse
+  formato é alvo móvel; o vídeo exige o binário do ffmpeg, que nem está
+  instalado nesta máquina (`dart run playwright list` mostra `❌ ffmpeg`) e um
+  pipeline de screencast por motor. Os dois são trabalho real, não pequeno, e
+  eu preferi entregar o resto verificado a entregar isso sem rodar.
+- **Opções de screenshot `mask`, `caret`, `animations`, `omitBackground`,
+  `style`.** São script injetado mais `setDefaultBackgroundColorOverride`;
+  cabem numa rodada curta.
+- **Multipart no `APIRequestContext`** e `storageState` num contexto avulso.
+- **`WebSocket`, `WebSocketRoute`, `Worker`.**
+- **`Clock` e `Coverage`.** O `Clock` exige portar o `clock.ts` inteiro
+  (~700 linhas de JS que substituem `Date`, `setTimeout` e amigos no início de
+  cada documento); o `Coverage` é CDP-only e dá uma API que não existiria nos
+  outros dois motores.
+- **`addInitScript`, `exposeFunction`, `exposeBinding`.** Dependem de
+  `Page.addScriptToEvaluateOnNewDocument` e de um canal de binding por motor.
+- **`BrowserType.connect`, `connectOverCDP`, `launchPersistentContext`,
+  `launchServer`.**
+- **Proxy por contexto.**
+- **Extensões CSS do Playwright** (`:has-text()`, `:visible`, seletores de
+  layout) e shadow-piercing no motor `css`: continuam exigindo portar
+  `selectorEvaluator.ts` + `cssParser.ts` + `cssTokenizer.ts`.
+- **`ariaSnapshot`** e as assertions de snapshot/screenshot do
+  `playwright_test`.
+- **`accessibilitySnapshot` real no Firefox e no WebKit.** Hoje só o Chromium
+  responde; os outros dois devolvem um esqueleto. O `playwright_mcp` contorna
+  isso com um snapshot próprio, mas a API pública continua mentindo nesses
+  dois motores — é a lacuna que eu atacaria primeiro na próxima rodada.
 
 ## Progresso da rodada de 2026-09-13 (eventos P0)
 
