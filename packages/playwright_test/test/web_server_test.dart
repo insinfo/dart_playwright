@@ -1,4 +1,4 @@
-import 'dart:async';
+import 'dart:async' as async;
 import 'dart:io';
 
 import 'package:playwright_test/playwright_test.dart';
@@ -120,19 +120,10 @@ void main() {
       // que motiva a derrubada em arvore. Se um dia matar o pai passar a
       // bastar, ele falha e a complexidade do taskkill /T pode sair.
       final porta = await _portaLivre();
+      // spawn_server e o pai; quem escuta a porta e o filho que ele cria.
       final processo = await Process.start(
-        Platform.isWindows ? 'cmd.exe' : '/bin/sh',
-        Platform.isWindows
-            ? [
-                '/d',
-                '/s',
-                '/c',
-                '"$dart" run test/fixtures/spawn_server.dart --port=$porta'
-              ]
-            : [
-                '-c',
-                '"$dart" run test/fixtures/spawn_server.dart --port=$porta'
-              ],
+        dart,
+        ['run', 'test/fixtures/spawn_server.dart', '--port=$porta'],
       );
       processo.stdout.drain<void>();
       processo.stderr.drain<void>();
@@ -251,7 +242,7 @@ void main() {
           url: 'http://127.0.0.1:$porta/',
           timeout: const Duration(seconds: 8),
         ),
-        throwsA(isA<TimeoutException>()
+        throwsA(isA<async.TimeoutException>()
             .having((e) => e.message, 'message', contains('O que fazer'))
             .having((e) => e.message, 'message', contains('Sonda:'))
             .having((e) => e.message, 'message', contains('Serving on'))),
