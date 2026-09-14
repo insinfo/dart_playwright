@@ -42,7 +42,16 @@ class FfBrowser extends EventEmitter implements CoreBrowser {
     final newSession = connection.createSession(params['sessionId'] as String);
     final page = FfPage(newSession);
     _pagesByTarget[targetId] = page;
-    _adoptPage(page, targetId, targetInfo).catchError((Object _) {});
+    // Uma falha aqui nao pode ser engolida: sem completar o completer com o
+    // erro, `newPage()` espera para sempre em vez de saber que a pagina nao
+    // nasceu. E manipulador de evento, entao ninguem aguarda este future.
+    _adoptPage(page, targetId, targetInfo).catchError((Object error,
+        StackTrace stack) {
+      final completer = _pendingPages.remove(targetId);
+      if (completer != null && !completer.isCompleted) {
+        completer.completeError(error, stack);
+      }
+    });
   }
 
   Future<void> _adoptPage(FfPage page, String targetId,

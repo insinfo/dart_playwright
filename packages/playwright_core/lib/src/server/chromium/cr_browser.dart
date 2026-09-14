@@ -86,16 +86,30 @@ class CrBrowser extends EventEmitter implements CoreBrowser {
     if (context == null) return;
 
     final session = connection.createSession(sessionId, 'page');
-    final page = await CrPage.create(session, targetId: targetId);
-    await context.applyContextOptions(session);
+    try {
+      final page = await CrPage.create(session, targetId: targetId);
+      await context.applyContextOptions(session);
 
-    final openerId = targetInfo['openerId'] as String?;
-    _pagesByTarget[targetId] = page;
-    context.registerPage(page,
-        opener: openerId == null ? null : _pagesByTarget[openerId]);
+      final openerId = targetInfo['openerId'] as String?;
+      _pagesByTarget[targetId] = page;
+      context.registerPage(page,
+          opener: openerId == null ? null : _pagesByTarget[openerId]);
 
-    final completer = _pageCompleters.remove(targetId);
-    if (completer != null && !completer.isCompleted) completer.complete(page);
+      final completer = _pageCompleters.remove(targetId);
+      if (completer != null && !completer.isCompleted) completer.complete(page);
+    } catch (error, stack) {
+      // Este e um manipulador de evento: ninguem aguarda o future que ele
+      // devolve. Sem este bloco, uma falha na inicializacao — uma opcao de
+      // contexto que o motor recusa, como um `timezoneId` invalido — some, o
+      // completer nunca completa, e `newPage()` espera para sempre em vez de
+      // receber o erro. O chamador precisa saber que a pagina nao nasceu.
+      final completer = _pageCompleters.remove(targetId);
+      if (completer != null && !completer.isCompleted) {
+        completer.completeError(error, stack);
+      } else {
+        rethrow;
+      }
+    }
   }
 
   void _onDetachedFromTarget(Map<String, dynamic> params) {

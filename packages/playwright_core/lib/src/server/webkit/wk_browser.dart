@@ -56,19 +56,31 @@ class WkBrowser extends EventEmitter implements CoreBrowser {
     // The session was created eagerly by the connection when the
     // pageProxyCreated message arrived, so no event is lost here.
     final session = connection.pageProxySession(pageProxyId);
-    await session.waitForTarget(timeout: const Duration(seconds: 30));
+    try {
+      await session.waitForTarget(timeout: const Duration(seconds: 30));
 
-    final page = WkPage(session, browserContextId: contextId);
-    await page.initialize();
-    await context.applyContextOptions(session);
+      final page = WkPage(session, browserContextId: contextId);
+      await page.initialize();
+      await context.applyContextOptions(session);
 
-    final openerId = params['openerId'] as String?;
-    _pagesByProxy[pageProxyId] = page;
-    context.registerPage(page,
-        opener: openerId == null ? null : _pagesByProxy[openerId]);
+      final openerId = params['openerId'] as String?;
+      _pagesByProxy[pageProxyId] = page;
+      context.registerPage(page,
+          opener: openerId == null ? null : _pagesByProxy[openerId]);
 
-    final completer = _pageCompleters.remove(pageProxyId);
-    if (completer != null && !completer.isCompleted) completer.complete(page);
+      final completer = _pageCompleters.remove(pageProxyId);
+      if (completer != null && !completer.isCompleted) completer.complete(page);
+    } catch (error, stack) {
+      // Mesma razao do Chromium: ninguem aguarda o future de um manipulador de
+      // evento, entao uma falha na inicializacao deixaria `newPage()` esperando
+      // para sempre em vez de receber o erro.
+      final completer = _pageCompleters.remove(pageProxyId);
+      if (completer != null && !completer.isCompleted) {
+        completer.completeError(error, stack);
+      } else {
+        rethrow;
+      }
+    }
   }
 
   void _onDownloadCreated(Map<String, dynamic> params) {
