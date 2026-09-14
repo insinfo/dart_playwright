@@ -26,7 +26,10 @@ class ScreenshotPollingScreencast implements PageScreencast {
   /// frames afterwards.
   static const _captureTimeout = Duration(seconds: 5);
 
-  final _controller = StreamController<VideoFrame>.broadcast();
+  // Assinatura unica, como os backends de motor de verdade: a contrapressao
+  // deles depende de haver um consumidor so, e um controller broadcast aqui
+  // esconderia de quem consome que ele nao pode assinar duas vezes.
+  final _controller = StreamController<VideoFrame>();
   final _stopwatch = Stopwatch();
 
   Timer? _timer;

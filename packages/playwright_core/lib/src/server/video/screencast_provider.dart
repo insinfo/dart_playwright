@@ -13,7 +13,13 @@ PageScreencast _stubBuilder(CorePage page) => ScreenshotPollingScreencast(page);
 /// only ever go through here, so the engine backends can land without any of
 /// them moving. Until they do, every page gets
 /// [ScreenshotPollingScreencast].
-class ScreencastFactory {
+///
+/// The engine backends arrive as a `createPageScreencast(CorePage)` function
+/// of their own; wiring them in is one line here — `builder =
+/// createPageScreencast` — and nothing else in this package changes. This
+/// indirection is also what lets a test install a backend that misbehaves on
+/// purpose.
+class ScreencastProvider {
   /// Replaced by the engine backends; overridable in tests.
   static PageScreencastBuilder builder = _stubBuilder;
 

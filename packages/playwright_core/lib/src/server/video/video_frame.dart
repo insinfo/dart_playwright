@@ -10,10 +10,12 @@ import 'dart:typed_data';
 
 /// Encoding of the bytes in a [VideoFrame].
 ///
-/// The engines hand out JPEG (Chromium `Page.screencastFrame`, WebKit) or PNG
-/// (Firefox `Page.screencastFrame`), and the consumer has to know which:
-/// ffmpeg is told the container format, and the trace filmstrip names the
-/// resource file by extension.
+/// All three engine backends deliver JPEG, and so must anything else that
+/// feeds this pipeline: the ffmpeg build Playwright publishes decodes only
+/// `mjpeg` and `libvpx` — `png` is an encoder there, not a decoder — so a PNG
+/// frame produces a video that does not open. The format travels with the
+/// frame anyway, because the trace filmstrip names its resource by extension
+/// and silently writing the wrong one would hide the mistake.
 enum VideoFrameFormat { png, jpeg }
 
 /// One painted frame of a page, as the engine delivered it.

@@ -1,5 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+
+import 'package:archive/archive_io.dart';
 
 import 'package:playwright/playwright.dart';
 import 'package:test/test.dart';
@@ -274,6 +277,63 @@ void main() {
               video.saveAs('${dir.path}/nope.webm'), throwsA(isA<Error>()));
         });
 
+        test(
+            'gravar video e tracar a tira de filme ao mesmo tempo usa um '
+            'screencast so', () async {
+          final dir = nextDir();
+          final context = await recordingContext(dir);
+          try {
+            // Os motores rodam um screencast por pagina, e o Stream que eles
+            // entregam e de assinatura unica. Se cada consumidor assinasse o
+            // do motor, o segundo a chegar levaria "Stream has already been
+            // listened to" e o trace (ou o video) sairia vazio sem dizer por
+            // que.
+            await context.tracing.start(screenshots: true);
+            final page = await context.newPage();
+            await page.goto(server.url('/title'));
+            final video = page.video()!;
+
+            final file = await videoFileIn(dir);
+            await sizeAbove(file, 0);
+
+            final tracePath = '${dir.path}/trace.zip';
+            await context.tracing.stop(path: tracePath);
+            expect(File(tracePath).existsSync(), isTrue);
+
+            await context.close();
+
+            // Os dois consumidores receberam quadros: o video tem bytes...
+            final videoPath = await video.path();
+            expect(File(videoPath).lengthSync(), greaterThan(0));
+            // ...e a tira de filme tem quadros no trace.
+            final trace = _readTraceFrames(tracePath);
+            expect(trace, isNotEmpty,
+                reason: 'a tira de filme ficou vazia com recordVideo ligado: '
+                    'os dois consumidores brigaram pelo screencast');
+          } finally {
+            if (!context.isClosed()) await context.close();
+          }
+        });
+
+        test('o arquivo produzido e um WebM, nao bytes soltos', () async {
+          final dir = nextDir();
+          final context = await recordingContext(dir);
+          final page = await context.newPage();
+          final video = page.video()!;
+          await sizeAbove(await videoFileIn(dir), 0);
+          await context.close();
+
+          // Existir e ter bytes nao prova nada: esta sessao ja viu um `.webm`
+          // com bytes dentro que nao era video. O cabecalho EBML e o que
+          // separa um arquivo que abre de um que so ocupa espaco.
+          final bytes = File(await video.path()).readAsBytesSync();
+          expect(bytes.take(4).toList(), [0x1A, 0x45, 0xDF, 0xA3],
+              reason: 'o arquivo nao comeca com a assinatura EBML do Matroska');
+        },
+            skip: 'O muxer ainda e o stub deste branch, que grava os payloads '
+                'crus: esta e a unica asserção que ele nao tem como satisfazer. '
+                'Tirar o skip quando o VideoRecorder de verdade entrar.');
+
         test('uma pagina que o proprio site fecha ainda produz o video',
             () async {
           final dir = nextDir();
@@ -388,4 +448,18 @@ void main() {
       }
     });
   }, timeout: const Timeout(Duration(minutes: 6)));
+}
+
+/// The `screencast-frame` events of a trace archive.
+///
+/// Read here rather than through the tracing tests' reader because this file
+/// only needs the one event type, and the point is whether any arrived at all.
+List<Map<String, dynamic>> _readTraceFrames(String path) {
+  final archive = ZipDecoder().decodeBytes(File(path).readAsBytesSync());
+  final trace = archive.files.firstWhere((f) => f.name == 'trace.trace');
+  return [
+    for (final line in const LineSplitter()
+        .convert(utf8.decode(trace.content as List<int>)))
+      if (line.trim().isNotEmpty) jsonDecode(line) as Map<String, dynamic>,
+  ].where((event) => event['type'] == 'screencast-frame').toList();
 }

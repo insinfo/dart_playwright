@@ -10,17 +10,26 @@ import 'dart:async';
 
 import '../core_page.dart';
 import 'page_screencast.dart';
-import 'screencast_factory.dart';
+import 'screencast_provider.dart';
 import 'video_frame.dart';
 
 /// One screencast per page, shared by everyone who wants its frames.
 ///
 /// A page being recorded to video *and* traced with the filmstrip on has two
 /// consumers of the same frames, and the engines only run one screencast per
-/// page — asking twice either fails or silently reconfigures the first. So
-/// the subscribers are counted here: the first one starts the engine's
-/// screencast, the last one stops it, and its size is the size the first one
-/// asked for, which is the rule upstream's `Screencast.addClient` follows too.
+/// page — asking twice either fails or silently reconfigures the first. So the
+/// subscribers are counted here: the first one starts the engine's screencast,
+/// the last one stops it, and its size is the size the first one asked for,
+/// which is the rule upstream's `Screencast.addClient` follows too.
+///
+/// The hub is also the *only* listener on [PageScreencast.frames], and hands
+/// its consumers a broadcast stream instead. That is not a convenience: the
+/// engine backends deliver a single-subscription stream, because their
+/// backpressure holds the protocol acknowledgement while the subscription is
+/// paused and that only works with one consumer. Letting each consumer listen
+/// to the engine directly threw `Stream has already been listened to` into
+/// whichever of them arrived second, which showed up as an empty video or an
+/// empty filmstrip and said nothing about why.
 class ScreencastHub {
   static final _hubs = Expando<ScreencastHub>('playwright.screencastHub');
 
@@ -30,6 +39,8 @@ class ScreencastHub {
 
   final CorePage _page;
   PageScreencast? _screencast;
+  StreamSubscription<VideoFrame>? _source;
+  StreamController<VideoFrame>? _fanout;
   Future<void>? _starting;
   int _clients = 0;
 
@@ -81,9 +92,23 @@ class ScreencastHub {
   }
 
   Future<void> _start(({int width, int height}) size, int quality) async {
-    final screencast = ScreencastFactory.create(_page);
+    final screencast = ScreencastProvider.create(_page);
     _screencast = screencast;
     _size = size;
+    if (screencast.kind == ScreencastKind.frames) {
+      final fanout = StreamController<VideoFrame>.broadcast();
+      _fanout = fanout;
+      // Listening before `start` and not after: the backends release the
+      // protocol acknowledgement on `onListen`, so a hub that subscribed late
+      // would stall the first frames behind an ack nobody had asked for yet.
+      _source = screencast.frames.listen(
+        fanout.add,
+        onError: fanout.addError,
+        onDone: () {
+          if (!fanout.isClosed) fanout.close();
+        },
+      );
+    }
     await screencast.start(
         width: size.width, height: size.height, quality: quality);
   }
@@ -93,11 +118,19 @@ class ScreencastHub {
     _clients--;
     if (_clients > 0) return null;
     final screencast = _screencast;
+    final source = _source;
+    final fanout = _fanout;
     _screencast = null;
+    _source = null;
+    _fanout = null;
     _starting = null;
     _size = null;
     if (screencast == null) return null;
     final file = await screencast.stop();
+    // After the backend has stopped, not before: cancelling the source first
+    // would drop the frames it is still flushing.
+    await source?.cancel();
+    if (fanout != null && !fanout.isClosed) await fanout.close();
     return screencast.kind == ScreencastKind.directFile ? file : null;
   }
 }
@@ -116,8 +149,11 @@ class ScreencastSubscription {
   ({int width, int height}) get size => _hub.size ?? (width: 0, height: 0);
 
   /// Only meaningful for [ScreencastKind.frames].
+  ///
+  /// This is the hub's broadcast copy, so several consumers can take it; see
+  /// [ScreencastHub] for why it is not the engine's own stream.
   Stream<VideoFrame> get frames =>
-      _hub._screencast?.frames ?? const Stream<VideoFrame>.empty();
+      _hub._fanout?.stream ?? const Stream<VideoFrame>.empty();
 
   /// Drops this consumer. Returns the file the backend produced when this was
   /// the last consumer of a [ScreencastKind.directFile] screencast, and null
