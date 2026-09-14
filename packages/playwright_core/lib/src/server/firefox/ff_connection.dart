@@ -6,7 +6,7 @@ class FfSession extends EventEmitter {
   final FfConnection connection;
   final String sessionId;
   final String targetType;
-  
+
   bool _isClosed = false;
 
   FfSession(this.connection, this.sessionId, [this.targetType = 'page']) {
@@ -15,7 +15,8 @@ class FfSession extends EventEmitter {
     });
   }
 
-  Future<Map<String, dynamic>> send(String method, [Map<String, dynamic>? params]) {
+  Future<Map<String, dynamic>> send(String method,
+      [Map<String, dynamic>? params]) {
     if (_isClosed) throw PlaywrightException('Session closed');
     return connection._sendMessage(method, params, sessionId);
   }
@@ -30,7 +31,7 @@ class FfConnection extends EventEmitter {
   final ConnectionTransport transport;
   final _callbacks = <int, Completer<Map<String, dynamic>>>{};
   final _sessions = <String, FfSession>{};
-  
+
   int _lastId = 0;
   bool _isClosed = false;
   late final FfSession rootSession;
@@ -55,16 +56,19 @@ class FfConnection extends EventEmitter {
     _sessions.remove(sessionId)?._onClosed();
   }
 
-  Future<Map<String, dynamic>> send(String method, [Map<String, dynamic>? params]) {
+  Future<Map<String, dynamic>> send(String method,
+      [Map<String, dynamic>? params]) {
     return _sendMessage(method, params, null);
   }
 
-  Future<Map<String, dynamic>> _sendMessage(String method, Map<String, dynamic>? params, String? sessionId) {
+  Future<Map<String, dynamic>> _sendMessage(
+      String method, Map<String, dynamic>? params, String? sessionId) {
     if (_isClosed) throw PlaywrightException('Connection closed');
     final id = ++_lastId;
     final completer = Completer<Map<String, dynamic>>();
     _callbacks[id] = completer;
-    transport.send(ProtocolRequest(id: id, method: method, params: params, sessionId: sessionId));
+    transport.send(ProtocolRequest(
+        id: id, method: method, params: params, sessionId: sessionId));
     return completer.future;
   }
 

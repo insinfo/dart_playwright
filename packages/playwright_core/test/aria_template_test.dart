@@ -126,14 +126,16 @@ void main() {
     test('errors point at the offending character', () {
       expect(() => parseAriaTemplate('- button [checked=perhaps]'),
           throwsA(isA<AriaTemplateParseException>()));
-      expect(() => parseAriaTemplate('- button [nope]'),
+      expect(
+          () => parseAriaTemplate('- button [nope]'),
           throwsA(predicate((Object e) =>
               e.toString().contains('Unsupported attribute [nope]'))));
       expect(() => parseAriaTemplate('- button "unterminated'),
           throwsA(isA<AriaTemplateParseException>()));
-      expect(() => parseAriaTemplate('nao e uma sequencia'),
-          throwsA(predicate((Object e) =>
-              e.toString().contains('must be a YAML sequence'))));
+      expect(
+          () => parseAriaTemplate('nao e uma sequencia'),
+          throwsA(predicate(
+              (Object e) => e.toString().contains('must be a YAML sequence'))));
     });
 
     test('[active] is refused rather than ignored', () {

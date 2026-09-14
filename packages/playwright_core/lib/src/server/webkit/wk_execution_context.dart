@@ -102,9 +102,12 @@ class WkJSHandle implements CoreJSHandle {
 
   @override
   Future<dynamic> evaluate(String expression) {
-    return context.callFunctionOn(expression, [
-      {'objectId': objectId}
-    ], objectId: objectId);
+    return context.callFunctionOn(
+        expression,
+        [
+          {'objectId': objectId}
+        ],
+        objectId: objectId);
   }
 
   @override

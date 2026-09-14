@@ -136,6 +136,7 @@ class WkRawTouchscreen implements RawTouchscreen {
 
   @override
   Future<void> tap(double x, double y) async {
-    await session.send('Input.dispatchTapEvent', {'x': x, 'y': y, 'modifiers': 0});
+    await session
+        .send('Input.dispatchTapEvent', {'x': x, 'y': y, 'modifiers': 0});
   }
 }

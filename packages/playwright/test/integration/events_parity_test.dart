@@ -208,8 +208,8 @@ void main() {
           await page
               .evaluate('() => window.runPrompt()')
               .timeout(const Duration(seconds: 15));
-          expect(await page.locator('#result').textContent(),
-              equals('got:null'));
+          expect(
+              await page.locator('#result').textContent(), equals('got:null'));
         });
 
         // ---------------------------------------------------- rede/close
@@ -293,8 +293,7 @@ void main() {
           await page.setExtraHTTPHeaders({'X-Dart-Playwright': 'sim'});
           await page.goto(server.url('/echo-headers'));
           final body = await page.evaluate('() => document.body.innerText');
-          final headers =
-              jsonDecode(body.toString()) as Map<String, dynamic>;
+          final headers = jsonDecode(body.toString()) as Map<String, dynamic>;
           expect(headers['x-dart-playwright'], equals('sim'));
         });
       });

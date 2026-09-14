@@ -94,8 +94,7 @@ class WkRoute implements CoreRoute {
   Future<void> abort([String errorCode = 'failed']) async {
     await session.sendToTarget('Network.interceptRequestWithError', {
       'requestId': requestId,
-      'errorType':
-          RouteErrorCodes.resolve(RouteErrorCodes.webkit, errorCode),
+      'errorType': RouteErrorCodes.resolve(RouteErrorCodes.webkit, errorCode),
     });
   }
 }

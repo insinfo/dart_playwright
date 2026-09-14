@@ -22,7 +22,9 @@ class WebKitBrowserType {
   List<String> defaultArgs(CoreLaunchOptions options, String userDataDir) {
     for (final arg in options.args) {
       if (arg.startsWith('--user-data-dir')) {
-        throw ArgumentError.value(arg, 'args',
+        throw ArgumentError.value(
+            arg,
+            'args',
             'Pass userDataDir to launchPersistentContext instead of '
                 '--user-data-dir');
       }

@@ -71,7 +71,8 @@ void main() {
       () {
     test('[chromium]', () async {
       final transport = _DeafOnClose('Browser.close');
-      final browser = await CrBrowser.connect(CRConnection(transport), null, null);
+      final browser =
+          await CrBrowser.connect(CRConnection(transport), null, null);
 
       await browser.close().timeout(
             const Duration(seconds: 20),
@@ -116,7 +117,8 @@ void main() {
   group('close() is idempotent', () {
     test('[chromium]', () async {
       final transport = _DeafOnClose('never-deaf');
-      final browser = await CrBrowser.connect(CRConnection(transport), null, null);
+      final browser =
+          await CrBrowser.connect(CRConnection(transport), null, null);
       await browser.close();
       await browser.close();
       expect(transport.killed, isTrue);

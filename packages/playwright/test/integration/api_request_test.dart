@@ -72,8 +72,8 @@ void main() {
       final request = await playwright.request.newContext();
       addTearDown(request.dispose);
       expect(
-        () => request.post(server.url('/echo-request'),
-            data: 'x', form: {'y': 'z'}),
+        () => request
+            .post(server.url('/echo-request'), data: 'x', form: {'y': 'z'}),
         throwsArgumentError,
       );
     });

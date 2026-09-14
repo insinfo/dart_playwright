@@ -44,8 +44,7 @@ void main() {
         });
 
         /// Opens a context with [build]'s options, runs [body], closes it.
-        Future<void> withContext(
-            Future<BrowserContext> Function() build,
+        Future<void> withContext(Future<BrowserContext> Function() build,
             Future<void> Function(Page page) body) async {
           final context = await build();
           try {
@@ -73,9 +72,8 @@ void main() {
             (page) async {
               await page.goto(server.url('/echo-headers'));
               final headers = jsonDecode(
-                      (await page.evaluate('() => document.body.innerText'))
-                          .toString())
-                  as Map<String, dynamic>;
+                  (await page.evaluate('() => document.body.innerText'))
+                      .toString()) as Map<String, dynamic>;
               expect(headers['accept-language'], contains('pt-BR'));
             },
           );
@@ -165,8 +163,8 @@ void main() {
                 viewport: (width: 400, height: 400), hasTouch: true),
             (page) async {
               await page.goto(server.url('/touch'));
-              expect(
-                  await page.evaluate("() => 'ontouchstart' in window"), isTrue);
+              expect(await page.evaluate("() => 'ontouchstart' in window"),
+                  isTrue);
               await page.locator('#pad').tap();
               // The page records event.isTrusted, so a synthetic tap would
               // not pass this.
@@ -192,17 +190,15 @@ void main() {
           );
         });
 
-        test('extraHTTPHeaders do contexto devem chegar no servidor',
-            () async {
+        test('extraHTTPHeaders do contexto devem chegar no servidor', () async {
           await withContext(
-            () => browser.newContext(
-                extraHTTPHeaders: {'X-Context-Header': 'presente'}),
+            () => browser
+                .newContext(extraHTTPHeaders: {'X-Context-Header': 'presente'}),
             (page) async {
               await page.goto(server.url('/echo-headers'));
               final headers = jsonDecode(
-                      (await page.evaluate('() => document.body.innerText'))
-                          .toString())
-                  as Map<String, dynamic>;
+                  (await page.evaluate('() => document.body.innerText'))
+                      .toString()) as Map<String, dynamic>;
               expect(headers['x-context-header'], equals('presente'));
             },
           );
@@ -281,8 +277,7 @@ void main() {
         final context = await browser.newContext();
         addTearDown(context.close);
         final page = await context.newPage();
-        await page.setContent(
-            '<button data-qa="salvar">Salvar</button>'
+        await page.setContent('<button data-qa="salvar">Salvar</button>'
             '<button data-testid="salvar">Outro</button>');
 
         // The default is data-testid.
@@ -290,7 +285,8 @@ void main() {
 
         setTestIdAttribute('data-qa');
         addTearDown(() => setTestIdAttribute('data-testid'));
-        expect(await page.getByTestId('salvar').textContent(), equals('Salvar'));
+        expect(
+            await page.getByTestId('salvar').textContent(), equals('Salvar'));
 
         // An explicit attribute still wins over the global.
         expect(
