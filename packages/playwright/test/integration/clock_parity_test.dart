@@ -174,8 +174,8 @@ void main() {
         test('setFixedTime congela o relogio da parede', () async {
           await page.clock.setFixedTime(at(1500000000000));
           await page.goto(server.url('/hello'));
-          expect(await page.evaluate('() => Date.now()'),
-              equals(1500000000000));
+          expect(
+              await page.evaluate('() => Date.now()'), equals(1500000000000));
           expect(await page.evaluate('() => new Date().getTime()'),
               equals(1500000000000));
         });
@@ -183,8 +183,8 @@ void main() {
         test('setFixedTime vale tambem para um documento ja aberto', () async {
           await page.goto(server.url('/hello'));
           await page.clock.setFixedTime(at(1500000000000));
-          expect(await page.evaluate('() => Date.now()'),
-              equals(1500000000000));
+          expect(
+              await page.evaluate('() => Date.now()'), equals(1500000000000));
         });
 
         test('setFixedTime pode ser trocado', () async {

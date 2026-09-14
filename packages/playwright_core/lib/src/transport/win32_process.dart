@@ -15,13 +15,13 @@ class Win32Process {
   final int processId;
   final int processHandle;
   final int threadHandle;
-  
+
   final int jugglerWriteHandle; // FD3 Write in parent
-  final int jugglerReadHandle;  // FD4 Read in parent
+  final int jugglerReadHandle; // FD4 Read in parent
 
   Win32Process._(
-    this.processId, 
-    this.processHandle, 
+    this.processId,
+    this.processHandle,
     this.threadHandle,
     this.jugglerWriteHandle,
     this.jugglerReadHandle,
@@ -52,8 +52,7 @@ class Win32Process {
   /// the pipe drops loses exactly the state the profile exists to keep.
   /// After [grace] the tree goes down regardless — a browser that will not
   /// exit is the case that was leaking processes in the first place.
-  Future<void> terminate(
-      {Duration grace = const Duration(seconds: 5)}) async {
+  Future<void> terminate({Duration grace = const Duration(seconds: 5)}) async {
     if (_killed) return;
     final deadline = DateTime.now().add(grace);
     while (isAlive && DateTime.now().isBefore(deadline)) {
@@ -83,46 +82,49 @@ class Win32Process {
   }
 
   static int _pipeSerial = 0;
-  
+
   static void _createOverlappedPipe(
-      Arena arena, Pointer<HANDLE> hRead, Pointer<HANDLE> hWrite, Pointer<SECURITY_ATTRIBUTES> sa, bool parentReads) {
-    final name = '\\\\.\\pipe\\playwright_dart_${Isolate.current.hashCode}_${_pipeSerial++}';
+      Arena arena,
+      Pointer<HANDLE> hRead,
+      Pointer<HANDLE> hWrite,
+      Pointer<SECURITY_ATTRIBUTES> sa,
+      bool parentReads) {
+    final name =
+        '\\\\.\\pipe\\playwright_dart_${Isolate.current.hashCode}_${_pipeSerial++}';
     final pName = name.toNativeUtf16(allocator: arena);
-    
+
     final serverHandle = CreateNamedPipe(
-      pName,
-      parentReads
-          ? FILE_FLAGS_AND_ATTRIBUTES.PIPE_ACCESS_INBOUND
-          : FILE_FLAGS_AND_ATTRIBUTES.PIPE_ACCESS_OUTBOUND,
-      NAMED_PIPE_MODE.PIPE_TYPE_BYTE | NAMED_PIPE_MODE.PIPE_WAIT,
-      1,
-      65536,
-      65536,
-      0,
-      nullptr
-    );
-    
+        pName,
+        parentReads
+            ? FILE_FLAGS_AND_ATTRIBUTES.PIPE_ACCESS_INBOUND
+            : FILE_FLAGS_AND_ATTRIBUTES.PIPE_ACCESS_OUTBOUND,
+        NAMED_PIPE_MODE.PIPE_TYPE_BYTE | NAMED_PIPE_MODE.PIPE_WAIT,
+        1,
+        65536,
+        65536,
+        0,
+        nullptr);
+
     if (serverHandle == INVALID_HANDLE_VALUE) {
       throw Exception('CreateNamedPipe failed: ${GetLastError()}');
     }
 
     final clientHandle = CreateFile(
-      pName,
-      parentReads
-          ? GENERIC_ACCESS_RIGHTS.GENERIC_WRITE
-          : GENERIC_ACCESS_RIGHTS.GENERIC_READ,
-      0,
-      sa,
-      FILE_CREATION_DISPOSITION.OPEN_EXISTING,
-      FILE_FLAGS_AND_ATTRIBUTES.FILE_ATTRIBUTE_NORMAL,
-      0
-    );
-    
+        pName,
+        parentReads
+            ? GENERIC_ACCESS_RIGHTS.GENERIC_WRITE
+            : GENERIC_ACCESS_RIGHTS.GENERIC_READ,
+        0,
+        sa,
+        FILE_CREATION_DISPOSITION.OPEN_EXISTING,
+        FILE_FLAGS_AND_ATTRIBUTES.FILE_ATTRIBUTE_NORMAL,
+        0);
+
     if (clientHandle == INVALID_HANDLE_VALUE) {
       CloseHandle(serverHandle);
       throw Exception('CreateFile failed: ${GetLastError()}');
     }
-    
+
     if (parentReads) {
       hRead.value = serverHandle;
       hWrite.value = clientHandle;
@@ -137,9 +139,9 @@ class Win32Process {
     if (!Platform.isWindows) {
       throw UnsupportedError('Win32Process is only supported on Windows');
     }
-    
+
     final arena = Arena();
-    
+
     // Create Pipes
     final fd3Read = arena<HANDLE>();
     final fd3Write = arena<HANDLE>();
@@ -151,8 +153,10 @@ class Win32Process {
     securityAttributes.ref.bInheritHandle = TRUE;
     securityAttributes.ref.lpSecurityDescriptor = nullptr;
 
-    _createOverlappedPipe(arena, fd3Read, fd3Write, securityAttributes, false); // parent writes, child reads
-    _createOverlappedPipe(arena, fd4Read, fd4Write, securityAttributes, true); // parent reads, child writes
+    _createOverlappedPipe(arena, fd3Read, fd3Write, securityAttributes,
+        false); // parent writes, child reads
+    _createOverlappedPipe(arena, fd4Read, fd4Write, securityAttributes,
+        true); // parent reads, child writes
 
     final hStdInRead = arena<HANDLE>();
     final hStdInWrite = arena<HANDLE>();
@@ -161,9 +165,12 @@ class Win32Process {
     final hStdErrRead = arena<HANDLE>();
     final hStdErrWrite = arena<HANDLE>();
 
-    _createOverlappedPipe(arena, hStdInRead, hStdInWrite, securityAttributes, false);
-    _createOverlappedPipe(arena, hStdOutRead, hStdOutWrite, securityAttributes, true);
-    _createOverlappedPipe(arena, hStdErrRead, hStdErrWrite, securityAttributes, true);
+    _createOverlappedPipe(
+        arena, hStdInRead, hStdInWrite, securityAttributes, false);
+    _createOverlappedPipe(
+        arena, hStdOutRead, hStdOutWrite, securityAttributes, true);
+    _createOverlappedPipe(
+        arena, hStdErrRead, hStdErrWrite, securityAttributes, true);
 
     final handles = <int>[
       hStdInRead.value,
@@ -177,12 +184,12 @@ class Win32Process {
     final size = 4 + count * 1 + count * 8;
     final lpReserved2 = arena<Uint8>(size);
     final byteData = ByteData.view(lpReserved2.asTypedList(size).buffer);
-    
+
     byteData.setInt32(0, count, Endian.host);
     for (int i = 0; i < count; i++) {
       byteData.setUint8(4 + i, 0x09); // 0x09 = FOPEN (0x01) | FPIPE (0x08)
     }
-    
+
     for (int i = 0; i < count; i++) {
       byteData.setInt64(4 + count + i * 8, handles[i], Endian.host);
     }
@@ -209,7 +216,7 @@ class Win32Process {
         cmdBuffer.write(arg);
       }
     }
-    
+
     final pCommandLine = cmdBuffer.toString().toNativeUtf16(allocator: arena);
 
     Pointer<Void> lpEnvironment = nullptr;
@@ -219,7 +226,8 @@ class Win32Process {
         envBuffer.write('${entry.key}=${entry.value}\x00');
       }
       envBuffer.write('\x00');
-      lpEnvironment = envBuffer.toString().toNativeUtf16(allocator: arena).cast();
+      lpEnvironment =
+          envBuffer.toString().toNativeUtf16(allocator: arena).cast();
     }
 
     final processInformation = arena<PROCESS_INFORMATION>();

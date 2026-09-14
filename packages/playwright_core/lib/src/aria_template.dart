@@ -117,8 +117,7 @@ AriaTemplateNode parseAriaTemplate(String text) {
   final children = fragment.children;
   if (children != null &&
       children.length == 1 &&
-      (fragment.containerMode == null ||
-          fragment.containerMode == 'contain')) {
+      (fragment.containerMode == null || fragment.containerMode == 'contain')) {
     return children.first;
   }
   return fragment;
@@ -151,15 +150,14 @@ void _convertMap(AriaTemplateRole container, YamlMap map) {
 
     // - text: "text"
     if (key == 'text') {
-      children.add(AriaTemplateText(AriaTextValue.of(_scalarString(
-          value, 'Text value should be a string'))));
+      children.add(AriaTemplateText(AriaTextValue.of(
+          _scalarString(value, 'Text value should be a string'))));
       continue;
     }
 
     // - /children: equal
     if (key == '/children') {
-      final mode =
-          _scalarString(value, 'Strict value should be a string');
+      final mode = _scalarString(value, 'Strict value should be a string');
       if (mode != 'contain' && mode != 'equal' && mode != 'deep-equal') {
         throw const AriaTemplateParseException(
             'Strict value should be "contain", "equal" or "deep-equal"');
@@ -224,8 +222,7 @@ class _KeyParser {
 
   bool get _eof => _pos >= _input.length;
 
-  bool get _isWhitespace =>
-      !_eof && RegExp(r'\s').hasMatch(_peek);
+  bool get _isWhitespace => !_eof && RegExp(r'\s').hasMatch(_peek);
 
   void _skipWhitespace() {
     while (_isWhitespace) {
@@ -235,8 +232,7 @@ class _KeyParser {
 
   Never _throw(String message, [int? offset]) {
     final at = offset ?? _pos;
-    throw AriaTemplateParseException(
-        '$message:\n\n$_input\n${' ' * at}^');
+    throw AriaTemplateParseException('$message:\n\n$_input\n${' ' * at}^');
   }
 
   String _readIdentifier(String type) {
@@ -364,8 +360,12 @@ class _KeyParser {
             'Value of "expanded" attribute must be a boolean');
         node.expanded = value == 'true';
       case 'invalid':
-        assertOneOf(['true', 'false', 'grammar', 'spelling'],
-            'Value of "invalid" attribute must be a boolean, "grammar" or "spelling"');
+        assertOneOf([
+          'true',
+          'false',
+          'grammar',
+          'spelling'
+        ], 'Value of "invalid" attribute must be a boolean, "grammar" or "spelling"');
         node.invalid = value;
       case 'level':
         final level = int.tryParse(value);

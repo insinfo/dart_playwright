@@ -143,11 +143,10 @@ class FfPage extends EventEmitter
         .split('\n')
         .where((line) => line.isNotEmpty)
         .map((line) {
-          final at = line.indexOf('@');
-          if (at == -1) return '    at $line';
-          return '    at ${line.substring(0, at)} (${line.substring(at + 1)})';
-        })
-        .join('\n');
+      final at = line.indexOf('@');
+      if (at == -1) return '    at $line';
+      return '    at ${line.substring(0, at)} (${line.substring(at + 1)})';
+    }).join('\n');
     emit(
         'pageerror',
         CorePageError(
@@ -168,7 +167,6 @@ class FfPage extends EventEmitter
 
   @override
   List<CoreFrame> get frames => frameManager.frames;
-
 
   @override
   CoreCoverage get coverage {
@@ -483,8 +481,7 @@ class FfPage extends EventEmitter
     final frameId = _contexts.frameIdFor(contextId);
     final context = frameId == null ? null : _contexts.contextFor(frameId);
     if (context is! FfExecutionContext) return;
-    final handle =
-        context.createHandle(Map<String, dynamic>.from(element));
+    final handle = context.createHandle(Map<String, dynamic>.from(element));
     emitFileChooser(handle);
   }
 

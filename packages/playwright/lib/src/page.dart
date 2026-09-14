@@ -786,14 +786,12 @@ class PageImpl implements Page {
 
   @override
   Future<void> exposeFunction(String name, ExposedFunction callback) =>
-      _corePage.exposeBinding(
-          name, (source, args) => callback(args),
+      _corePage.exposeBinding(name, (source, args) => callback(args),
           noGlobal: false);
 
   @override
-  Future<void> exposeBinding(String name, BindingCallback callback) =>
-      _corePage.exposeBinding(name, adaptBindingCallback(callback),
-          noGlobal: false);
+  Future<void> exposeBinding(String name, BindingCallback callback) => _corePage
+      .exposeBinding(name, adaptBindingCallback(callback), noGlobal: false);
 
   @override
   Coverage get coverage => CoverageImpl(_corePage.coverage);

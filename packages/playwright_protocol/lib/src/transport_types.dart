@@ -110,7 +110,8 @@ class ProtocolResponse {
 
   @override
   String toString() {
-    if (isResponse) return 'ProtocolResponse(id: $id, hasError: ${error != null})';
+    if (isResponse)
+      return 'ProtocolResponse(id: $id, hasError: ${error != null})';
     if (isEvent) return 'ProtocolEvent(method: $method)';
     return 'ProtocolResponse(unknown)';
   }

@@ -217,8 +217,7 @@ class FixtureResolver implements FixtureContext {
       return _worker!.use(fixture);
     }
     if (fixture.scope == FixtureScope.test && scope == FixtureScope.worker) {
-      throw StateError(
-          'Uma fixture de worker nao pode usar a fixture de teste '
+      throw StateError('Uma fixture de worker nao pode usar a fixture de teste '
           '"${fixture.name}": ela viveria mais que o contexto que a criou, e o '
           'valor guardado apontaria para uma pagina ja fechada.');
     }

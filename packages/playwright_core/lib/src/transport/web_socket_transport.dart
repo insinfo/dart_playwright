@@ -53,7 +53,8 @@ class WebSocketTransport implements ConnectionTransport {
       await channel.ready.timeout(timeout ?? const Duration(seconds: 30));
     } catch (e) {
       await channel.sink.close();
-      throw PlaywrightException('Failed to connect to WebSocket: $url', stack: e.toString());
+      throw PlaywrightException('Failed to connect to WebSocket: $url',
+          stack: e.toString());
     }
 
     return WebSocketTransport._(channel, url);

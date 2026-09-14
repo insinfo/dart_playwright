@@ -164,7 +164,8 @@ class StorageState {
       final state = await context.storageState();
       final file = File(path);
       await file.parent.create(recursive: true);
-      await file.writeAsString(const JsonEncoder.withIndent('  ').convert(state));
+      await file
+          .writeAsString(const JsonEncoder.withIndent('  ').convert(state));
       return state;
     } finally {
       await context.close();

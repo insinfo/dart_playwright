@@ -47,8 +47,8 @@ void flushSoftFailures() {
   _flushRegistered = false;
   if (failures.isEmpty) return;
 
-  final buffer = StringBuffer(
-      '${failures.length} soft assertion(s) failed in this test:');
+  final buffer =
+      StringBuffer('${failures.length} soft assertion(s) failed in this test:');
   for (var i = 0; i < failures.length; i++) {
     buffer.write('\n\n${i + 1}) ${failures[i]}');
   }

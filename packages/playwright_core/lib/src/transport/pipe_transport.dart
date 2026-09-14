@@ -19,7 +19,7 @@ class PipeTransport implements ConnectionTransport {
   final _closeController = StreamController<String?>.broadcast();
   final _framer = NullDelimitedFramer();
   bool _closed = false;
-  
+
   late final Isolate _readerIsolate;
   late final ReceivePort _receivePort;
 
@@ -33,7 +33,7 @@ class PipeTransport implements ConnectionTransport {
 
   Future<void> init() async {
     _receivePort = ReceivePort();
-    
+
     _readerIsolate = await Isolate.spawn(
       _pipeReaderLoop,
       [_process.jugglerReadHandle, _receivePort.sendPort],
@@ -78,16 +78,16 @@ class PipeTransport implements ConnectionTransport {
   @override
   void send(ProtocolRequest message) {
     if (_closed) throw Exception('Pipe has been closed');
-    
+
     final messageStr = message.toJsonString();
     final bytes = utf8.encode(messageStr);
-    
+
     final buffer = calloc<Uint8>(bytes.length + 1);
     buffer.asTypedList(bytes.length).setAll(0, bytes);
     buffer[bytes.length] = 0; // Null byte terminator
-    
+
     final bytesWritten = calloc<DWORD>();
-    
+
     final success = WriteFile(
       _process.jugglerWriteHandle,
       buffer,
@@ -95,10 +95,10 @@ class PipeTransport implements ConnectionTransport {
       bytesWritten,
       nullptr,
     );
-    
+
     calloc.free(buffer);
     calloc.free(bytesWritten);
-    
+
     if (success == 0) {
       throw Exception('Failed to write to Juggler pipe: ${GetLastError()}');
     }
@@ -127,7 +127,7 @@ void _pipeReaderLoop(List<dynamic> args) {
       sendPort.send('closed');
       break;
     }
-    
+
     // Copy the bytes and send
     final chunk = buffer.asTypedList(bytesRead.value).toList();
     // print('Read \${chunk.length} bytes from pipe');

@@ -44,8 +44,7 @@ class PosixProcess {
   /// See [Win32Process.terminate]: the inspector pipe closes well before the
   /// profile is written back to disk, so killing on end-of-pipe throws away
   /// the cookies and localStorage a persistent profile is meant to keep.
-  Future<void> terminate(
-      {Duration grace = const Duration(seconds: 5)}) async {
+  Future<void> terminate({Duration grace = const Duration(seconds: 5)}) async {
     if (_killed) return;
     try {
       await process.exitCode.timeout(grace);
@@ -73,7 +72,8 @@ class PosixProcess {
   static String _shQuote(String s) => "'${s.replaceAll("'", "'\\''")}'";
 
   static Future<PosixProcess> start(
-      String executablePath, List<String> arguments, {Map<String, String>? environment}) async {
+      String executablePath, List<String> arguments,
+      {Map<String, String>? environment}) async {
     if (Platform.isWindows) {
       throw UnsupportedError('PosixProcess is not supported on Windows');
     }
@@ -95,7 +95,8 @@ class PosixProcess {
         '${arguments.map(_shQuote).join(' ')} '
         '3<${_shQuote(fifo3)} 4>${_shQuote(fifo4)}';
 
-    final process = await Process.start('/bin/sh', ['-c', command], environment: environment);
+    final process = await Process.start('/bin/sh', ['-c', command],
+        environment: environment);
     // Drain stdio so the child never blocks on full pipe buffers. With
     // PLAYWRIGHT_DEBUG set, surface the browser's output for diagnosis.
     final debug = Platform.environment['PLAYWRIGHT_DEBUG'] != null;
@@ -157,8 +158,8 @@ class PosixProcess {
       // helper is blocked on.
       final rdNb = libc.open(path, flags: libc.O_RDONLY | libc.O_NONBLOCK);
       final wrNb = libc.open(path, flags: libc.O_WRONLY | libc.O_NONBLOCK);
-      final leakedFd = await openFuture
-          .timeout(const Duration(seconds: 2), onTimeout: () => -1);
+      final leakedFd = await openFuture.timeout(const Duration(seconds: 2),
+          onTimeout: () => -1);
       if (leakedFd >= 0) libc.close(leakedFd);
       if (rdNb >= 0) libc.close(rdNb);
       if (wrNb >= 0) libc.close(wrNb);

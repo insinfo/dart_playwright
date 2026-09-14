@@ -91,10 +91,10 @@ void main() {
             () async {
           await gotoFramesPage();
 
-          final one = page.frames()
-              .firstWhere((f) => f.url().endsWith('/frame-one'));
-          final two = page.frames()
-              .firstWhere((f) => f.url().endsWith('/frame-two'));
+          final one =
+              page.frames().firstWhere((f) => f.url().endsWith('/frame-one'));
+          final two =
+              page.frames().firstWhere((f) => f.url().endsWith('/frame-two'));
 
           expect(await page.mainFrame().title(), equals('Frames Host'));
           expect(await one.title(), equals('Frame One'));
@@ -117,8 +117,8 @@ void main() {
 
         test('Deve localizar dentro do frame com Frame.locator', () async {
           await gotoFramesPage();
-          final one = page.frames()
-              .firstWhere((f) => f.url().endsWith('/frame-one'));
+          final one =
+              page.frames().firstWhere((f) => f.url().endsWith('/frame-one'));
           expect(await one.locator('#label').textContent(),
               equals('inside frame one'));
           expect(await one.locator('#label').count(), equals(1));
@@ -126,8 +126,8 @@ void main() {
 
         test('Deve clicar dentro de um frame com evento confiavel', () async {
           await gotoFramesPage();
-          final one = page.frames()
-              .firstWhere((f) => f.url().endsWith('/frame-one'));
+          final one =
+              page.frames().firstWhere((f) => f.url().endsWith('/frame-one'));
 
           await one.locator('#go').click();
           // Records event.isTrusted: only real protocol input passes, and the
@@ -137,7 +137,8 @@ void main() {
 
         test('Deve clicar em frame aninhado com evento confiavel', () async {
           await gotoFramesPage();
-          final deep = page.frames()
+          final deep = page
+              .frames()
               .firstWhere((f) => f.url().endsWith('/frame-nested'));
 
           await deep.locator('#deepButton').click();
@@ -146,8 +147,8 @@ void main() {
 
         test('Deve preencher input dentro de um frame', () async {
           await gotoFramesPage();
-          final one = page.frames()
-              .firstWhere((f) => f.url().endsWith('/frame-one'));
+          final one =
+              page.frames().firstWhere((f) => f.url().endsWith('/frame-one'));
 
           await one.fill('#field', 'digitado');
           expect(await one.locator('#field').inputValue(), equals('digitado'));
@@ -156,8 +157,8 @@ void main() {
 
         test('Deve navegar apenas o frame com Frame.goto', () async {
           await gotoFramesPage();
-          final two = page.frames()
-              .firstWhere((f) => f.url().endsWith('/frame-two'));
+          final two =
+              page.frames().firstWhere((f) => f.url().endsWith('/frame-two'));
 
           await two.goto(server.url('/text'));
           expect(await two.locator('#content').textContent(),
@@ -169,8 +170,8 @@ void main() {
 
         test('Deve substituir o documento do frame com setContent', () async {
           await gotoFramesPage();
-          final two = page.frames()
-              .firstWhere((f) => f.url().endsWith('/frame-two'));
+          final two =
+              page.frames().firstWhere((f) => f.url().endsWith('/frame-two'));
 
           await two.setContent('<html><body><p id="p">novo</p></body></html>');
           expect(await two.locator('#p').textContent(), equals('novo'));
@@ -178,15 +179,13 @@ void main() {
           expect(await page.content(), isNot(contains('novo')));
         });
 
-        test('Deve marcar o frame como detached ao remover o iframe',
-            () async {
+        test('Deve marcar o frame como detached ao remover o iframe', () async {
           await gotoFramesPage();
-          final two = page.frames()
-              .firstWhere((f) => f.url().endsWith('/frame-two'));
+          final two =
+              page.frames().firstWhere((f) => f.url().endsWith('/frame-two'));
           expect(two.isDetached(), isFalse);
 
-          await page.evaluate(
-              '() => document.getElementById("two").remove()');
+          await page.evaluate('() => document.getElementById("two").remove()');
           await page.waitForFunction(
               '() => document.querySelectorAll("iframe").length === 1');
           // The detach event may land slightly after the DOM mutation.
@@ -214,8 +213,8 @@ void main() {
 
         test('Deve aguardar seletor dentro do frame', () async {
           await gotoFramesPage();
-          final one = page.frames()
-              .firstWhere((f) => f.url().endsWith('/frame-one'));
+          final one =
+              page.frames().firstWhere((f) => f.url().endsWith('/frame-one'));
 
           final handle = await one.waitForSelector('#go');
           expect(handle, isNotNull);
@@ -247,8 +246,8 @@ void main() {
               .frameLocator('#one')
               .getByRole('button', name: 'Go one')
               .click();
-          final one = page.frames()
-              .firstWhere((f) => f.url().endsWith('/frame-one'));
+          final one =
+              page.frames().firstWhere((f) => f.url().endsWith('/frame-one'));
           expect(await one.evaluate('() => window.__clickedInFrame'), isTrue);
         });
 
@@ -280,8 +279,8 @@ void main() {
 
           final viaContentFrame =
               page.locator('#two').contentFrame().locator('#label');
-          expect(await viaContentFrame.textContent(),
-              equals('inside frame two'));
+          expect(
+              await viaContentFrame.textContent(), equals('inside frame two'));
         });
 
         test('Deve estourar timeout quando o iframe nunca aparece', () async {
@@ -305,10 +304,11 @@ void main() {
                   .getAttribute('id'),
               equals('save'));
           // Sem exact, o nome e substring: dois botoes casam.
-          expect(await page.getByRole('button', name: 'Save').count(),
-              equals(2));
+          expect(
+              await page.getByRole('button', name: 'Save').count(), equals(2));
           // aria-label vence o conteudo.
-          expect(await page.getByRole('button', name: 'Fechar').getAttribute('id'),
+          expect(
+              await page.getByRole('button', name: 'Fechar').getAttribute('id'),
               equals('close'));
           // Nome vindo do <label for>.
           expect(
@@ -327,22 +327,26 @@ void main() {
               equals('Secao dois'));
           expect(await page.getByRole('heading').count(), equals(2));
 
-          expect(await page.getByRole('checkbox', checked: true).getAttribute('id'),
+          expect(
+              await page
+                  .getByRole('checkbox', checked: true)
+                  .getAttribute('id'),
               equals('agree'));
           expect(
-              await page.getByRole('checkbox', checked: false).getAttribute('id'),
+              await page
+                  .getByRole('checkbox', checked: false)
+                  .getAttribute('id'),
               equals('news'));
 
           expect(
-              await page
-                  .getByRole('button', disabled: true)
-                  .getAttribute('id'),
+              await page.getByRole('button', disabled: true).getAttribute('id'),
               equals('disabledBtn'));
 
           // <nav aria-label="Principal"> => role navigation.
           expect(await page.getByRole('navigation', name: 'Principal').count(),
               equals(1));
-          expect(await page.getByRole('link', name: 'hello').count(), equals(1));
+          expect(
+              await page.getByRole('link', name: 'hello').count(), equals(1));
           // <input type=search> mapeia para searchbox, nao textbox.
           expect(await page.getByRole('searchbox').getAttribute('id'),
               equals('search'));
@@ -353,7 +357,10 @@ void main() {
 
           // O elemento tem uma quebra de linha e varios espacos; o motor
           // normaliza antes de comparar, como o upstream.
-          expect(await page.getByText('Hello world', exact: true).getAttribute('id'),
+          expect(
+              await page
+                  .getByText('Hello world', exact: true)
+                  .getAttribute('id'),
               equals('spaced'));
           // Sem exact, substring e case-insensitive.
           expect(await page.getByText('hello WORLD').getAttribute('id'),
@@ -379,14 +386,13 @@ void main() {
               equals('cat'));
           expect(await page.getByTitle('Tooltip text').getAttribute('id'),
               equals('tip'));
-          expect(await page.getByTestId('submit').textContent(),
-              equals('Enviar'));
+          expect(
+              await page.getByTestId('submit').textContent(), equals('Enviar'));
 
           // exact: por padrao os motores de atributo fazem substring
           // case-insensitive.
           expect(await page.getByPlaceholder('search').count(), equals(1));
-          expect(
-              await page.getByPlaceholder('search', exact: true).count(),
+          expect(await page.getByPlaceholder('search', exact: true).count(),
               equals(0));
         });
 
@@ -408,8 +414,8 @@ void main() {
           expect(await rows.nth(1).textContent(), equals('Beta'));
           expect(await rows.nth(-1).textContent(), equals('Gamma'));
 
-          expect(await rows.filter(hasText: 'Bet').textContent(),
-              equals('Beta'));
+          expect(
+              await rows.filter(hasText: 'Bet').textContent(), equals('Beta'));
           expect(await rows.filter(hasNotText: 'a').count(), equals(0));
           expect((await rows.all()).length, equals(3));
         });
@@ -421,8 +427,7 @@ void main() {
           final exactSave = page.locator('#save');
           expect(await saveButtons.and(exactSave).count(), equals(1));
 
-          expect(
-              await page.locator('#save').or(page.locator('#close')).count(),
+          expect(await page.locator('#save').or(page.locator('#close')).count(),
               equals(2));
         });
 
@@ -430,15 +435,14 @@ void main() {
             () async {
           await page.goto(server.url('/semantics'));
 
-          await expectLater(
-              page.locator('.row').textContent(),
+          await expectLater(page.locator('.row').textContent(),
               throwsA(isA<StrictModeViolation>()));
           // Com strict desligado vale o primeiro.
           expect(await page.locator('.row').textContent(strict: false),
               equals('Alpha'));
           // E o locator indexado resolve um so.
-          expect(await page.locator('.row').first.textContent(),
-              equals('Alpha'));
+          expect(
+              await page.locator('.row').first.textContent(), equals('Alpha'));
         });
 
         test('Deve esperar automaticamente elemento que aparece e estabiliza',
@@ -500,10 +504,10 @@ void main() {
 
           expect(await page.locator('#save').ariaRole(), equals('button'));
           expect(await page.locator('#user').ariaRole(), equals('textbox'));
-          expect(await page.locator('#close').accessibleName(),
-              equals('Fechar'));
-          expect(await page.locator('#user').accessibleName(),
-              equals('Username'));
+          expect(
+              await page.locator('#close').accessibleName(), equals('Fechar'));
+          expect(
+              await page.locator('#user').accessibleName(), equals('Username'));
         });
 
         test('Deve alternar checkbox com check, uncheck e setChecked',
@@ -538,8 +542,8 @@ void main() {
           expect(await handle.getAttribute('id'), equals('save'));
           expect(await handle.isVisible(), isTrue);
 
-          expect((await page.locator('.row').elementHandles()).length,
-              equals(3));
+          expect(
+              (await page.locator('.row').elementHandles()).length, equals(3));
         });
 
         test('Deve aguardar estados hidden e detached', () async {
@@ -608,8 +612,8 @@ void main() {
 
           expect(await page.mainFrame().frameElement(), isNull);
 
-          final one = page.frames()
-              .firstWhere((f) => f.url().endsWith('/frame-one'));
+          final one =
+              page.frames().firstWhere((f) => f.url().endsWith('/frame-one'));
           final owner = await one.frameElement();
           expect(owner, isNotNull);
           expect(await owner!.getAttribute('id'), equals('one'));
@@ -644,8 +648,7 @@ void main() {
 
           expect(await page.locator('ul >> .row').count(), equals(3));
           expect(await page.locator('css=#save').textContent(), equals('Save'));
-          expect(
-              await page.locator('//button[@id="save"]').textContent(),
+          expect(await page.locator('//button[@id="save"]').textContent(),
               equals('Save'));
           expect(await page.locator('text="Beta"').count(), equals(1));
         });
@@ -682,7 +685,6 @@ void main() {
           await click;
           expect(await page.evaluate('() => window.__hit'), isTrue);
         });
-
       });
     }
   });

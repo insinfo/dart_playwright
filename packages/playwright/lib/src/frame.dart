@@ -34,8 +34,7 @@ abstract class Frame with LocatorFactory {
   // ------------------------------------------------------------ navigation
 
   /// Navigate this frame to [url].
-  Future<void> goto(String url,
-      {WaitUntilState? waitUntil, Duration? timeout});
+  Future<void> goto(String url, {WaitUntilState? waitUntil, Duration? timeout});
 
   /// The frame's full HTML.
   Future<String> content();
@@ -75,7 +74,9 @@ abstract class Frame with LocatorFactory {
 
   /// Dispatch a DOM event on the element matching [selector].
   Future<void> dispatchEvent(String selector, String type,
-      {Map<String, dynamic>? eventInit, Duration? timeout, bool strict = false});
+      {Map<String, dynamic>? eventInit,
+      Duration? timeout,
+      bool strict = false});
 
   // --------------------------------------------------------------- waiting
 
@@ -144,8 +145,7 @@ abstract class Frame with LocatorFactory {
       {Duration? timeout, bool strict = false});
 
   /// Focus an element in this frame.
-  Future<void> focus(String selector,
-      {Duration? timeout, bool strict = false});
+  Future<void> focus(String selector, {Duration? timeout, bool strict = false});
 
   /// Check a checkbox/radio in this frame.
   Future<void> check(String selector,
@@ -264,7 +264,8 @@ class FrameImpl extends Frame {
   // ------------------------------------------------------------ evaluation
 
   @override
-  Future<dynamic> evaluate(String expression) => _coreFrame.evaluate(expression);
+  Future<dynamic> evaluate(String expression) =>
+      _coreFrame.evaluate(expression);
 
   @override
   Future<ElementHandle?> querySelector(String selector) async {
@@ -409,7 +410,8 @@ class FrameImpl extends Frame {
           .pressSequentially(text, timeout: timeout, strict: strict);
 
   @override
-  Future<void> focus(String selector, {Duration? timeout, bool strict = false}) =>
+  Future<void> focus(String selector,
+          {Duration? timeout, bool strict = false}) =>
       locator(selector).focus(timeout: timeout, strict: strict);
 
   @override
