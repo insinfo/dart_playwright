@@ -31,6 +31,7 @@ export 'package:playwright_core/src/accessibility.dart';
 export 'package:playwright_core/src/aria_template.dart';
 export 'src/route.dart';
 export 'src/tracing.dart';
+export 'src/video.dart';
 
 // Re-export common types from protocol
 export 'package:playwright_protocol/playwright_protocol.dart'

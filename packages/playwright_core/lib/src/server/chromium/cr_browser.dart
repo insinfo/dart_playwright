@@ -572,6 +572,10 @@ class CrBrowserContext extends EventEmitter
   Future<void> close() async {
     if (_closed) return;
     _closed = true;
+    // Stopping a screencast needs the page that is being filmed; do it while
+    // the pages are still there, which is the order upstream's
+    // `BrowserContext.close` uses too.
+    await finishVideos();
     if (browserContextId == null) {
       // The default context belongs to the profile, not to us: there is no
       // context to dispose, and closing it means closing the browser — which
