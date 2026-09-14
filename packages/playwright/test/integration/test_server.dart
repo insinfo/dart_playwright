@@ -701,7 +701,33 @@ usedFunction();
             ..headers.contentType = ContentType.html
             ..write('<html><body style="background: red;"><h1>Red Page</h1></body></html>');
           break;
-        
+
+        // Repinta sozinha, para os testes de screencast. Chromium e WebKit so
+        // mandam quadro quando a pagina pinta: numa pagina parada a gravacao
+        // fica em silencio e nao da para distinguir isso de um ack faltando.
+        case '/animated':
+          request.response
+            ..statusCode = 200
+            ..headers.contentType = ContentType.html
+            ..write("""
+              <html><body style="margin:0;background:#fff">
+                <div id="box" style="width:200px;height:200px;background:#f00"></div>
+                <script>
+                  let tick = 0;
+                  const box = document.getElementById('box');
+                  function paint() {
+                    tick = (tick + 11) % 256;
+                    box.style.background = 'rgb(' + tick + ',' + (255 - tick) + ',128)';
+                    box.style.width = (100 + (tick % 100)) + 'px';
+                    requestAnimationFrame(paint);
+                  }
+                  requestAnimationFrame(paint);
+                </script>
+              </body></html>
+            """);
+          break;
+
+
         default:
           request.response
             ..statusCode = 404

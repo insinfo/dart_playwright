@@ -31,3 +31,7 @@ dev_dependencies:
   # Reads back the recorded trace archive in the tracing tests.
   archive: ^4.0.0
   crypto: ^3.0.0
+  # Decodes the screencast frames in the video tests, so "veio uma imagem"
+  # is checked by a real decoder instead of by the same header parser the
+  # implementation uses.
+  image: ^4.5.0
