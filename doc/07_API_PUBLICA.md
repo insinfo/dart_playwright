@@ -565,6 +565,85 @@ await page
     .click();
 ```
 
+### 3.9. Tracing
+
+Grava um trace que o **visualizador oficial do Playwright abre**:
+`npx playwright show-trace trace.zip`. Não há visualizador próprio neste
+porte, e não deve haver: o valor de escrever o formato do upstream é
+justamente poder usar o visualizador dele.
+
+```dart
+abstract class Tracing {
+  Future<void> start({
+    String? name,
+    String? title,
+    bool screenshots = false,
+    bool snapshots = false,
+    bool sources = false,
+  });
+  Future<void> startChunk({String? name, String? title});
+  Future<String?> stopChunk({String? path});
+  Future<String?> stop({String? path});
+}
+```
+
+```dart
+await context.tracing.start(snapshots: true, sources: true);
+final page = await context.newPage();
+await page.goto('https://exemplo.test/');
+await page.getByRole('button', name: 'Entrar').click();
+await context.tracing.stop(path: 'trace.zip');
+```
+
+O zip contém `trace.trace` (as ações e os eventos, um objeto JSON por
+linha), `trace.network` (as entradas HAR), `resources/<sha1>.<ext>` (os
+corpos das respostas e as folhas de estilo sobrescritas) e, com `sources`,
+`src/<sha1-do-caminho>.dart`.
+
+#### O que cada opção faz
+
+| opção | efeito |
+|---|---|
+| `title` | o título que o visualizador mostra no topo |
+| `snapshots` | o DOM de cada frame antes e depois de cada ação — é isto que faz o painel mostrar a página como ela estava |
+| `sources` | a pilha Dart de cada ação, e os arquivos `.dart` que ela aponta dentro do arquivo, para a aba *Source* |
+| `screenshots` | um PNG da página em cada fase da ação |
+| `name` | o nome base dos arquivos dentro do diretório temporário |
+
+#### Divergências conhecidas em relação ao upstream
+
+- **`screenshots` não é o filmstrip.** No upstream, `screenshots: true`
+  liga o screencast que roda na faixa superior do visualizador, e isso
+  precisa de `Page.startScreencast`, que este porte não tem. Aqui a opção
+  captura um PNG por fase de ação, que é o `snapshots: { screen: true }`
+  do upstream.
+- **O streamer de snapshot é instalado na primeira captura de cada
+  documento**, não antes dos scripts da página, porque `addInitScript`
+  ainda não existe aqui. O que se perde é a interceptação do CSSOM naquele
+  intervalo: uma folha de estilo editada por `insertRule`/`replaceSync`
+  antes da primeira captura não é sobrescrita no snapshot. Folha servida
+  pela rede não é afetada.
+- **A captura tem prazo em vez de não travar.** Uma página parada num
+  `alert()` perde o snapshot em cinco segundos em vez de segurar a ação.
+- **A versão de formato emitida é a 9**, não a 10 de `traceV10.ts`: a 10 só
+  existe na árvore não publicada do upstream e o visualizador mais novo que
+  dá para instalar (1.63.0) recusa o que não conhece. As duas são
+  equivalentes para tudo o que este gravador emite — o
+  `_modernize_9_to_10` só reescreve o `stepId`, que nunca é emitido aqui.
+
+#### Como conferir que abre
+
+```
+dart run packages/playwright/example/tracing_example.dart chromium
+npx playwright show-trace <arquivo>
+```
+
+`tool/open_trace_in_viewer.dart` faz a conferência sem interação: sobe o
+visualizador oficial em `--port`, abre-o com o Chromium deste porte e lê
+de volta o que a interface renderizou.
+
+---
+
 ---
 
 ## 4. Tipos e Enums
