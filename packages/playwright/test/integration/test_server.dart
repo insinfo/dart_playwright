@@ -597,6 +597,24 @@ class TestServer {
             ..write('<html><body><a id="grab" href="/download-file" download="report.txt">Grab</a></body></html>');
           break;
 
+        // A touch target that records event.isTrusted, so a tap can be
+        // proven to have come from the protocol.
+        case '/touch':
+          request.response
+            ..statusCode = 200
+            ..headers.contentType = ContentType.html
+            ..write("""
+              <html><body style="margin:0">
+                <div id="pad" style="width:200px; height:200px; background:#eee"></div>
+                <script>
+                  window.__tapped = false;
+                  document.getElementById('pad').addEventListener('touchend',
+                      (e) => { window.__tapped = e.isTrusted; });
+                </script>
+              </body></html>
+            """);
+          break;
+
         case '/visual':
           request.response
             ..statusCode = 200
