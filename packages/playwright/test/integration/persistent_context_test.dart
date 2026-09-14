@@ -83,8 +83,8 @@ void main() {
           try {
             final page = await second.newPage();
             await page.goto(server.url('/hello'));
-            final value = await page
-                .evaluate("() => localStorage.getItem('survivor')");
+            final value =
+                await page.evaluate("() => localStorage.getItem('survivor')");
             expect(value, 'still here',
                 reason: 'the profile at ${profile.path} did not persist '
                     'localStorage across runs');

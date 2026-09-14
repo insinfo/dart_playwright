@@ -8,10 +8,18 @@ import 'trace/tracing.dart';
 
 /// Options applied to every page of a browser context.
 /// Latitude, longitude and accuracy in metres.
-typedef CoreGeolocation = ({double latitude, double longitude, double accuracy});
+typedef CoreGeolocation = ({
+  double latitude,
+  double longitude,
+  double accuracy
+});
 
 /// Basic-auth credentials, optionally scoped to one origin.
-typedef CoreHttpCredentials = ({String username, String password, String? origin});
+typedef CoreHttpCredentials = ({
+  String username,
+  String password,
+  String? origin
+});
 
 class CoreContextOptions {
   final ({int width, int height})? viewport;
@@ -167,7 +175,9 @@ class CorePermissions {
     for (final permission in permissions) {
       final mapped = table[permission];
       if (mapped == null) {
-        throw ArgumentError.value(permission, 'permission',
+        throw ArgumentError.value(
+            permission,
+            'permission',
             'This engine does not support that permission. It knows: '
                 '${table.keys.join(', ')}');
       }

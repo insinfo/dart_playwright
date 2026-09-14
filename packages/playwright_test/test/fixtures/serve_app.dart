@@ -27,7 +27,8 @@ void main(List<String> args) async {
   if (!built) {
     Timer(buildDelay, () {
       built = true;
-      if (!silent) print('Build succeeded after ${buildDelay.inMilliseconds}ms');
+      if (!silent)
+        print('Build succeeded after ${buildDelay.inMilliseconds}ms');
     });
   }
 

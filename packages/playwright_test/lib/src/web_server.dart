@@ -118,8 +118,7 @@ class PlaywrightWebServer {
     final baseUri = Uri.parse(baseUrl);
     final checkPortOnly = port != null;
     final effectivePort = port ?? (baseUri.hasPort ? baseUri.port : null);
-    final reuse =
-        reuseExistingServer ?? !_boolEnv(Platform.environment['CI']);
+    final reuse = reuseExistingServer ?? !_boolEnv(Platform.environment['CI']);
 
     final probe = _Probe(
       checkPortOnly: checkPortOnly,

@@ -58,9 +58,8 @@ void main() {
         await page.goto(server.url('/coverage'));
         final entries = await page.coverage.stopJSCoverage();
 
-        final entry = entries
-            .where((e) => e.url.endsWith('/coverage.js'))
-            .toList();
+        final entry =
+            entries.where((e) => e.url.endsWith('/coverage.js')).toList();
         expect(entry, hasLength(1));
         expect(entry.single.source, contains('usedFunction'));
         expect(entry.single.functions, isNotEmpty);
@@ -70,8 +69,7 @@ void main() {
         await page.coverage.startJSCoverage();
         await page.goto(server.url('/coverage'));
         final entries = await page.coverage.stopJSCoverage();
-        final entry =
-            entries.firstWhere((e) => e.url.endsWith('/coverage.js'));
+        final entry = entries.firstWhere((e) => e.url.endsWith('/coverage.js'));
 
         int countFor(String name) {
           final fn = entry.functions.where((f) => f.functionName == name);
@@ -85,16 +83,14 @@ void main() {
 
       test('Sem script anonimo por padrao', () async {
         await page.coverage.startJSCoverage();
-        await page.setContent(
-            '<script>window.__inline = 1;</script><p>oi</p>');
+        await page.setContent('<script>window.__inline = 1;</script><p>oi</p>');
         final entries = await page.coverage.stopJSCoverage();
         expect(entries.where((e) => e.url.isEmpty), isEmpty);
       });
 
       test('reportAnonymousScripts inclui o script inline', () async {
         await page.coverage.startJSCoverage(reportAnonymousScripts: true);
-        await page.setContent(
-            '<script>window.__inline = 1;</script><p>oi</p>');
+        await page.setContent('<script>window.__inline = 1;</script><p>oi</p>');
         final entries = await page.coverage.stopJSCoverage();
         expect(entries.where((e) => e.url.isEmpty), isNotEmpty);
       });
@@ -127,8 +123,7 @@ void main() {
 
       // ----------------------------------------------- CSS coverage
 
-      test('Deve reportar a folha de estilo com o texto e as faixas',
-          () async {
+      test('Deve reportar a folha de estilo com o texto e as faixas', () async {
         await page.coverage.startCSSCoverage();
         await page.goto(server.url('/coverage'));
         final entries = await page.coverage.stopCSSCoverage();
@@ -143,8 +138,8 @@ void main() {
         final text = entry.single.text;
         final usedOffset = text.indexOf('#used');
         final missingOffset = text.indexOf('#missing');
-        bool covers(int offset) => entry.single.ranges
-            .any((r) => r.start <= offset && offset < r.end);
+        bool covers(int offset) =>
+            entry.single.ranges.any((r) => r.start <= offset && offset < r.end);
         expect(covers(usedOffset), isTrue);
         expect(covers(missingOffset), isFalse);
       });
@@ -185,8 +180,8 @@ void main() {
           try {
             expect(
                 () => page.coverage,
-                throwsA(isA<UnsupportedError>().having((e) => e.message,
-                    'message', contains('Chromium-only'))));
+                throwsA(isA<UnsupportedError>().having(
+                    (e) => e.message, 'message', contains('Chromium-only'))));
           } finally {
             await context.close();
           }

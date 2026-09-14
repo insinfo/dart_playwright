@@ -54,7 +54,8 @@ void main() {
       expect(resultado.note, contains('sem source map'));
     });
 
-    test('acha o map pelo comentario sourceMappingURL quando o vizinho '
+    test(
+        'acha o map pelo comentario sourceMappingURL quando o vizinho '
         'nao existe', () async {
       servidor.arquivos['/bundle.js'] =
           'codigo\n//# sourceMappingURL=outro-nome.map\n';
@@ -183,7 +184,8 @@ void main() {
     tearDownAll(() async => servidor.stop());
 
     playwrightGroup('source maps', () {
-      playwrightTest('o trace do navegador volta apontando para o main.dart '
+      playwrightTest(
+          'o trace do navegador volta apontando para o main.dart '
           'na linha do throw', (t) async {
         final erros = <PageError>[];
         final sub = t.page.onPageError.listen(erros.add);
@@ -198,8 +200,7 @@ void main() {
         // O que o navegador entrega e inutil por si so.
         expect(bruto, contains('main.dart.js:'));
 
-        final traduzido =
-            (await translateDartStackTrace(bruto)).translated;
+        final traduzido = (await translateDartStackTrace(bruto)).translated;
 
         final linha = linhaDoThrow();
         expect(traduzido, contains('main.dart $linha:'),

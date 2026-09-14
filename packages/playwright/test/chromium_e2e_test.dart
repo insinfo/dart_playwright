@@ -14,7 +14,8 @@ void main() {
       server.listen((HttpRequest request) {
         request.response
           ..headers.contentType = ContentType.html
-          ..write('<html><head><title>Test Page</title></head><body><h1 id="header">Hello Dart</h1></body></html>')
+          ..write(
+              '<html><head><title>Test Page</title></head><body><h1 id="header">Hello Dart</h1></body></html>')
           ..close();
       });
 
@@ -48,45 +49,46 @@ void main() {
     test('Deve navegar e extrair o título corretamente', () async {
       final context = await browser.newContext();
       final page = await context.newPage();
-      
+
       final url = 'http://127.0.0.1:${server.port}';
       await page.goto(url);
-      
+
       final title = await page.title();
       expect(title, equals('Test Page'));
-      
+
       await context.close();
     });
 
     test('Deve localizar e extrair o textContent do h1', () async {
       final context = await browser.newContext();
       final page = await context.newPage();
-      
+
       final url = 'http://127.0.0.1:${server.port}';
       await page.goto(url);
-      
+
       final locator = page.locator('#header');
       final text = await locator.textContent();
       expect(text, equals('Hello Dart'));
-      
+
       await context.close();
     });
 
     test('Deve suportar evaluate com JSHandle', () async {
       final context = await browser.newContext();
       final page = await context.newPage();
-      
+
       final url = 'http://127.0.0.1:${server.port}';
       await page.goto(url);
-      
+
       // Avalia um JSHandle e interage com ele
-      final handle = await page.evaluateHandle('document.querySelector("#header")');
+      final handle =
+          await page.evaluateHandle('document.querySelector("#header")');
       expect(handle, isA<ElementHandle>());
-      
+
       final element = handle as ElementHandle;
       final text = await element.textContent();
       expect(text, equals('Hello Dart'));
-      
+
       await context.close();
     });
   });

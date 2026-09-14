@@ -45,7 +45,8 @@ void main() {
   }
 
   group('prontidao', () {
-    test('a porta abre antes do build terminar, e por isso a porta nao serve '
+    test(
+        'a porta abre antes do build terminar, e por isso a porta nao serve '
         'de sinal de prontidao', () async {
       final porta = await _portaLivre();
       final server = await subir(
@@ -128,7 +129,10 @@ void main() {
                 '/c',
                 '"$dart" run test/fixtures/spawn_server.dart --port=$porta'
               ]
-            : ['-c', '"$dart" run test/fixtures/spawn_server.dart --port=$porta'],
+            : [
+                '-c',
+                '"$dart" run test/fixtures/spawn_server.dart --port=$porta'
+              ],
       );
       processo.stdout.drain<void>();
       processo.stderr.drain<void>();
@@ -229,8 +233,8 @@ void main() {
         ),
         throwsA(isA<StateError>()
             .having((e) => e.message, 'message', contains('ja esta em uso'))
-            .having((e) => e.message, 'message',
-                contains('reuseExistingServer'))),
+            .having(
+                (e) => e.message, 'message', contains('reuseExistingServer'))),
       );
     }, timeout: const Timeout(Duration(minutes: 2)));
   });
@@ -311,7 +315,8 @@ Future<void> _esperarPorta(int porta, {required bool ocupada}) async {
     if (await _portaOcupada(porta) == ocupada) return;
     await Future<void>.delayed(const Duration(milliseconds: 100));
   }
-  throw StateError('a porta $porta nunca ficou ${ocupada ? 'ocupada' : 'livre'}');
+  throw StateError(
+      'a porta $porta nunca ficou ${ocupada ? 'ocupada' : 'livre'}');
 }
 
 Future<int> _status(String url) async {
@@ -338,8 +343,8 @@ Future<String> _corpo(String url) async {
 /// Rede de seguranca: nenhum teste pode deixar processo vivo segurando porta.
 Future<void> _matarArvoreNaPorta(int porta) async {
   if (!Platform.isWindows) {
-    await Process.run('sh', ['-c', 'fuser -k $porta/tcp']).catchError(
-        (_) => ProcessResult(0, 0, '', ''));
+    await Process.run('sh', ['-c', 'fuser -k $porta/tcp'])
+        .catchError((_) => ProcessResult(0, 0, '', ''));
     return;
   }
   final saida = await Process.run('netstat', ['-ano']);

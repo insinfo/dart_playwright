@@ -180,8 +180,8 @@ Future<void> _runOne(
 /// Returns null when capture is off or when the page is in no state to be
 /// photographed — a crashed or closed page cannot be, and failing here would
 /// replace the real failure with a less useful one.
-Future<String?> _captureFailure(
-    Page page, String description, String browserName, String? artifactsPath) async {
+Future<String?> _captureFailure(Page page, String description,
+    String browserName, String? artifactsPath) async {
   if (artifactsPath == null) return null;
   try {
     final safe = description

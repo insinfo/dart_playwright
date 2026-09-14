@@ -40,7 +40,8 @@ int linhaDoThrow() {
   final linhas = File('$appDir/main.dart').readAsLinesSync();
   final indice = linhas.indexWhere((l) => l.contains('throw StateError('));
   if (indice < 0) {
-    throw StateError('o app de teste nao tem mais o throw que os testes procuram');
+    throw StateError(
+        'o app de teste nao tem mais o throw que os testes procuram');
   }
   return indice + 1;
 }

@@ -22,8 +22,8 @@ void main() {
       expect(plain, isNot(contains('about:blank')));
       expect(plain, contains('--user-data-dir=/profile'));
 
-      final persistent = chromium
-          .defaultArgs(const CoreLaunchOptions(userDataDir: '/p'), '/p');
+      final persistent = chromium.defaultArgs(
+          const CoreLaunchOptions(userDataDir: '/p'), '/p');
       expect(persistent, contains('about:blank'));
       expect(persistent, isNot(contains('--no-startup-window')));
     });
@@ -55,8 +55,7 @@ void main() {
       expect(chromium.defaultArgs(const CoreLaunchOptions(), '/p'),
           contains('--headless'));
       expect(
-          chromium.defaultArgs(
-              const CoreLaunchOptions(headless: false), '/p'),
+          chromium.defaultArgs(const CoreLaunchOptions(headless: false), '/p'),
           isNot(contains('--headless')));
       expect(firefox.defaultArgs(const CoreLaunchOptions(), '/p'),
           contains('-headless'));
@@ -89,11 +88,11 @@ void main() {
       expect(args.where((a) => a.startsWith('--force-color-profile')), isEmpty);
     });
 
-    test('ignoreAllDefaultArgs keeps only what the caller passed, plus what '
+    test(
+        'ignoreAllDefaultArgs keeps only what the caller passed, plus what '
         'the connection itself needs', () {
       final args = chromium.defaultArgs(
-          const CoreLaunchOptions(
-              ignoreAllDefaultArgs: true, args: ['--mine']),
+          const CoreLaunchOptions(ignoreAllDefaultArgs: true, args: ['--mine']),
           '/p');
       expect(args, contains('--mine'));
       expect(args, isNot(contains('--disable-breakpad')));
@@ -142,35 +141,39 @@ void main() {
     test('channel is Chromium only', () {
       const options = CoreLaunchOptions(channel: 'chrome');
       expect(() => options.validateFor('chromium'), returnsNormally);
-      expect(() => options.validateFor('firefox'),
-          throwsA(isA<ArgumentError>()));
-      expect(() => options.validateFor('webkit'), throwsA(isA<ArgumentError>()));
+      expect(
+          () => options.validateFor('firefox'), throwsA(isA<ArgumentError>()));
+      expect(
+          () => options.validateFor('webkit'), throwsA(isA<ArgumentError>()));
     });
 
     test('chromiumSandbox is Chromium only', () {
       const options = CoreLaunchOptions(chromiumSandbox: true);
       expect(() => options.validateFor('chromium'), returnsNormally);
-      expect(() => options.validateFor('firefox'),
-          throwsA(isA<ArgumentError>()));
+      expect(
+          () => options.validateFor('firefox'), throwsA(isA<ArgumentError>()));
     });
 
     test('firefoxUserPrefs is Firefox only', () {
       const options = CoreLaunchOptions(firefoxUserPrefs: {'a': 1});
       expect(() => options.validateFor('firefox'), returnsNormally);
-      expect(() => options.validateFor('chromium'),
-          throwsA(isA<ArgumentError>()));
+      expect(
+          () => options.validateFor('chromium'), throwsA(isA<ArgumentError>()));
     });
 
     test('userDataDir must be absolute', () {
-      expect(() => const CoreLaunchOptions(userDataDir: 'relative/profile')
-          .validateFor('chromium'), throwsA(isA<ArgumentError>()));
+      expect(
+          () => const CoreLaunchOptions(userDataDir: 'relative/profile')
+              .validateFor('chromium'),
+          throwsA(isA<ArgumentError>()));
     });
   });
 
   group('proxy settings', () {
     test('a bare host:port is read as http', () {
-      expect(const CoreProxySettings(server: '127.0.0.1:8080').normalized()
-          .server, 'http://127.0.0.1:8080');
+      expect(
+          const CoreProxySettings(server: '127.0.0.1:8080').normalized().server,
+          'http://127.0.0.1:8080');
     });
 
     test('a scheme no engine speaks is refused', () {
@@ -208,10 +211,9 @@ void main() {
     });
 
     test('[firefox] Juggler takes the proxy apart instead of as a URL', () {
-      final options = FfBrowser.jugglerProxyOptions(
-          const CoreProxySettings(
-                  server: 'socks5://127.0.0.1:1080', bypass: 'a.com, b.com')
-              .normalized());
+      final options = FfBrowser.jugglerProxyOptions(const CoreProxySettings(
+              server: 'socks5://127.0.0.1:1080', bypass: 'a.com, b.com')
+          .normalized());
       expect(options['type'], 'socks');
       expect(options['host'], '127.0.0.1');
       expect(options['port'], 1080);

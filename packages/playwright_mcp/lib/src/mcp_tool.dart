@@ -72,8 +72,7 @@ abstract class McpTool {
 }
 
 /// Reads a required string argument, with a message that names the tool.
-String requireString(
-    Map<String, dynamic> args, String key, String toolName) {
+String requireString(Map<String, dynamic> args, String key, String toolName) {
   final value = args[key];
   if (value is! String || value.isEmpty) {
     throw ArgumentError('$toolName requires a non-empty "$key" argument');

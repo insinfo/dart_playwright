@@ -63,7 +63,8 @@ void main() {
         test('Deve casar :has-text() por substring, ignorando maiusculas',
             () async {
           expect(await page.locator('.t:has-text("hello")').count(), equals(3));
-          expect(await page.locator('.t:has-text("Goodbye")').count(), equals(1));
+          expect(
+              await page.locator('.t:has-text("Goodbye")').count(), equals(1));
           expect(await page.locator('.t:has-text("nao existe")').count(),
               equals(0));
         });
@@ -127,33 +128,34 @@ void main() {
         test('Deve casar :right-of() e ordenar por proximidade', () async {
           expect(await ids(page.locator('.box:right-of(#anchor)')),
               equals(['right', 'far-right']));
-          expect(await page.locator('#left:right-of(#anchor)').count(),
-              equals(0));
+          expect(
+              await page.locator('#left:right-of(#anchor)').count(), equals(0));
         });
 
         test('Deve casar :left-of()', () async {
           expect(await ids(page.locator('.box:left-of(#anchor)')),
               equals(['left']));
-          expect(await page.locator('#right:left-of(#anchor)').count(),
-              equals(0));
+          expect(
+              await page.locator('#right:left-of(#anchor)').count(), equals(0));
         });
 
         test('Deve casar :above()', () async {
           expect(await ids(page.locator('.box:above(#anchor)')),
               equals(['above']));
-          expect(await page.locator('#below:above(#anchor)').count(), equals(0));
+          expect(
+              await page.locator('#below:above(#anchor)').count(), equals(0));
         });
 
         test('Deve casar :below()', () async {
           expect(await ids(page.locator('.box:below(#anchor)')),
               equals(['below']));
-          expect(await page.locator('#above:below(#anchor)').count(), equals(0));
+          expect(
+              await page.locator('#above:below(#anchor)').count(), equals(0));
         });
 
         test('Deve casar :near() e respeitar a distancia maxima', () async {
           final near = await ids(page.locator('.box:near(#anchor)'));
-          expect(near.toSet(),
-              equals({'right', 'left', 'above', 'below'}));
+          expect(near.toSet(), equals({'right', 'left', 'above', 'below'}));
           expect(await page.locator('#far-right:near(#anchor)').count(),
               equals(0));
           expect(await page.locator('#far-right:near(#anchor, 300)').count(),
@@ -179,8 +181,8 @@ void main() {
         });
 
         test('Deve cruzar a fronteira do shadow com combinadores', () async {
-          expect(await ids(page.locator('#host-open .sd')),
-              equals(['sd-open']));
+          expect(
+              await ids(page.locator('#host-open .sd')), equals(['sd-open']));
           expect(await page.locator('#host-open > .sd').count(), equals(1));
         });
 
@@ -207,17 +209,13 @@ void main() {
         // ------------------------------------------------- casos degenerados
 
         test('Deve dar erro claro em seletor malformado', () async {
-          await expectLater(
-              page.locator('div:has-text(').count(),
+          await expectLater(page.locator('div:has-text(').count(),
               throwsA(isA<InvalidSelectorError>()));
-          await expectLater(
-              page.locator('div:nth-match(span)').count(),
+          await expectLater(page.locator('div:nth-match(span)').count(),
               throwsA(isA<InvalidSelectorError>()));
-          await expectLater(
-              page.locator('div:visible(1)').count(),
+          await expectLater(page.locator('div:visible(1)').count(),
               throwsA(isA<InvalidSelectorError>()));
-          await expectLater(
-              page.locator('div:has-text("a"').count(),
+          await expectLater(page.locator('div:has-text("a"').count(),
               throwsA(isA<InvalidSelectorError>()));
         });
 
@@ -234,7 +232,8 @@ void main() {
         test('Deve suportar :has(), :is() e :not() do Playwright', () async {
           expect(await ids(page.locator('.t:has(span)')), equals(['t-nested']));
           expect(await page.locator('.item:not(#item-a)').count(), equals(3));
-          expect(await page.locator(':is(#item-a, #item-b)').count(), equals(2));
+          expect(
+              await page.locator(':is(#item-a, #item-b)').count(), equals(2));
         });
       });
     }

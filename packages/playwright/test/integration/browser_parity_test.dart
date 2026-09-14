@@ -6,12 +6,12 @@ void main() {
   group('Browser Parity E2E Tests', () {
     late Playwright playwright;
     late TestServer server;
-    
+
     setUpAll(() async {
       server = await TestServer.start();
       playwright = await Playwright.create();
     });
-    
+
     tearDownAll(() async {
       await server.stop();
     });
@@ -74,7 +74,7 @@ void main() {
           expect(screenshot, isNotEmpty);
           // Verificar se é PNG (Chromium/Firefox)
           // Mas como estamos no v0.1, ao menos verificar se retornou bytes.
-          expect(screenshot.length, greaterThan(100)); 
+          expect(screenshot.length, greaterThan(100));
         });
 
         test('Deve clicar com evento confiavel (isTrusted)', () async {
@@ -131,12 +131,10 @@ void main() {
           expect(await name.inputValue(), equals(''));
 
           await name.focus();
-          expect(
-              await page.evaluate('() => document.activeElement.id'),
+          expect(await page.evaluate('() => document.activeElement.id'),
               equals('name'));
           await name.blur();
-          expect(
-              await page.evaluate('() => document.activeElement.id'),
+          expect(await page.evaluate('() => document.activeElement.id'),
               isNot(equals('name')));
         });
 
@@ -176,8 +174,7 @@ void main() {
 
         test('Deve aguardar elemento dinamico com waitForSelector', () async {
           await page.goto(server.url('/delayed-element'));
-          await page.waitForSelector('#delayed',
-              timeout: Duration(seconds: 5));
+          await page.waitForSelector('#delayed', timeout: Duration(seconds: 5));
           expect(await page.locator('#delayed').textContent(),
               equals('Appeared!'));
         });
@@ -256,7 +253,8 @@ void main() {
             }
           ]);
           final cookies = await context.cookies();
-          expect(cookies.any((c) => c['name'] == 'session' && c['value'] == 'xyz'),
+          expect(
+              cookies.any((c) => c['name'] == 'session' && c['value'] == 'xyz'),
               isTrue);
 
           await context.clearCookies();
@@ -283,8 +281,8 @@ void main() {
           ]);
 
           final state = await context.storageState();
-          expect((state['cookies'] as List).any((c) => c['name'] == 'a'),
-              isTrue);
+          expect(
+              (state['cookies'] as List).any((c) => c['name'] == 'a'), isTrue);
           final origins = state['origins'] as List;
           expect(origins, isNotEmpty);
           final ls = (origins.first as Map)['localStorage'] as List;
@@ -353,7 +351,8 @@ void main() {
           await page.route('**/title', (route) async {
             await route.fulfill(
               status: 200,
-              body: '<html><head><title>Intercepted</title></head><body></body></html>',
+              body:
+                  '<html><head><title>Intercepted</title></head><body></body></html>',
             );
           });
 

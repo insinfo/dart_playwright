@@ -171,8 +171,8 @@ class PlaywrightMcpServer {
       case 'tools/call':
         return _handleToolsCall(id, args);
       default:
-        return _error(id, McpErrorCodes.methodNotFound,
-            'Method not found: $method');
+        return _error(
+            id, McpErrorCodes.methodNotFound, 'Method not found: $method');
     }
   }
 
@@ -227,9 +227,9 @@ class PlaywrightMcpServer {
         },
         'instructions':
             'Drives a real browser (Chromium, Firefox or WebKit) through the '
-            'Dart port of Playwright. Call browser_snapshot first: it returns '
-            'the page as roles, names and element references, and the other '
-            'tools take those references.',
+                'Dart port of Playwright. Call browser_snapshot first: it returns '
+                'the page as roles, names and element references, and the other '
+                'tools take those references.',
       },
     };
   }
@@ -239,10 +239,10 @@ class PlaywrightMcpServer {
     final requested = params['protocolVersion'];
     // The handshake rule: echo the client's version when it is supported,
     // otherwise answer with ours and let the client decide whether to go on.
-    final version = requested is String &&
-            supportedProtocolVersions.contains(requested)
-        ? requested
-        : latestLegacyProtocolVersion;
+    final version =
+        requested is String && supportedProtocolVersions.contains(requested)
+            ? requested
+            : latestLegacyProtocolVersion;
     negotiatedProtocolVersion = version;
     return {
       'jsonrpc': '2.0',
@@ -258,8 +258,8 @@ class PlaywrightMcpServer {
         },
         'instructions':
             'Call browser_snapshot first: it returns the page as roles, names '
-            'and element references, and the other tools take those '
-            'references.',
+                'and element references, and the other tools take those '
+                'references.',
       },
     };
   }
@@ -296,8 +296,8 @@ class PlaywrightMcpServer {
 
     final tool = _tools[toolName];
     if (tool == null) {
-      return _error(id, McpErrorCodes.methodNotFound,
-          'Unknown tool: $toolName');
+      return _error(
+          id, McpErrorCodes.methodNotFound, 'Unknown tool: $toolName');
     }
 
     try {

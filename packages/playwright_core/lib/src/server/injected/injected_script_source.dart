@@ -58,10 +58,8 @@ import 'injected_dom_source.dart';
 /// JavaScript source installing `window.__pwDart` in an execution context.
 ///
 /// Evaluating it twice in the same context is harmless.
-const String kInjectedScriptSource = _prologue +
-    kInjectedDomSource +
-    kInjectedCssEngineSource +
-    _engineSource;
+const String kInjectedScriptSource =
+    _prologue + kInjectedDomSource + kInjectedCssEngineSource + _engineSource;
 
 /// Opens the IIFE and bails out when the engine is already installed.
 const String _prologue = r'''

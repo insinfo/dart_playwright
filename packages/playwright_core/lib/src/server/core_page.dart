@@ -21,14 +21,12 @@ import 'injected/injected_script_source.dart';
 import 'init_scripts.dart';
 export 'core_download.dart' show CoreDownload;
 export 'core_file_chooser.dart' show CoreFileChooser;
-export 'core_screenshot.dart'
-    show CoreRect, CoreScreenshotOptions;
+export 'core_screenshot.dart' show CoreRect, CoreScreenshotOptions;
 export 'core_events.dart'
     show CoreConsoleMessage, CorePageError, CoreSourceLocation;
 export 'dialog.dart' show Dialog;
 export 'keyboard.dart' show Keyboard;
-export 'mouse.dart'
-    show Mouse, RawMouse, RawTouchscreen, Touchscreen;
+export 'mouse.dart' show Mouse, RawMouse, RawTouchscreen, Touchscreen;
 export 'frames.dart' show CoreFrame, CoreFrameManager;
 export 'core_coverage.dart';
 export 'init_scripts.dart'
@@ -129,6 +127,7 @@ abstract class CorePage extends EventEmitter {
   /// Chromium only; Firefox and WebKit have no print-to-PDF command in their
   /// protocols, so they throw.
   Future<List<int>> pdf({String? path, CorePdfOptions options});
+
   /// The accessibility tree of the page's main frame.
   ///
   /// See [CorePageAccessibility.accessibilitySnapshot].
@@ -183,7 +182,8 @@ abstract class CorePage extends EventEmitter {
   Future<dynamic> evaluateInFrame(CoreFrame frame, String expression);
 
   /// Evaluates [expression] in [frame]'s context, returning a handle.
-  Future<CoreJSHandle> evaluateHandleInFrame(CoreFrame frame, String expression);
+  Future<CoreJSHandle> evaluateHandleInFrame(
+      CoreFrame frame, String expression);
 
   /// Like [evaluateInFrame], with `window.__pwDart` (the selector engine)
   /// installed in the context first.
@@ -377,7 +377,8 @@ mixin CorePageDialogs on EventEmitter {
     final handler = _dialogHandler;
     final context = browserContext;
     final watchedByPage = listenerCount('dialog') > 0;
-    final watchedByContext = context != null && context.listenerCount('dialog') > 0;
+    final watchedByContext =
+        context != null && context.listenerCount('dialog') > 0;
 
     if (handler == null && !watchedByPage && !watchedByContext) {
       dialog.dismiss();
@@ -441,13 +442,12 @@ mixin CorePageScreenshot {
           y: 0,
           width: number('documentWidth'),
           height: number('documentHeight'));
-      final rect = options.clip == null
-          ? full
-          : _intersect(options.clip!, full);
+      final rect =
+          options.clip == null ? full : _intersect(options.clip!, full);
       return (
         rect: rect.enclosingIntRect,
-        fitsViewport: full.width <= viewportWidth &&
-            full.height <= viewportHeight,
+        fitsViewport:
+            full.width <= viewportWidth && full.height <= viewportHeight,
       );
     }
 
@@ -563,7 +563,9 @@ class CorePdfOptions {
     if (format != null) {
       final known = paperFormats[format!.toLowerCase()];
       if (known == null) {
-        throw ArgumentError.value(format, 'format',
+        throw ArgumentError.value(
+            format,
+            'format',
             'Unknown paper format. Expected one of: '
                 '${paperFormats.keys.join(', ')}');
       }
@@ -596,8 +598,7 @@ mixin CorePageFileChooser on EventEmitter {
       emit('filechooser',
           CoreFileChooser(element: element, isMultiple: multiple == true));
     }).catchError((Object _) {
-      emit('filechooser',
-          CoreFileChooser(element: element, isMultiple: false));
+      emit('filechooser', CoreFileChooser(element: element, isMultiple: false));
     });
   }
 }
@@ -689,9 +690,8 @@ String normalizeConsoleType(String? raw) {
   if (index == -1) return (name: '', message: message);
   return (
     name: message.substring(0, index),
-    message: index + 2 <= message.length
-        ? message.substring(index + 2)
-        : message,
+    message:
+        index + 2 <= message.length ? message.substring(index + 2) : message,
   );
 }
 
@@ -713,8 +713,7 @@ CorePageError pageErrorFromCdpExceptionDetails(Map<String, dynamic> details) {
   }
 
   final lines = messageWithStack.split('\n');
-  final firstStackLine =
-      lines.indexWhere((line) => line.startsWith('    at'));
+  final firstStackLine = lines.indexWhere((line) => line.startsWith('    at'));
   final header = firstStackLine == -1
       ? messageWithStack
       : lines.sublist(0, firstStackLine).join('\n');
@@ -880,8 +879,8 @@ mixin CorePageAccessibility on CorePageFrameEvaluation {
   /// JS expression evaluated in the frame that must return an element.
   Future<String> ariaSnapshot({CoreFrame? frame, String? selectorJs}) async {
     final root = selectorJs ?? 'null';
-    final result = await evaluateInjected(frame ?? mainFrame,
-        '() => window.__pwDart.ariaSnapshot($root, {})');
+    final result = await evaluateInjected(
+        frame ?? mainFrame, '() => window.__pwDart.ariaSnapshot($root, {})');
     return result as String? ?? '';
   }
 }
@@ -916,7 +915,8 @@ Future<dynamic> pollForTruthy(
   final deadline = DateTime.now().add(effectiveTimeout);
   while (true) {
     final value = await evaluate(expression);
-    final isTruthy = value != null && value != false && value != 0 && value != '';
+    final isTruthy =
+        value != null && value != false && value != 0 && value != '';
     if (isTruthy) return value;
     if (DateTime.now().isAfter(deadline)) {
       throw TimeoutException('waitForFunction: condition not met',

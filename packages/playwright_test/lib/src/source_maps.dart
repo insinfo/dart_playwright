@@ -346,7 +346,8 @@ class DartSourceMapResolver {
     try {
       final request = await _client.getUrl(url).timeout(fetchTimeout);
       if (rangeSuffixBytes != null) {
-        request.headers.set(HttpHeaders.rangeHeader, 'bytes=-$rangeSuffixBytes');
+        request.headers
+            .set(HttpHeaders.rangeHeader, 'bytes=-$rangeSuffixBytes');
       }
       final response = await request.close().timeout(fetchTimeout);
       if (response.statusCode >= 400) {
