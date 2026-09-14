@@ -32,16 +32,50 @@ class Win32Process {
   /// Whether [kill] already ran. Handles must not be closed twice.
   bool get isKilled => _killed;
 
+  /// Whether the process is still running.
+  bool get isAlive {
+    if (_killed) return false;
+    final code = calloc<DWORD>();
+    try {
+      if (GetExitCodeProcess(processHandle, code) == 0) return false;
+      return code.value == 259; // STILL_ACTIVE
+    } finally {
+      calloc.free(code);
+    }
+  }
+
+  /// Lets the browser finish exiting on its own, then reaps whatever is left.
+  ///
+  /// The wait is what makes a persistent profile usable: a browser told to
+  /// shut down closes its inspector pipe long before it has finished writing
+  /// cookies, localStorage and history back to disk. Killing it the moment
+  /// the pipe drops loses exactly the state the profile exists to keep.
+  /// After [grace] the tree goes down regardless — a browser that will not
+  /// exit is the case that was leaking processes in the first place.
+  Future<void> terminate(
+      {Duration grace = const Duration(seconds: 5)}) async {
+    if (_killed) return;
+    final deadline = DateTime.now().add(grace);
+    while (isAlive && DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 25));
+    }
+    kill();
+  }
+
   void kill() {
     // Closing a handle twice is undefined behaviour, and `kill` is reached
     // from both the transport's explicit close and its end-of-pipe handler.
     if (_killed) return;
     _killed = true;
+    BrowserProcessRegistry.unregister(processId);
+    // Terminate first: the browser's death breaks the inspector pipe, which
+    // is what releases the reader isolate blocked in ReadFile. Closing that
+    // handle while a thread is still blocked on it never unblocks it, and a
+    // stuck isolate keeps the whole Dart VM from exiting.
+    TerminateProcess(processHandle, 0);
     // TerminateProcess reaches only the browser process itself; its renderer
     // and GPU children stay alive and orphaned. taskkill /T walks the tree.
     killProcessTree(processId);
-    BrowserProcessRegistry.unregister(processId);
-    TerminateProcess(processHandle, 0);
     CloseHandle(processHandle);
     CloseHandle(threadHandle);
     CloseHandle(jugglerWriteHandle);

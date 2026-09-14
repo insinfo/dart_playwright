@@ -39,6 +39,22 @@ class PosixProcess {
   /// Whether [kill] already ran.
   bool get isKilled => _killed;
 
+  /// Lets the browser finish exiting on its own, then reaps whatever is left.
+  ///
+  /// See [Win32Process.terminate]: the inspector pipe closes well before the
+  /// profile is written back to disk, so killing on end-of-pipe throws away
+  /// the cookies and localStorage a persistent profile is meant to keep.
+  Future<void> terminate(
+      {Duration grace = const Duration(seconds: 5)}) async {
+    if (_killed) return;
+    try {
+      await process.exitCode.timeout(grace);
+    } catch (_) {
+      // Still running after the grace period, or already reaped.
+    }
+    kill();
+  }
+
   void kill() {
     if (_killed) return;
     _killed = true;
