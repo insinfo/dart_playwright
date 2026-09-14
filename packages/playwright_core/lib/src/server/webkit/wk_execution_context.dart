@@ -21,13 +21,34 @@ class WkExecutionContext implements CoreExecutionContext {
 
   @override
   Future<dynamic> rawEvaluate(String expression) async {
+    // WebKit's Runtime.evaluate has no awaitPromise flag, so a promise comes
+    // back as an object. Resolve it explicitly, or `evaluate` of an async
+    // function would hand back an empty map instead of the value.
     final result = await session.sendToTarget('Runtime.evaluate', {
       'expression': expression,
-      'returnByValue': true,
+      'returnByValue': false,
       if (executionContextId != null) 'contextId': executionContextId,
     });
     _checkThrown(result);
-    return result['result']?['value'];
+    final remote = result['result'] as Map<String, dynamic>?;
+    if (remote != null && remote['subtype'] == 'promise') {
+      final settled = await session.sendToTarget('Runtime.awaitPromise', {
+        'promiseObjectId': remote['objectId'],
+        'returnByValue': true,
+      });
+      _checkThrown(settled);
+      return (settled['result'] as Map<String, dynamic>?)?['value'];
+    }
+    // Not a promise: ask for it by value now that we know it is safe.
+    final objectId = remote?['objectId'] as String?;
+    if (objectId == null) return remote?['value'];
+    final byValue = await session.sendToTarget('Runtime.callFunctionOn', {
+      'functionDeclaration': '(function() { return this; })',
+      'objectId': objectId,
+      'returnByValue': true,
+    });
+    _checkThrown(byValue);
+    return (byValue['result'] as Map<String, dynamic>?)?['value'];
   }
 
   @override

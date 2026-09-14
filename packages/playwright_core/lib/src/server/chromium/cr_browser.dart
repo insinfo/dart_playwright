@@ -203,6 +203,10 @@ class CrBrowser extends EventEmitter implements CoreBrowser {
         CrBrowserContext(this, result['browserContextId'] as String, options);
     _contexts.add(context);
     await context.applyDownloadBehavior();
+    final permissions = options.permissions;
+    if (permissions != null && permissions.isNotEmpty) {
+      await context.grantPermissions(permissions);
+    }
     return context;
   }
 
@@ -308,18 +312,121 @@ class CrBrowserContext extends EventEmitter
   Future<void> applyContextOptions(CDPSession session) async {
     final viewport = options.viewport;
     if (viewport != null) {
+      final landscape = viewport.width > viewport.height;
       await session.send('Emulation.setDeviceMetricsOverride', {
         'width': viewport.width,
         'height': viewport.height,
-        'deviceScaleFactor': 1,
-        'mobile': false,
+        'screenWidth': viewport.width,
+        'screenHeight': viewport.height,
+        'deviceScaleFactor': options.deviceScaleFactor ?? 1,
+        'mobile': options.isMobile,
+        'screenOrientation': options.isMobile
+            ? (landscape
+                ? {'angle': 90, 'type': 'landscapePrimary'}
+                : {'angle': 0, 'type': 'portraitPrimary'})
+            : {'angle': 0, 'type': 'landscapePrimary'},
       });
     }
-    if (options.userAgent != null) {
+    // The user agent and the Accept-Language header travel together in
+    // Chromium: there is no separate locale header here.
+    if (options.userAgent != null || options.locale != null) {
       await session.send('Emulation.setUserAgentOverride', {
-        'userAgent': options.userAgent,
+        'userAgent': options.userAgent ?? '',
+        if (options.locale != null) 'acceptLanguage': options.locale,
       });
     }
+    if (options.locale != null) {
+      try {
+        await session
+            .send('Emulation.setLocaleOverride', {'locale': options.locale});
+      } catch (error) {
+        // Pages sharing a renderer share the locale override; a second one is
+        // refused and can be ignored.
+        if (!'$error'.contains('Another locale override is already in effect')) {
+          rethrow;
+        }
+      }
+    }
+    if (options.timezoneId != null) {
+      try {
+        await session.send(
+            'Emulation.setTimezoneOverride', {'timezoneId': options.timezoneId});
+      } catch (error) {
+        if ('$error'.contains('Timezone override is already in effect')) {
+          // Same story as the locale.
+        } else if ('$error'.contains('Invalid timezone')) {
+          throw PlaywrightException(
+              'Invalid timezone ID: ${options.timezoneId}');
+        } else {
+          rethrow;
+        }
+      }
+    }
+    if (options.colorScheme != null ||
+        options.reducedMotion != null ||
+        options.forcedColors != null) {
+      // One command carries all the media features in Chromium.
+      await session.send('Emulation.setEmulatedMedia', {
+        'media': '',
+        'features': [
+          {
+            'name': 'prefers-color-scheme',
+            'value': options.colorScheme ?? '',
+          },
+          {
+            'name': 'prefers-reduced-motion',
+            'value': options.reducedMotion ?? '',
+          },
+          {'name': 'forced-colors', 'value': options.forcedColors ?? ''},
+        ],
+      });
+    }
+    if (options.hasTouch) {
+      await session
+          .send('Emulation.setTouchEmulationEnabled', {'enabled': true});
+    }
+    if (options.offline) {
+      await session.send('Network.emulateNetworkConditions', {
+        'offline': true,
+        // Zeroes and -1 mean "no throttling", only offline.
+        'latency': 0,
+        'downloadThroughput': -1,
+        'uploadThroughput': -1,
+      });
+    }
+    final headers = options.extraHTTPHeaders;
+    if (headers != null && headers.isNotEmpty) {
+      await session.send('Network.setExtraHTTPHeaders', {'headers': headers});
+    }
+    final geolocation = options.geolocation;
+    if (geolocation != null) {
+      await session.send('Emulation.setGeolocationOverride', {
+        'latitude': geolocation.latitude,
+        'longitude': geolocation.longitude,
+        'accuracy': geolocation.accuracy,
+      });
+    }
+  }
+
+  /// Grants [permissions] for [origin] (or every origin when it is `*`).
+  ///
+  /// Chromium is the only engine where permissions are a context-level
+  /// concept, so this is a single browser command.
+  Future<void> grantPermissions(List<String> permissions,
+      {String? origin}) async {
+    await browser.connection.send('Browser.grantPermissions', {
+      if (origin != null && origin != '*') 'origin': origin,
+      if (browserContextId != null) 'browserContextId': browserContextId,
+      'permissions':
+          CorePermissions.resolve(CorePermissions.chromium, permissions),
+    });
+  }
+
+  /// Revokes every permission this context granted.
+  Future<void> clearPermissions() async {
+    await browser.connection.send('Browser.resetPermissions', {
+      if (browserContextId != null) 'browserContextId': browserContextId,
+    });
   }
 
   @override

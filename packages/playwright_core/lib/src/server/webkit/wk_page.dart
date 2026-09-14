@@ -34,6 +34,8 @@ class WkPage extends EventEmitter
   late final Keyboard keyboard;
   @override
   late final Mouse mouse;
+  @override
+  late final Touchscreen touchscreen;
   late final CoreFrameManager frameManager;
   late final WkNetworkManager networkManager;
   final ContextRegistry _contexts = ContextRegistry();
@@ -44,6 +46,7 @@ class WkPage extends EventEmitter
     frameManager = CoreFrameManager(this);
     keyboard = Keyboard(WkRawKeyboard(session));
     mouse = Mouse(WkRawMouse(session));
+    touchscreen = Touchscreen(WkRawTouchscreen(session));
     networkManager = WkNetworkManager(session);
     forwardNetworkEvents(networkManager, this);
     // WebKit reports dialogs via the Dialog domain on the pageProxy session.

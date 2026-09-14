@@ -34,6 +34,8 @@ class CrPage extends EventEmitter
   late final Keyboard keyboard;
   @override
   late final Mouse mouse;
+  @override
+  late final Touchscreen touchscreen;
   late final CoreFrameManager frameManager;
   final ContextRegistry _contexts = ContextRegistry();
 
@@ -44,6 +46,7 @@ class CrPage extends EventEmitter
     frameManager = CoreFrameManager(this);
     keyboard = Keyboard(CrRawKeyboard(session));
     mouse = Mouse(CrRawMouse(session));
+    touchscreen = Touchscreen(CrRawTouchscreen(session));
     forwardNetworkEvents(networkManager, this);
 
     session.on('Runtime.executionContextCreated', (params) {

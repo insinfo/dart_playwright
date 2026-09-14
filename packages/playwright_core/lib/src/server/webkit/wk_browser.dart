@@ -172,7 +172,33 @@ class WkBrowser extends EventEmitter implements CoreBrowser {
     final result = await connection.send('Playwright.createContext', {});
     final context =
         WkBrowserContext(this, result['browserContextId'] as String, options);
+    // WebKit only applies permissions when a page exists, so validate the
+    // names now: otherwise an unknown one would surface much later, from a
+    // call that has nothing to do with permissions.
+    final requested = options.permissions;
+    if (requested != null && requested.isNotEmpty) {
+      CorePermissions.resolve(CorePermissions.webkit, requested);
+    }
     _contexts.add(context);
+    if (options.locale != null) {
+      await connection.send('Playwright.setLanguages', {
+        'browserContextId': context.browserContextId,
+        'languages': [options.locale],
+      });
+    }
+    final geolocation = options.geolocation;
+    if (geolocation != null) {
+      await connection.send('Playwright.setGeolocationOverride', {
+        'browserContextId': context.browserContextId,
+        'geolocation': {
+          // WebKit is the only engine that demands a timestamp.
+          'timestamp': DateTime.now().millisecondsSinceEpoch,
+          'latitude': geolocation.latitude,
+          'longitude': geolocation.longitude,
+          'accuracy': geolocation.accuracy,
+        },
+      });
+    }
     await connection.send('Playwright.setDownloadBehavior', {
       'behavior': options.acceptDownloads ? 'allow' : 'deny',
       'browserContextId': context.browserContextId,
@@ -234,18 +260,83 @@ class WkBrowserContext extends EventEmitter
   /// WebKit splits this across both protocol layers: device metrics are a
   /// pageProxy command, the user agent a target one.
   Future<void> applyContextOptions(WkPageProxySession session) async {
+    // WebKit spreads these across three layers: the browser session for
+    // languages and geolocation, the pageProxy for device metrics, auth and
+    // permissions, and the page target for everything else. Sending a command
+    // to the wrong one fails with "'<cmd>' wasn't found".
     final viewport = options.viewport;
     if (viewport != null) {
       await session.send('Emulation.setDeviceMetricsOverride', {
         'width': viewport.width,
         'height': viewport.height,
-        'fixedLayout': false,
-        'deviceScaleFactor': 1,
+        // WebKit calls the mobile flag fixedLayout.
+        'fixedLayout': options.isMobile,
+        'deviceScaleFactor': options.deviceScaleFactor ?? 1,
       });
+      if (options.isMobile) {
+        await session.send('Emulation.setOrientationOverride',
+            {'angle': viewport.width > viewport.height ? 90 : 0});
+      }
     }
     if (options.userAgent != null) {
       await session.sendToTarget('Page.overrideUserAgent', {
         'value': options.userAgent,
+      });
+    }
+    if (options.timezoneId != null) {
+      try {
+        await session
+            .sendToTarget('Page.setTimeZone', {'timeZone': options.timezoneId});
+      } catch (_) {
+        throw PlaywrightException(
+            'Invalid timezone ID: ${options.timezoneId}');
+      }
+    }
+    if (options.colorScheme != null) {
+      await session.sendToTarget('Page.overrideUserPreference', {
+        'name': 'PrefersColorScheme',
+        // WebKit spells the values with a capital.
+        if (options.colorScheme != 'no-preference')
+          'value': options.colorScheme == 'dark' ? 'Dark' : 'Light',
+      });
+    }
+    if (options.reducedMotion != null) {
+      await session.sendToTarget('Page.overrideUserPreference', {
+        'name': 'PrefersReducedMotion',
+        'value': options.reducedMotion == 'reduce' ? 'Reduce' : 'NoPreference',
+      });
+    }
+    if (options.forcedColors != null) {
+      await session.sendToTarget('Page.setForcedColors', {
+        'forcedColors': options.forcedColors == 'active' ? 'Active' : 'None',
+      });
+    }
+    await session.sendToTarget(
+        'Page.setTouchEmulationEnabled', {'enabled': options.hasTouch});
+    if (options.offline) {
+      await session
+          .sendToTarget('Network.setEmulateOfflineState', {'offline': true});
+    }
+    final headers = options.extraHTTPHeaders;
+    if (headers != null && headers.isNotEmpty) {
+      await session
+          .sendToTarget('Network.setExtraHTTPHeaders', {'headers': headers});
+    }
+    final credentials = options.httpCredentials;
+    if (credentials != null) {
+      await session.send('Emulation.setAuthCredentials', {
+        'username': credentials.username,
+        'password': credentials.password,
+        'origin': credentials.origin ?? '',
+      });
+    }
+    final permissions = options.permissions;
+    if (permissions != null && permissions.isNotEmpty) {
+      // Permissions are per page in WebKit, so every new page replays them.
+      await session.send('Emulation.grantPermissions', {
+        'origin': '*',
+        'permissions':
+            CorePermissions.resolve(CorePermissions.webkit, permissions),
       });
     }
   }

@@ -127,3 +127,15 @@ class WkRawMouse implements RawMouse {
     });
   }
 }
+
+/// WebKit taps on the pageProxy session, not the page target.
+class WkRawTouchscreen implements RawTouchscreen {
+  final WkPageProxySession session;
+
+  WkRawTouchscreen(this.session);
+
+  @override
+  Future<void> tap(double x, double y) async {
+    await session.send('Input.dispatchTapEvent', {'x': x, 'y': y, 'modifiers': 0});
+  }
+}

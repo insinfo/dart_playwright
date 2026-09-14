@@ -136,7 +136,8 @@ class FfBrowser extends EventEmitter implements CoreBrowser {
       'removeOnDetach': true,
     });
     final browserContextId = result['browserContextId'] as String;
-    // Juggler applies these context-wide, before any page exists.
+    // Juggler applies all of these context-wide, before any page exists,
+    // which is why Firefox needs no per-page emulation at all.
     if (options.userAgent != null) {
       await session.send('Browser.setUserAgentOverride', {
         'browserContextId': browserContextId,
@@ -152,8 +153,95 @@ class FfBrowser extends EventEmitter implements CoreBrowser {
             'width': viewport.width,
             'height': viewport.height,
           },
-          'deviceScaleFactor': 1,
+          'deviceScaleFactor': options.deviceScaleFactor ?? 1,
+          'isMobile': options.isMobile,
         },
+      });
+    }
+    if (options.locale != null) {
+      await session.send('Browser.setLocaleOverride', {
+        'browserContextId': browserContextId,
+        'locale': options.locale,
+      });
+    }
+    if (options.timezoneId != null) {
+      await session.send('Browser.setTimezoneOverride', {
+        'browserContextId': browserContextId,
+        'timezoneId': options.timezoneId,
+      });
+    }
+    if (options.colorScheme != null) {
+      await session.send('Browser.setColorScheme', {
+        'browserContextId': browserContextId,
+        'colorScheme': options.colorScheme,
+      });
+    }
+    if (options.reducedMotion != null) {
+      await session.send('Browser.setReducedMotion', {
+        'browserContextId': browserContextId,
+        'reducedMotion': options.reducedMotion,
+      });
+    }
+    if (options.forcedColors != null) {
+      await session.send('Browser.setForcedColors', {
+        'browserContextId': browserContextId,
+        'forcedColors': options.forcedColors,
+      });
+    }
+    if (options.hasTouch) {
+      await session.send('Browser.setTouchOverride', {
+        'browserContextId': browserContextId,
+        'hasTouch': true,
+      });
+    }
+    if (options.offline) {
+      await session.send('Browser.setOnlineOverride', {
+        'browserContextId': browserContextId,
+        'override': 'offline',
+      });
+    }
+    final headers = options.extraHTTPHeaders;
+    if (headers != null && headers.isNotEmpty) {
+      // Juggler takes an array of {name, value}, not an object.
+      await session.send('Browser.setExtraHTTPHeaders', {
+        'browserContextId': browserContextId,
+        'headers': [
+          for (final entry in headers.entries)
+            {'name': entry.key, 'value': entry.value},
+        ],
+      });
+    }
+    final credentials = options.httpCredentials;
+    if (credentials != null) {
+      await session.send('Browser.setHTTPCredentials', {
+        'browserContextId': browserContextId,
+        'credentials': {
+          'username': credentials.username,
+          'password': credentials.password,
+          if (credentials.origin != null) 'origin': credentials.origin,
+        },
+      });
+    }
+    final geolocation = options.geolocation;
+    if (geolocation != null) {
+      await session.send('Browser.setGeolocationOverride', {
+        'browserContextId': browserContextId,
+        'geolocation': {
+          'latitude': geolocation.latitude,
+          'longitude': geolocation.longitude,
+          'accuracy': geolocation.accuracy,
+        },
+      });
+    }
+    final permissions = options.permissions;
+    if (permissions != null && permissions.isNotEmpty) {
+      await session.send('Browser.grantPermissions', {
+        'browserContextId': browserContextId,
+        // Upstream keys permissions by origin and defaults to '*', meaning
+        // every origin; an empty string matches nothing.
+        'origin': '*',
+        'permissions':
+            CorePermissions.resolve(CorePermissions.firefox, permissions),
       });
     }
     final context = FfBrowserContext(this, browserContextId, options);
@@ -230,9 +318,20 @@ class FfBrowserContext extends EventEmitter
   @override
   Future<CorePage> newPage() async {
     if (_closed) throw PlaywrightException('Context closed');
-    final result = await browser.session.send('Browser.newPage', {
-      'browserContextId': browserContextId,
-    });
+    final Map<String, dynamic> result;
+    try {
+      result = await browser.session.send('Browser.newPage', {
+        'browserContextId': browserContextId,
+      });
+    } catch (error) {
+      // Juggler validates the timezone when it builds the page, not when the
+      // override is set, so this is where a bad one surfaces.
+      if ('$error'.contains('Failed to override timezone')) {
+        throw PlaywrightException(
+            'Invalid timezone ID: ${options.timezoneId}');
+      }
+      rethrow;
+    }
     // The page itself is built and registered by the attachedToTarget
     // handler, the same path a popup takes.
     return browser.waitForPage(result['targetId'] as String);

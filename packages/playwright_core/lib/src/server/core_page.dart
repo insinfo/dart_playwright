@@ -24,7 +24,8 @@ export 'core_events.dart'
     show CoreConsoleMessage, CorePageError, CoreSourceLocation;
 export 'dialog.dart' show Dialog;
 export 'keyboard.dart' show Keyboard;
-export 'mouse.dart' show Mouse, RawMouse;
+export 'mouse.dart'
+    show Mouse, RawMouse, RawTouchscreen, Touchscreen;
 export 'frames.dart' show CoreFrame, CoreFrameManager;
 
 enum WaitUntilState {
@@ -221,6 +222,14 @@ abstract class CorePage extends EventEmitter {
 
   /// The page's mouse, dispatching trusted mouse events via the protocol.
   Mouse get mouse;
+
+  /// The page's touchscreen. Taps only reach the page when the context was
+  /// created with `hasTouch`.
+  Touchscreen get touchscreen;
+
+  /// Taps the element [resolverJs] resolves to inside [frame].
+  Future<void> tapTarget(CoreFrame frame, String resolverJs,
+      {({double x, double y})? position});
 
   /// The rectangle of the element [resolverJs] resolves to inside [frame],
   /// in the top document's coordinates, which is what the screenshot
@@ -834,6 +843,17 @@ mixin CorePageInputHelpers {
 
   /// The page mouse; classes using this mixin must provide it.
   Mouse get mouse;
+
+  /// The page touchscreen; classes using this mixin must provide it.
+  Touchscreen get touchscreen;
+
+  /// Taps the element [resolverJs] resolves to inside [frame].
+  Future<void> tapTarget(CoreFrame frame, String resolverJs,
+      {({double x, double y})? position}) async {
+    final point =
+        await clickPointForTarget(frame, resolverJs, position: position);
+    await touchscreen.tap(point.x, point.y);
+  }
 
   /// Clicks the element [resolverJs] resolves to inside [frame].
   Future<void> clickTarget(CoreFrame frame, String resolverJs,

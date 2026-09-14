@@ -30,6 +30,8 @@ class FfPage extends EventEmitter
   late final Keyboard keyboard;
   @override
   late final Mouse mouse;
+  @override
+  late final Touchscreen touchscreen;
   late final CoreFrameManager frameManager;
   late final FfNetworkManager networkManager;
   final ContextRegistry _contexts = ContextRegistry();
@@ -40,6 +42,7 @@ class FfPage extends EventEmitter
     frameManager = CoreFrameManager(this);
     keyboard = Keyboard(FfRawKeyboard(session));
     mouse = Mouse(FfRawMouse(session));
+    touchscreen = Touchscreen(FfRawTouchscreen(session));
     networkManager = FfNetworkManager(session);
     forwardNetworkEvents(networkManager, this);
     session.on('Page.dialogOpened', _onDialogOpened);

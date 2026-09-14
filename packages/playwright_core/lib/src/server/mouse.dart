@@ -95,3 +95,26 @@ class Mouse {
   Future<void> wheel(double deltaX, double deltaY) =>
       _raw.wheel(_x, _y, deltaX, deltaY);
 }
+
+/// Engine-level touch dispatch.
+///
+/// Only Chromium wants the raw touchStart/touchEnd pair; Firefox and WebKit
+/// each have a single high-level tap command, so the abstraction is one
+/// method rather than a state machine like [Mouse].
+abstract class RawTouchscreen {
+  Future<void> tap(double x, double y);
+}
+
+/// The page's touchscreen.
+///
+/// A tap only reaches the page when the context was created with touch
+/// emulation on (`hasTouch`); without it the engines discard the event, which
+/// is why upstream ties `tap` to that option too.
+class Touchscreen {
+  final RawTouchscreen _raw;
+
+  Touchscreen(this._raw);
+
+  /// Taps at [x], [y] in the top-level viewport.
+  Future<void> tap(double x, double y) => _raw.tap(x, y);
+}

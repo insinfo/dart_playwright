@@ -32,6 +32,15 @@ First release, extracted as the engine layer under `playwright`.
 - Screenshot geometry computed once in document coordinates and translated
   per engine; `Page.printToPDF` on Chromium, read back over the `IO` stream.
 - Hit-target testing in the injected script.
+- Context emulation per engine: locale, timezone, colour scheme, reduced
+  motion, forced colours, device scale factor, mobile, touch, offline, extra
+  headers, HTTP credentials, geolocation and permissions - applied at the
+  browser, context, pageProxy or page layer depending on what each engine
+  wants.
+- Touch dispatch per engine, and the permission name tables, which differ in
+  size between the three.
+- WebKit's `Runtime.evaluate` now resolves promises through
+  `Runtime.awaitPromise`; Juggler has no equivalent and cannot.
 
 
 The API of this package is internal and will change without a major version

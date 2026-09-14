@@ -116,3 +116,17 @@ class FfRawMouse implements RawMouse {
     });
   }
 }
+
+/// Firefox taps through a single high-level Juggler command. `modifiers` is
+/// required here, unlike the other two.
+class FfRawTouchscreen implements RawTouchscreen {
+  final FfSession session;
+
+  FfRawTouchscreen(this.session);
+
+  @override
+  Future<void> tap(double x, double y) async {
+    await session
+        .send('Page.dispatchTapEvent', {'x': x, 'y': y, 'modifiers': 0});
+  }
+}

@@ -103,3 +103,29 @@ class CrRawMouse implements RawMouse {
     });
   }
 }
+
+/// Chromium taps: the only engine that wants the raw pair. `touchEnd` must
+/// carry no points, and both go out together (crInput.ts:168).
+class CrRawTouchscreen implements RawTouchscreen {
+  final dynamic session;
+
+  CrRawTouchscreen(this.session);
+
+  @override
+  Future<void> tap(double x, double y) async {
+    await Future.wait<dynamic>([
+      session.send('Input.dispatchTouchEvent', {
+        'type': 'touchStart',
+        'modifiers': 0,
+        'touchPoints': [
+          {'x': x, 'y': y}
+        ],
+      }) as Future<dynamic>,
+      session.send('Input.dispatchTouchEvent', {
+        'type': 'touchEnd',
+        'modifiers': 0,
+        'touchPoints': <Map<String, dynamic>>[],
+      }) as Future<dynamic>,
+    ]);
+  }
+}
