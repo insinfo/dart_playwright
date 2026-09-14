@@ -211,6 +211,15 @@ class WkPage extends EventEmitter
   @override
   List<CoreFrame> get frames => frameManager.frames;
 
+
+  @override
+  CoreCoverage get coverage {
+    throw UnsupportedError(
+        'page.coverage is Chromium-only: the counts come from V8 and from '
+        "Blink's CSS engine, and the WebKit inspector protocol has no "
+        'equivalent. Upstream Playwright has the same limit.');
+  }
+
   // --------------------------------------------------- init scripts
 
   /// Binding channels already opened on this page.

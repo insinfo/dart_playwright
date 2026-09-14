@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:playwright_protocol/playwright_protocol.dart';
 import '../accessibility.dart';
 import 'core_browser.dart';
+import 'core_coverage.dart';
 import 'core_events.dart';
 import 'core_file_chooser.dart';
 import 'core_screenshot.dart';
@@ -28,6 +29,7 @@ export 'keyboard.dart' show Keyboard;
 export 'mouse.dart'
     show Mouse, RawMouse, RawTouchscreen, Touchscreen;
 export 'frames.dart' show CoreFrame, CoreFrameManager;
+export 'core_coverage.dart';
 export 'init_scripts.dart'
     show
         CoreBinding,
@@ -306,6 +308,13 @@ abstract class CorePage extends EventEmitter {
 
   /// Declares [binding] in the documents that are already open.
   Future<void> installBindingInLiveFrames(CoreBinding binding);
+
+  /// JavaScript and CSS coverage.
+  ///
+  /// **Chromium only.** Firefox and WebKit throw [UnsupportedError]: their
+  /// protocols have no equivalent, and upstream Playwright exposes
+  /// `page.coverage` on the Chromium page alone. See [CoreCoverage].
+  CoreCoverage get coverage;
 
   Future<void> close();
 }

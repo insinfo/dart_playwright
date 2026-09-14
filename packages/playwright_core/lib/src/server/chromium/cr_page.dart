@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:playwright_protocol/playwright_protocol.dart';
+import 'cr_coverage.dart';
 import 'cr_execution_context.dart';
 import 'cr_js_handle.dart';
 import 'cr_input.dart';
@@ -242,6 +243,9 @@ class CrPage extends EventEmitter
 
   @override
   List<CoreFrame> get frames => frameManager.frames;
+
+  @override
+  late final CoreCoverage coverage = CrCoverage(session);
 
   // --------------------------------------------------- init scripts
 

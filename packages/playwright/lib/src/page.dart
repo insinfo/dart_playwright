@@ -9,6 +9,7 @@ import 'package:playwright_protocol/playwright_protocol.dart'
     hide WaitForSelectorState;
 import 'binding_source.dart';
 import 'clock.dart';
+import 'coverage.dart';
 import 'browser_context.dart';
 import 'console_message.dart';
 import 'download.dart';
@@ -256,6 +257,15 @@ abstract class Page {
   /// exposes here too: faking time affects every page of the context, not
   /// this one alone. See [Clock].
   Clock get clock;
+
+  /// JavaScript and CSS coverage.
+  ///
+  /// **Chromium only.** On Firefox and WebKit reading this property throws
+  /// [UnsupportedError]: the counts come from V8 and from Blink's CSS engine,
+  /// and neither of the other two protocols has an equivalent. Upstream
+  /// Playwright exposes `page.coverage` on the Chromium page alone. See
+  /// [Coverage].
+  Coverage get coverage;
 
   /// Create a locator for an element in the page's main frame.
   ///
@@ -720,6 +730,9 @@ class PageImpl implements Page {
   Future<void> exposeBinding(String name, BindingCallback callback) =>
       _corePage.exposeBinding(name, adaptBindingCallback(callback),
           noGlobal: false);
+
+  @override
+  Coverage get coverage => CoverageImpl(_corePage.coverage);
 
   @override
   Clock get clock {

@@ -176,12 +176,29 @@ What is missing:
 | Multipart uploads and `storageState` on `APIRequestContext` | 3 |
 | `WebSocket`, `WebSocketRoute`, `Worker` | 3 |
 | Context options: proxy, `forcedColors` on Chromium's older builds, `screen`, `videosPath` | 4 |
-| `Clock`, `Coverage`, `Selectors.register` | 4 |
-| `addInitScript`, `exposeFunction`, `exposeBinding` | 4 |
+| `Selectors.register` | 4 |
 | `BrowserType.connect`, `connectOverCDP`, `launchPersistentContext`, `launchServer` | 4 |
 | Screenshot assertions (`toHaveScreenshot`) | 5 |
 | Codegen, UI mode, trace viewer, inspector | not planned yet |
 | Android, Electron, WebView | not planned yet |
+
+Milestone 6 added `addInitScript`, `exposeFunction`/`exposeBinding`, the
+`Clock` and `Coverage`. The first three work identically on the three engines:
+init scripts go through `Page.addScriptToEvaluateOnNewDocument`,
+`Page.setInitScripts` and `Page.setBootstrapScript`, and the binding channel
+through `Runtime.addBinding` (Chromium, WebKit) and `Page.addBinding`
+(Juggler). The `Clock` is the port of upstream's `injected/clock.ts`: it
+replaces `Date`, the timer functions, `performance`, `Intl.DateTimeFormat` and
+`AbortSignal.timeout` at the start of every document, and survives navigation
+by replaying a log of what the driver asked for.
+
+`page.coverage` is **Chromium only**, and that is not a gap of this port:
+the counts come from V8's `Profiler` domain and from Blink's CSS rule-usage
+tracking, and neither the Juggler protocol nor the WebKit inspector protocol
+has an equivalent. Upstream Playwright exposes `page.coverage` on its Chromium
+page type alone. Here Firefox and WebKit throw `UnsupportedError` with that
+explanation, rather than answering with an empty list that would read as
+"nothing ran".
 
 One thing the accessibility tree does **not** give you, on any engine: the
 browser's own accessibility tree. `page.accessibilitySnapshot()` and
@@ -192,11 +209,13 @@ engines agree, and is what upstream Playwright does since it removed
 you need to know what a platform screen reader would announce, that question
 is outside what any Playwright, this one included, answers.
 
-One protocol limitation worth knowing: `page.evaluate` of an expression that
-returns a promise resolves it on Chromium and WebKit, but **not on Firefox**
-— Juggler's `Runtime.evaluate` has no `awaitPromise` flag and no equivalent
-command. On Firefox, have the page store the result and poll for it with
-`waitForFunction`.
+`page.evaluate` of an expression that returns a promise resolves it on all
+three engines, and each one needs a different door to get there. Chromium has
+`awaitPromise` on `Runtime.evaluate`. WebKit does not, and does not even tag a
+promise with `subtype: 'promise'`, so the value is fetched through
+`Runtime.callFunctionOn`, which *does* have the flag. Firefox has no flag
+anywhere, but Juggler's `Runtime.callFunction` settles a promise it is handed,
+so the promise goes back through that. A rejected promise throws on all three.
 
 The `css` selector engine runs the ported `selectorEvaluator`, so it supports
 Playwright's CSS extensions (`:has-text()`, `:text()`, `:text-is()`,
