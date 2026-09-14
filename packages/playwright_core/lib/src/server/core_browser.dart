@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:playwright_protocol/playwright_protocol.dart';
 import 'core_page.dart';
+import 'trace/instrumentation.dart';
+import 'trace/tracing.dart';
 
 /// Options applied to every page of a browser context.
 /// Latitude, longitude and accuracy in metres.
@@ -170,6 +172,10 @@ class CorePermissions {
 
 /// Base interface for internal browser implementations.
 abstract class CoreBrowser extends EventEmitter {
+  /// `chromium`, `firefox` or `webkit`. Written into the trace metadata, which
+  /// is how the viewer labels the run.
+  String get name;
+
   /// Exposes the underlying connection for CDP/Juggler/WebKit operations.
   dynamic get connection;
 
@@ -197,6 +203,20 @@ abstract class CoreBrowser extends EventEmitter {
 /// `pageerror` ([CorePageError]), `dialog` ([Dialog]), and the network
 /// events `request`/`response`/`requestFinished`/`requestFailed`.
 abstract class CoreBrowserContext extends EventEmitter {
+  /// The browser that owns this context.
+  CoreBrowser get browser;
+
+  /// The options this context was created with.
+  CoreContextOptions get options;
+
+  /// Where the public API layer reports its calls, and where the trace
+  /// recorder listens. Empty and free when nothing is tracing.
+  CoreInstrumentation get instrumentation;
+
+  /// Records a trace of this context that the official Playwright viewer
+  /// opens.
+  CoreTracing get tracing;
+
   /// Pages opened in this context.
   List<CorePage> get pages;
 
@@ -228,6 +248,13 @@ abstract class CoreBrowserContext extends EventEmitter {
 /// Each engine supplies raw cookie access; localStorage is gathered by
 /// evaluating in the pages this context has opened.
 mixin BrowserContextStorage on EventEmitter {
+  /// Where the public API layer reports its calls.
+  final CoreInstrumentation instrumentation = CoreInstrumentation();
+
+  /// The trace recorder for this context, created on first use so a context
+  /// that never traces pays nothing.
+  late final CoreTracing tracing = CoreTracing(this as CoreBrowserContext);
+
   /// Pages opened by this context, used to snapshot localStorage per origin.
   final List<CorePage> trackedPages = [];
 
@@ -284,6 +311,9 @@ mixin BrowserContextStorage on EventEmitter {
 
   /// Announces the context's own closure and releases its streams.
   void notifyClosed() {
+    // Before the streams go: the recorder has to drop its listeners and its
+    // temporary directory, and it cannot talk to a closed context.
+    tracing.dispose();
     emit('close', true);
     (this as EventEmitter).disposeStreams();
   }

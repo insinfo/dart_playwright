@@ -11,6 +11,9 @@ import 'cr_page.dart';
 /// Represents a Chromium browser instance.
 class CrBrowser extends EventEmitter implements CoreBrowser {
   @override
+  String get name => 'chromium';
+
+  @override
   final CRConnection connection;
   final Process? process;
   final String? _tempUserDataDir;

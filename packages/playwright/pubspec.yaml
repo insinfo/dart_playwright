@@ -28,3 +28,6 @@ dependencies:
 
 dev_dependencies:
   test: ^1.25.0
+  # Reads back the recorded trace archive in the tracing tests.
+  archive: ^4.0.0
+  crypto: ^3.0.0

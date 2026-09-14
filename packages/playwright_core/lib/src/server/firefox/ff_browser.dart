@@ -9,6 +9,9 @@ import 'ff_connection.dart';
 import 'ff_page.dart';
 
 class FfBrowser extends EventEmitter implements CoreBrowser {
+  @override
+  String get name => 'firefox';
+
   final FfConnection connection;
   late final FfSession session;
   final _contexts = <FfBrowserContext>[];

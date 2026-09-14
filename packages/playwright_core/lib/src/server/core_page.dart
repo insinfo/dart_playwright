@@ -10,6 +10,7 @@ import 'core_events.dart';
 import 'core_file_chooser.dart';
 import 'core_screenshot.dart';
 import 'dialog.dart';
+import 'trace/trace_utils.dart';
 import 'keyboard.dart';
 import 'core_js_handle.dart';
 import 'core_route.dart';
@@ -49,6 +50,14 @@ abstract class CoreExecutionContext {
 }
 
 abstract class CorePage extends EventEmitter {
+  /// Stable identifier for this page, in upstream's `page@<32 hex>` shape.
+  ///
+  /// The trace format keys pages by it: every `page`, `pageClosed`, console
+  /// and snapshot event carries a `pageId`, and the viewer groups the timeline
+  /// by page from that. Nothing else in the port needs it, so it is minted
+  /// here and never sent to an engine.
+  String get guid;
+
   CoreFrame get mainFrame;
   List<CoreFrame> get frames;
 
@@ -289,6 +298,9 @@ String wrapEvaluationExpression(String expression) {
 mixin CorePageOwnership {
   CoreBrowserContext? browserContext;
   CorePage? opener;
+
+  /// See [CorePage.guid].
+  final String guid = 'page@${createGuid()}';
 }
 
 /// Dialog dispatch shared by the engine pages.

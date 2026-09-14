@@ -43,6 +43,14 @@ lib/src/server/chromium/chromium_switches.dart
     Port of packages/playwright-core/src/server/chromium/
     chromiumSwitches.ts. Modified: reduced to the switches this port uses.
 
+lib/src/server/trace/
+    Port of the trace recorder: tracing.ts, harTracer.ts and the har.ts entry
+    shape, serializedFS.ts and instrumentation.ts from
+    packages/playwright-core/src/server; trace_events.dart reproduces
+    packages/isomorphic/trace/versions/traceV9.ts. Modified: writes format
+    version 9 (the newest a released viewer reads), has no DOM snapshotter
+    and no screencast, and caps each response-body read with a timeout.
+
 lib/src/registry/browsers_json.dart
     The browser revision table from packages/playwright-core/browsers.json,
     embedded as a Dart string. Modified: trimmed to the browsers this port

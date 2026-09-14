@@ -21,6 +21,7 @@ import 'element_handle.dart';
 import 'route.dart';
 import 'dialog.dart';
 import 'network.dart';
+import 'instrumented.dart';
 import 'package:playwright_core/src/accessibility.dart';
 
 export 'package:playwright_core/src/server/core_page.dart' show WaitUntilState;
@@ -246,8 +247,7 @@ abstract class Page {
   Locator getByTitle(Pattern text, {bool exact = false});
 
   /// Locate an element by its test id attribute, in the main frame.
-  Locator getByTestId(Pattern testId,
-      {String? attributeName});
+  Locator getByTestId(Pattern testId, {String? attributeName});
 
   /// Click an element using trusted protocol-level input events.
   ///
@@ -443,54 +443,94 @@ class PageImpl implements Page {
   factory PageImpl.forCore(CorePage corePage) =>
       _pageWrappers[corePage] ??= PageImpl(corePage);
 
+  /// Reports the call to the context's instrumentation, which is where a trace
+  /// gets its rows. Free when nothing is tracing.
+  Future<T> _call<T>(String type, String method, Map<String, dynamic> params,
+          Future<T> Function() body,
+          {String? title}) =>
+      instrumented(
+        page: _corePage,
+        type: type,
+        method: method,
+        params: params,
+        title: title,
+        body: body,
+      );
+
   @override
   Future<void> goto(String url,
           {WaitUntilState? waitUntil, Duration? timeout}) =>
-      _corePage.goto(url, waitUntil: waitUntil, timeout: timeout);
+      _call('Frame', 'goto', {'url': url},
+          () => _corePage.goto(url, waitUntil: waitUntil, timeout: timeout));
 
   @override
   Future<void> waitForLoadState(
           {WaitUntilState state = WaitUntilState.load, Duration? timeout}) =>
-      _corePage.waitForLoadState(state: state, timeout: timeout);
+      _call('Frame', 'waitForLoadState', {'state': state.name},
+          () => _corePage.waitForLoadState(state: state, timeout: timeout),
+          title: 'Wait for load state');
 
   @override
   Future<void> waitForNavigation(
           {WaitUntilState? waitUntil, Duration? timeout}) =>
-      _corePage.waitForNavigation(waitUntil: waitUntil, timeout: timeout);
+      _call(
+          'Frame',
+          'waitForNavigation',
+          const {},
+          () => _corePage.waitForNavigation(
+              waitUntil: waitUntil, timeout: timeout),
+          title: 'Wait for navigation');
 
   @override
-  Future<void> waitForURL(Pattern url, {Duration? timeout}) =>
-      _corePage.mainFrame.waitForURL(url, timeout: timeout);
+  Future<void> waitForURL(Pattern url, {Duration? timeout}) => _call(
+      'Frame',
+      'waitForURL',
+      {'url': '$url'},
+      () => _corePage.mainFrame.waitForURL(url, timeout: timeout),
+      title: 'Wait for URL');
 
   @override
-  Future<void> reload({WaitUntilState? waitUntil}) =>
-      _corePage.reload(waitUntil: waitUntil);
+  Future<void> reload({WaitUntilState? waitUntil}) => _call(
+      'Page', 'reload', const {}, () => _corePage.reload(waitUntil: waitUntil));
 
   @override
-  Future<bool> goBack({WaitUntilState? waitUntil}) =>
-      _corePage.goBack(waitUntil: waitUntil);
+  Future<bool> goBack({WaitUntilState? waitUntil}) => _call(
+      'Page', 'goBack', const {}, () => _corePage.goBack(waitUntil: waitUntil));
 
   @override
-  Future<bool> goForward({WaitUntilState? waitUntil}) =>
-      _corePage.goForward(waitUntil: waitUntil);
+  Future<bool> goForward({WaitUntilState? waitUntil}) => _call('Page',
+      'goForward', const {}, () => _corePage.goForward(waitUntil: waitUntil));
 
   @override
   Future<void> setContent(String html,
           {WaitUntilState? waitUntil, Duration? timeout}) =>
-      _corePage.setContent(html, waitUntil: waitUntil, timeout: timeout);
+      _call(
+          'Frame',
+          'setContent',
+          const {},
+          () => _corePage.setContent(html,
+              waitUntil: waitUntil, timeout: timeout));
 
   @override
   Future<dynamic> waitForFunction(String expression,
           {Duration? timeout, Duration? polling}) =>
-      _corePage.waitForFunction(expression,
-          timeout: timeout, polling: polling);
+      _call(
+          'Frame',
+          'waitForFunction',
+          {'expression': expression},
+          () => _corePage.waitForFunction(expression,
+              timeout: timeout, polling: polling));
 
   @override
-  Future<void> waitForTimeout(Duration timeout) =>
-      Future<void>.delayed(timeout);
+  Future<void> waitForTimeout(Duration timeout) => _call(
+      'Frame',
+      'waitForTimeout',
+      {'timeout': timeout.inMilliseconds},
+      () => Future<void>.delayed(timeout));
 
   @override
-  Future<String> title() => _corePage.title();
+  Future<String> title() =>
+      _call('Frame', 'title', const {}, () => _corePage.title());
 
   @override
   Future<List<int>> screenshot({
@@ -501,22 +541,26 @@ class PageImpl implements Page {
     ({double x, double y, double width, double height})? clip,
     String scale = 'device',
   }) =>
-      _corePage.screenshot(
-        path: path,
-        options: CoreScreenshotOptions(
-          type: type,
-          quality: quality,
-          fullPage: fullPage,
-          clip: clip == null
-              ? null
-              : CoreRect(
-                  x: clip.x,
-                  y: clip.y,
-                  width: clip.width,
-                  height: clip.height),
-          scale: scale,
-        ),
-      );
+      _call(
+          'Page',
+          'screenshot',
+          {'type': type, 'fullPage': fullPage},
+          () => _corePage.screenshot(
+                path: path,
+                options: CoreScreenshotOptions(
+                  type: type,
+                  quality: quality,
+                  fullPage: fullPage,
+                  clip: clip == null
+                      ? null
+                      : CoreRect(
+                          x: clip.x,
+                          y: clip.y,
+                          width: clip.width,
+                          height: clip.height),
+                  scale: scale,
+                ),
+              ));
 
   @override
   Future<List<int>> pdf({
@@ -539,28 +583,32 @@ class PageImpl implements Page {
     bool tagged = false,
     bool outline = false,
   }) =>
-      _corePage.pdf(
-        path: path,
-        options: CorePdfOptions(
-          landscape: landscape,
-          displayHeaderFooter: displayHeaderFooter,
-          headerTemplate: headerTemplate,
-          footerTemplate: footerTemplate,
-          printBackground: printBackground,
-          scale: scale,
-          format: format,
-          width: width,
-          height: height,
-          marginTop: marginTop,
-          marginBottom: marginBottom,
-          marginLeft: marginLeft,
-          marginRight: marginRight,
-          pageRanges: pageRanges,
-          preferCSSPageSize: preferCSSPageSize,
-          tagged: tagged,
-          outline: outline,
-        ),
-      );
+      _call(
+          'Page',
+          'pdf',
+          const {},
+          () => _corePage.pdf(
+                path: path,
+                options: CorePdfOptions(
+                  landscape: landscape,
+                  displayHeaderFooter: displayHeaderFooter,
+                  headerTemplate: headerTemplate,
+                  footerTemplate: footerTemplate,
+                  printBackground: printBackground,
+                  scale: scale,
+                  format: format,
+                  width: width,
+                  height: height,
+                  marginTop: marginTop,
+                  marginBottom: marginBottom,
+                  marginLeft: marginLeft,
+                  marginRight: marginRight,
+                  pageRanges: pageRanges,
+                  preferCSSPageSize: preferCSSPageSize,
+                  tagged: tagged,
+                  outline: outline,
+                ),
+              ));
 
   @override
   Future<AccessibilitySnapshot> accessibilitySnapshot(
@@ -568,15 +616,24 @@ class PageImpl implements Page {
       _corePage.accessibilitySnapshot(interestingOnly: interestingOnly);
 
   @override
-  Future<String> ariaSnapshot() => _corePage.ariaSnapshot();
+  Future<String> ariaSnapshot() =>
+      _call('Frame', 'ariaSnapshot', const {}, () => _corePage.ariaSnapshot());
 
   @override
-  Future<void> setViewportSize(int width, int height) =>
-      _corePage.setViewportSize(width, height);
+  Future<void> setViewportSize(int width, int height) => _call(
+      'Page',
+      'setViewportSize',
+      {
+        'viewportSize': {'width': width, 'height': height}
+      },
+      () => _corePage.setViewportSize(width, height));
 
   @override
-  Future<void> setExtraHTTPHeaders(Map<String, String> headers) =>
-      _corePage.setExtraHTTPHeaders(headers);
+  Future<void> setExtraHTTPHeaders(Map<String, String> headers) => _call(
+      'Page',
+      'setExtraHTTPHeaders',
+      const {},
+      () => _corePage.setExtraHTTPHeaders(headers));
 
   @override
   Future<void> setInputFiles(String selector, List<String> paths,
@@ -625,12 +682,15 @@ class PageImpl implements Page {
       locator(selector).tap(position: position, strict: false);
 
   @override
-  Future<void> press(String selector, String key) =>
-      _corePage.press(selector, key);
+  Future<void> press(String selector, String key) => _call('Frame', 'press',
+      {'selector': selector, 'key': key}, () => _corePage.press(selector, key));
 
   @override
-  Future<void> type(String selector, String text) =>
-      _corePage.type(selector, text);
+  Future<void> type(String selector, String text) => _call(
+      'Frame',
+      'type',
+      {'selector': selector, 'text': text},
+      () => _corePage.type(selector, text));
 
   @override
   Stream<Dialog> get onDialog => _corePage
@@ -638,7 +698,11 @@ class PageImpl implements Page {
       .map((coreDialog) => DialogImpl(coreDialog));
 
   @override
-  Future<dynamic> evaluate(String expression) => _corePage.evaluate(expression);
+  Future<dynamic> evaluate(String expression) => _call(
+      'Frame',
+      'evaluateExpression',
+      {'expression': expression},
+      () => _corePage.evaluate(expression));
 
   @override
   Future<JSHandle> evaluateHandle(String expression) =>
@@ -728,8 +792,7 @@ class PageImpl implements Page {
       _mainFrame.getByTitle(text, exact: exact);
 
   @override
-  Locator getByTestId(Pattern testId,
-          {String? attributeName}) =>
+  Locator getByTestId(Pattern testId, {String? attributeName}) =>
       _mainFrame.getByTestId(testId, attributeName: attributeName);
 
   @override
@@ -738,34 +801,46 @@ class PageImpl implements Page {
           int clickCount = 1,
           Duration? delay,
           ({double x, double y})? position}) =>
-      _corePage.click(selector,
-          button: button,
-          clickCount: clickCount,
-          delay: delay,
-          position: position);
+      _call(
+          'Frame',
+          'click',
+          {'selector': selector, 'button': button, 'clickCount': clickCount},
+          () => _corePage.click(selector,
+              button: button,
+              clickCount: clickCount,
+              delay: delay,
+              position: position));
 
   @override
   Future<void> dblclick(String selector,
           {String button = 'left',
           Duration? delay,
           ({double x, double y})? position}) =>
-      _corePage.dblclick(selector,
-          button: button, delay: delay, position: position);
+      _call(
+          'Frame',
+          'dblclick',
+          {'selector': selector, 'button': button},
+          () => _corePage.dblclick(selector,
+              button: button, delay: delay, position: position));
 
   @override
   Future<void> hover(String selector, {({double x, double y})? position}) =>
-      _corePage.hover(selector, position: position);
+      _call('Frame', 'hover', {'selector': selector},
+          () => _corePage.hover(selector, position: position));
 
   @override
-  Future<void> fill(String selector, String text) =>
-      _corePage.fill(selector, text);
+  Future<void> fill(String selector, String text) => _call(
+      'Frame',
+      'fill',
+      {'selector': selector, 'value': text},
+      () => _corePage.fill(selector, text));
 
   @override
-  Future<String> content() async {
-    final result =
-        await _corePage.evaluate('() => document.documentElement.outerHTML');
-    return result.toString();
-  }
+  Future<String> content() => _call('Frame', 'content', const {}, () async {
+        final result = await _corePage
+            .evaluate('() => document.documentElement.outerHTML');
+        return result.toString();
+      });
 
   @override
   Future<String> url() async {
@@ -778,11 +853,16 @@ class PageImpl implements Page {
           {WaitForSelectorState state = WaitForSelectorState.visible,
           Duration timeout = kDefaultLocatorTimeout,
           bool strict = false}) =>
-      _mainFrame.waitForSelector(selector,
-          state: state, timeout: timeout, strict: strict);
+      _call(
+          'Frame',
+          'waitForSelector',
+          {'selector': selector, 'state': state.name},
+          () => _mainFrame.waitForSelector(selector,
+              state: state, timeout: timeout, strict: strict));
 
   @override
-  Future<void> close() => _corePage.close();
+  Future<void> close() =>
+      _call('Page', 'close', const {}, () => _corePage.close());
 
   @override
   Stream<void> get onClose => _corePage.stream<void>('close');
@@ -858,11 +938,12 @@ class PageImpl implements Page {
   @override
   Stream<FileChooser> get onFileChooser {
     _corePage.setInterceptFileChooser(true).catchError((Object _) {});
-    return _corePage.stream<CoreFileChooser>('filechooser').map((chooser) =>
-        FileChooserImpl(this, chooser, (paths) async {
-          final frame = _corePage.mainFrame;
-          await _corePage.setInputFilePaths(frame, chooser.element, paths);
-        }));
+    return _corePage
+        .stream<CoreFileChooser>('filechooser')
+        .map((chooser) => FileChooserImpl(this, chooser, (paths) async {
+              final frame = _corePage.mainFrame;
+              await _corePage.setInputFilePaths(frame, chooser.element, paths);
+            }));
   }
 
   @override

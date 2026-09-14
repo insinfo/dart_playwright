@@ -10,6 +10,7 @@ import 'package:playwright_core/src/server/core_page.dart';
 import 'package:playwright_core/src/server/selectors.dart';
 
 import 'element_handle.dart';
+import 'instrumented.dart';
 import 'frame.dart';
 import 'test_id.dart';
 import 'frame_locator.dart';
@@ -133,9 +134,7 @@ mixin LocatorFactory {
       byParts([Selectors.byTitle(text, exact: exact)]);
 
   /// Locates an element by its test id attribute (`data-testid` by default).
-  Locator getByTestId(Pattern testId,
-          {String? attributeName}) =>
-      byParts([
+  Locator getByTestId(Pattern testId, {String? attributeName}) => byParts([
         Selectors.byTestId(testId,
             attributeName: attributeName ?? testIdAttributeName)
       ]);
@@ -252,7 +251,8 @@ abstract class Locator with LocatorFactory {
   });
 
   /// Clear the input field.
-  Future<void> clear({Duration? timeout, bool strict = true, bool force = false});
+  Future<void> clear(
+      {Duration? timeout, bool strict = true, bool force = false});
 
   /// Focus the element.
   Future<void> focus({Duration? timeout, bool strict = true});
@@ -436,8 +436,7 @@ class LocatorImpl extends Locator {
   Locator nth(int index) => byParts([Selectors.nth(index)]);
 
   @override
-  Locator visible({bool value = true}) =>
-      byParts([Selectors.visible(value)]);
+  Locator visible({bool value = true}) => byParts([Selectors.visible(value)]);
 
   @override
   Locator filter(
@@ -486,8 +485,8 @@ class LocatorImpl extends Locator {
         throw _NotResolved(
             'frame locator ${ParsedSelector(group).description} did not match');
       }
-      final handle =
-          await frame.evaluateHandleInjected('() => ${_resolverJs(group, strict)}');
+      final handle = await frame
+          .evaluateHandleInjected('() => ${_resolverJs(group, strict)}');
       final child = await frame.page.contentFrame(handle);
       await handle.dispose().catchError((_) {});
       if (child == null) {
@@ -639,6 +638,20 @@ class LocatorImpl extends Locator {
 
   CorePage get _corePage => _frame.coreFrame.page;
 
+  /// Reports the call to the context's instrumentation, which is where a trace
+  /// gets its rows. `Frame` is upstream's protocol class for every locator
+  /// action — `Locator.click` is `Frame.click` with a selector on the wire —
+  /// so the viewer labels the row the same way it labels a TypeScript one.
+  Future<T> _call<T>(String method, Map<String, dynamic> params,
+          Future<T> Function() body) =>
+      instrumented(
+        page: _corePage,
+        type: 'Frame',
+        method: method,
+        params: params,
+        body: body,
+      );
+
   /// The states upstream requires before a click: visible, not moving, not
   /// disabled, and actually reachable by a pointer at the action point.
   static const _clickStates = [
@@ -656,80 +669,94 @@ class LocatorImpl extends Locator {
 
   @override
   Future<void> click(
-      {String button = 'left',
-      int clickCount = 1,
-      Duration? delay,
-      ({double x, double y})? position,
-      Duration? timeout,
-      bool strict = true,
-      bool force = false}) async {
-    final target = await _waitForActionable(
-        states: _clickStates,
-        timeout: timeout,
-        strict: strict,
-        force: force,
-        position: position);
-    await _corePage.clickTarget(target.frame, target.resolver,
-        button: button,
-        clickCount: clickCount,
-        delay: delay,
-        position: position);
-  }
+          {String button = 'left',
+          int clickCount = 1,
+          Duration? delay,
+          ({double x, double y})? position,
+          Duration? timeout,
+          bool strict = true,
+          bool force = false}) =>
+      _call('click', {
+        'selector': _selector.description,
+        'button': button,
+        'clickCount': clickCount
+      }, () async {
+        final target = await _waitForActionable(
+            states: _clickStates,
+            timeout: timeout,
+            strict: strict,
+            force: force,
+            position: position);
+        await _corePage.clickTarget(target.frame, target.resolver,
+            button: button,
+            clickCount: clickCount,
+            delay: delay,
+            position: position);
+      });
 
   @override
   Future<void> dblclick(
-      {String button = 'left',
-      Duration? delay,
-      ({double x, double y})? position,
-      Duration? timeout,
-      bool strict = true,
-      bool force = false}) async {
-    final target = await _waitForActionable(
-        states: _clickStates,
-        timeout: timeout,
-        strict: strict,
-        force: force,
-        position: position);
-    await _corePage.dblclickTarget(target.frame, target.resolver,
-        button: button, delay: delay, position: position);
-  }
+          {String button = 'left',
+          Duration? delay,
+          ({double x, double y})? position,
+          Duration? timeout,
+          bool strict = true,
+          bool force = false}) =>
+      _call('dblclick', {'selector': _selector.description, 'button': button},
+          () async {
+        final target = await _waitForActionable(
+            states: _clickStates,
+            timeout: timeout,
+            strict: strict,
+            force: force,
+            position: position);
+        await _corePage.dblclickTarget(target.frame, target.resolver,
+            button: button, delay: delay, position: position);
+      });
 
   @override
   Future<void> hover(
-      {({double x, double y})? position,
-      Duration? timeout,
-      bool strict = true,
-      bool force = false}) async {
-    final target = await _waitForActionable(
-        states: _hoverStates,
-        timeout: timeout,
-        strict: strict,
-        force: force,
-        position: position);
-    await _corePage.hoverTarget(target.frame, target.resolver,
-        position: position);
-  }
+          {({double x, double y})? position,
+          Duration? timeout,
+          bool strict = true,
+          bool force = false}) =>
+      _call('hover', {'selector': _selector.description}, () async {
+        final target = await _waitForActionable(
+            states: _hoverStates,
+            timeout: timeout,
+            strict: strict,
+            force: force,
+            position: position);
+        await _corePage.hoverTarget(target.frame, target.resolver,
+            position: position);
+      });
 
   @override
   Future<void> fill(String text,
-      {Duration? timeout, bool strict = true, bool force = false}) async {
-    final target = await _waitForActionable(
-        states: const ['visible', 'stable', 'enabled', 'editable'],
-        timeout: timeout,
-        strict: strict,
-        force: force);
-    await _corePage.fillTarget(target.frame, target.resolver, text);
-  }
+          {Duration? timeout, bool strict = true, bool force = false}) =>
+      _call('fill', {'selector': _selector.description, 'value': text},
+          () async {
+        final target = await _waitForActionable(
+            states: const ['visible', 'stable', 'enabled', 'editable'],
+            timeout: timeout,
+            strict: strict,
+            force: force);
+        await _corePage.fillTarget(target.frame, target.resolver, text);
+      });
 
   @override
   Future<void> setInputFiles(List<String> paths,
-      {Duration? timeout, bool strict = true}) async {
-    // The file input does not have to be visible — upstream explicitly
-    // supports the common pattern of a hidden input driven by a styled
-    // button — so only attachment is required here.
-    final resolved = await _poll(timeout ?? kDefaultLocatorTimeout, () async {
-      final frames = await _resolveFrames(strict);
-      final handle = await frames.frame.evaluateHandleInjected('''
+          {Duration? timeout, bool strict = true}) =>
+      _call(
+          'setInputFiles', {'selector': _selector.description, 'files': paths},
+          () async {
+        // The file input does not have to be visible — upstream explicitly
+        // supports the common pattern of a hidden input driven by a styled
+        // button — so only attachment is required here.
+        final resolved =
+            await _poll(timeout ?? kDefaultLocatorTimeout, () async {
+          final frames = await _resolveFrames(strict);
+          final handle = await frames.frame.evaluateHandleInjected('''
         () => {
           const el = window.__pwDart.query(${jsonEncode(_selector.parts)}, $strict);
           if (!el) throw new Error('Element not found');
@@ -739,29 +766,30 @@ class LocatorImpl extends Locator {
           return input;
         }
       ''');
-      return (frame: frames.frame, handle: handle);
-    });
-    try {
-      if (paths.isEmpty) {
-        // Chromium's DOM.setFileInputFiles ignores an empty list, so clearing
-        // goes through the DOM instead. Assigning '' is the one mutation the
-        // HTML spec allows on a file input, and it works on every engine.
-        await resolved.handle.evaluate('''
+          return (frame: frames.frame, handle: handle);
+        });
+        try {
+          if (paths.isEmpty) {
+            // Chromium's DOM.setFileInputFiles ignores an empty list, so clearing
+            // goes through the DOM instead. Assigning '' is the one mutation the
+            // HTML spec allows on a file input, and it works on every engine.
+            await resolved.handle.evaluate('''
           (el) => {
             el.value = '';
             el.dispatchEvent(new Event('input', { bubbles: true }));
             el.dispatchEvent(new Event('change', { bubbles: true }));
           }
         ''');
-        return;
-      }
-      // The engines resolve the paths themselves; the core normalizes them to
-      // absolute, native-separator form first.
-      await _corePage.setInputFilePaths(resolved.frame, resolved.handle, paths);
-    } finally {
-      await resolved.handle.dispose().catchError((Object _) {});
-    }
-  }
+            return;
+          }
+          // The engines resolve the paths themselves; the core normalizes them to
+          // absolute, native-separator form first.
+          await _corePage.setInputFilePaths(
+              resolved.frame, resolved.handle, paths);
+        } finally {
+          await resolved.handle.dispose().catchError((Object _) {});
+        }
+      });
 
   @override
   Future<void> tap({
@@ -769,16 +797,17 @@ class LocatorImpl extends Locator {
     Duration? timeout,
     bool strict = true,
     bool force = false,
-  }) async {
-    final target = await _waitForActionable(
-        states: _clickStates,
-        timeout: timeout,
-        strict: strict,
-        force: force,
-        position: position);
-    await _corePage.tapTarget(target.frame, target.resolver,
-        position: position);
-  }
+  }) =>
+      _call('tap', {'selector': _selector.description}, () async {
+        final target = await _waitForActionable(
+            states: _clickStates,
+            timeout: timeout,
+            strict: strict,
+            force: force,
+            position: position);
+        await _corePage.tapTarget(target.frame, target.resolver,
+            position: position);
+      });
 
   @override
   Future<List<int>> screenshot({
@@ -788,22 +817,24 @@ class LocatorImpl extends Locator {
     String scale = 'device',
     Duration? timeout,
     bool strict = true,
-  }) async {
-    final target = await _waitForActionable(
-        states: const ['visible', 'stable'],
-        timeout: timeout,
-        strict: strict);
-    final rect =
-        await _corePage.documentRectForTarget(target.frame, target.resolver);
-    final options = CoreScreenshotOptions(
-        type: type, quality: quality, scale: scale);
-    options.validate();
-    final bytes = await _corePage.screenshotRect(rect, options,
-        // An element taller than the viewport still has to be captured whole.
-        fitsViewport: false);
-    if (path != null) await File(path).writeAsBytes(bytes);
-    return bytes;
-  }
+  }) =>
+      _call('screenshot', {'selector': _selector.description, 'type': type},
+          () async {
+        final target = await _waitForActionable(
+            states: const ['visible', 'stable'],
+            timeout: timeout,
+            strict: strict);
+        final rect = await _corePage.documentRectForTarget(
+            target.frame, target.resolver);
+        final options =
+            CoreScreenshotOptions(type: type, quality: quality, scale: scale);
+        options.validate();
+        final bytes = await _corePage.screenshotRect(rect, options,
+            // An element taller than the viewport still has to be captured whole.
+            fitsViewport: false);
+        if (path != null) await File(path).writeAsBytes(bytes);
+        return bytes;
+      });
 
   @override
   Future<void> clear(
@@ -811,32 +842,43 @@ class LocatorImpl extends Locator {
       fill('', timeout: timeout, strict: strict, force: force);
 
   @override
-  Future<void> focus({Duration? timeout, bool strict = true}) async {
-    final target = await _waitForActionable(
-        states: const [], timeout: timeout, strict: strict);
-    await _corePage.focusTarget(target.frame, target.resolver);
-  }
+  Future<void> focus({Duration? timeout, bool strict = true}) =>
+      _call('focus', {'selector': _selector.description}, () async {
+        final target = await _waitForActionable(
+            states: const [], timeout: timeout, strict: strict);
+        await _corePage.focusTarget(target.frame, target.resolver);
+      });
 
   @override
-  Future<void> blur({Duration? timeout, bool strict = true}) async {
-    await _run('el.blur();', timeout: timeout, strict: strict);
-  }
+  Future<void> blur({Duration? timeout, bool strict = true}) =>
+      _call('blur', {'selector': _selector.description}, () async {
+        await _run('el.blur();', timeout: timeout, strict: strict);
+      });
 
   @override
   Future<void> press(String key,
-      {Duration? timeout, bool strict = true, bool force = false}) async {
-    final target = await _waitForActionable(
-        states: _clickStates, timeout: timeout, strict: strict, force: force);
-    await _corePage.pressTarget(target.frame, target.resolver, key);
-  }
+          {Duration? timeout, bool strict = true, bool force = false}) =>
+      _call('press', {'selector': _selector.description, 'key': key}, () async {
+        final target = await _waitForActionable(
+            states: _clickStates,
+            timeout: timeout,
+            strict: strict,
+            force: force);
+        await _corePage.pressTarget(target.frame, target.resolver, key);
+      });
 
   @override
   Future<void> pressSequentially(String text,
-      {Duration? timeout, bool strict = true, bool force = false}) async {
-    final target = await _waitForActionable(
-        states: _clickStates, timeout: timeout, strict: strict, force: force);
-    await _corePage.typeTarget(target.frame, target.resolver, text);
-  }
+          {Duration? timeout, bool strict = true, bool force = false}) =>
+      _call('type', {'selector': _selector.description, 'text': text},
+          () async {
+        final target = await _waitForActionable(
+            states: _clickStates,
+            timeout: timeout,
+            strict: strict,
+            force: force);
+        await _corePage.typeTarget(target.frame, target.resolver, text);
+      });
 
   @override
   Future<void> check(
@@ -850,38 +892,43 @@ class LocatorImpl extends Locator {
 
   @override
   Future<void> setChecked(bool checked,
-      {Duration? timeout, bool strict = true, bool force = false}) async {
-    final deadline = DateTime.now().add(timeout ?? kDefaultLocatorTimeout);
-    Duration remaining() {
-      final left = deadline.difference(DateTime.now());
-      return left.isNegative ? Duration.zero : left;
-    }
+          {Duration? timeout, bool strict = true, bool force = false}) =>
+      _call(
+          'setChecked', {'selector': _selector.description, 'checked': checked},
+          () async {
+        final deadline = DateTime.now().add(timeout ?? kDefaultLocatorTimeout);
+        Duration remaining() {
+          final left = deadline.difference(DateTime.now());
+          return left.isNegative ? Duration.zero : left;
+        }
 
-    final current = await _run(
-        'return window.__pwDart.elementState(el, "checked").matches;',
-        states: _clickStates,
-        timeout: remaining(),
-        strict: strict,
-        force: force);
-    if (current == checked) return;
-    await click(timeout: remaining(), strict: strict, force: force);
-    final after = await _run(
-        'return window.__pwDart.elementState(el, "checked").matches;',
-        states: _clickStates,
-        timeout: remaining(),
-        strict: strict,
-        force: force);
-    if (after != checked) {
-      throw StateError('Clicking the element did not change its checked state');
-    }
-  }
+        final current = await _run(
+            'return window.__pwDart.elementState(el, "checked").matches;',
+            states: _clickStates,
+            timeout: remaining(),
+            strict: strict,
+            force: force);
+        if (current == checked) return;
+        await click(timeout: remaining(), strict: strict, force: force);
+        final after = await _run(
+            'return window.__pwDart.elementState(el, "checked").matches;',
+            states: _clickStates,
+            timeout: remaining(),
+            strict: strict,
+            force: force);
+        if (after != checked) {
+          throw StateError(
+              'Clicking the element did not change its checked state');
+        }
+      });
 
   @override
   Future<List<String>> selectOption(dynamic value,
-      {Duration? timeout, bool strict = true, bool force = false}) async {
-    final requested = value is List ? value : [value];
-    final encoded = jsonEncode(requested.map((v) => v.toString()).toList());
-    final result = await _run('''
+          {Duration? timeout, bool strict = true, bool force = false}) =>
+      _call('selectOption', {'selector': _selector.description}, () async {
+        final requested = value is List ? value : [value];
+        final encoded = jsonEncode(requested.map((v) => v.toString()).toList());
+        final result = await _run('''
         const wanted = $encoded;
         const select = window.__pwDart.retarget(el, 'follow-label');
         if (!select || select.tagName !== 'SELECT')
@@ -900,68 +947,72 @@ class LocatorImpl extends Locator {
         select.dispatchEvent(new Event('change', { bubbles: true }));
         return selected;
       ''',
-        states: const ['visible', 'stable', 'enabled'],
-        timeout: timeout,
-        strict: strict,
-        force: force);
-    return (result as List).map((e) => e.toString()).toList();
-  }
+            states: const ['visible', 'stable', 'enabled'],
+            timeout: timeout,
+            strict: strict,
+            force: force);
+        return (result as List).map((e) => e.toString()).toList();
+      });
 
   @override
   Future<void> dragTo(Locator target,
-      {({double x, double y})? sourcePosition,
-      ({double x, double y})? targetPosition,
-      Duration? timeout,
-      bool strict = true,
-      bool force = false}) async {
-    final deadline = DateTime.now().add(timeout ?? kDefaultLocatorTimeout);
-    Duration remaining() {
-      final left = deadline.difference(DateTime.now());
-      return left.isNegative ? Duration.zero : left;
-    }
+          {({double x, double y})? sourcePosition,
+          ({double x, double y})? targetPosition,
+          Duration? timeout,
+          bool strict = true,
+          bool force = false}) =>
+      _call('dragAndDrop', {'selector': _selector.description}, () async {
+        final deadline = DateTime.now().add(timeout ?? kDefaultLocatorTimeout);
+        Duration remaining() {
+          final left = deadline.difference(DateTime.now());
+          return left.isNegative ? Duration.zero : left;
+        }
 
-    final source = await _waitForActionable(
-        states: const ['visible', 'stable'],
-        timeout: remaining(),
-        strict: strict,
-        force: force);
-    final from = await _corePage.clickPointForTarget(
-        source.frame, source.resolver,
-        position: sourcePosition);
+        final source = await _waitForActionable(
+            states: const ['visible', 'stable'],
+            timeout: remaining(),
+            strict: strict,
+            force: force);
+        final from = await _corePage.clickPointForTarget(
+            source.frame, source.resolver,
+            position: sourcePosition);
 
-    final targetImpl = target as LocatorImpl;
-    final destination = await targetImpl._waitForActionable(
-        states: const ['visible', 'stable'],
-        timeout: remaining(),
-        strict: strict,
-        force: force);
-    final to = await _corePage.clickPointForTarget(
-        destination.frame, destination.resolver,
-        position: targetPosition);
+        final targetImpl = target as LocatorImpl;
+        final destination = await targetImpl._waitForActionable(
+            states: const ['visible', 'stable'],
+            timeout: remaining(),
+            strict: strict,
+            force: force);
+        final to = await _corePage.clickPointForTarget(
+            destination.frame, destination.resolver,
+            position: targetPosition);
 
-    final mouse = _corePage.mouse;
-    await mouse.move(from.x, from.y);
-    await mouse.down();
-    // Upstream moves to the target twice: the first move starts the drag, the
-    // second lets dragover/pointermove handlers settle on the final position.
-    await mouse.move(to.x, to.y, steps: 5);
-    await mouse.move(to.x, to.y);
-    await mouse.up();
-  }
+        final mouse = _corePage.mouse;
+        await mouse.move(from.x, from.y);
+        await mouse.down();
+        // Upstream moves to the target twice: the first move starts the drag, the
+        // second lets dragover/pointermove handlers settle on the final position.
+        await mouse.move(to.x, to.y, steps: 5);
+        await mouse.move(to.x, to.y);
+        await mouse.up();
+      });
 
   @override
   Future<void> scrollIntoViewIfNeeded(
-      {Duration? timeout, bool strict = true}) async {
-    await _run(
-        "el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });",
-        states: const ['stable'],
-        timeout: timeout,
-        strict: strict);
-  }
+          {Duration? timeout, bool strict = true}) =>
+      _call('scrollIntoViewIfNeeded', {'selector': _selector.description},
+          () async {
+        await _run(
+            "el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });",
+            states: const ['stable'],
+            timeout: timeout,
+            strict: strict);
+      });
 
   @override
-  Future<void> selectText({Duration? timeout, bool strict = true}) async {
-    await _run('''
+  Future<void> selectText({Duration? timeout, bool strict = true}) =>
+      _call('selectText', {'selector': _selector.description}, () async {
+        await _run('''
         if (typeof el.select === 'function') {
           el.select();
         } else {
@@ -972,105 +1023,119 @@ class LocatorImpl extends Locator {
           selection.addRange(range);
         }
       ''', states: const ['visible'], timeout: timeout, strict: strict);
-  }
+      });
 
   @override
   Future<void> dispatchEvent(String type,
-      {Map<String, dynamic>? eventInit,
-      Duration? timeout,
-      bool strict = true}) async {
-    final init = jsonEncode(eventInit ?? const <String, dynamic>{});
-    await _run('''
+          {Map<String, dynamic>? eventInit,
+          Duration? timeout,
+          bool strict = true}) =>
+      _call('dispatchEvent', {'selector': _selector.description, 'type': type},
+          () async {
+        final init = jsonEncode(eventInit ?? const <String, dynamic>{});
+        await _run('''
         const init = Object.assign({ bubbles: true, cancelable: true, composed: true }, $init);
         el.dispatchEvent(new (window.Event)(${jsonEncode(type)}, init));
       ''', timeout: timeout, strict: strict);
-  }
+      });
 
   // ----------------------------------------------------------------- state
 
   @override
-  Future<String> textContent({Duration? timeout, bool strict = true}) async {
-    final result = await _run('return el.textContent;',
-        timeout: timeout, strict: strict);
-    return result?.toString() ?? '';
-  }
+  Future<String> textContent({Duration? timeout, bool strict = true}) =>
+      _call('textContent', {'selector': _selector.description}, () async {
+        final result = await _run('return el.textContent;',
+            timeout: timeout, strict: strict);
+        return result?.toString() ?? '';
+      });
 
   @override
-  Future<String> innerText({Duration? timeout, bool strict = true}) async {
-    final result =
-        await _run('return el.innerText;', timeout: timeout, strict: strict);
-    return result?.toString() ?? '';
-  }
+  Future<String> innerText({Duration? timeout, bool strict = true}) =>
+      _call('innerText', {'selector': _selector.description}, () async {
+        final result = await _run('return el.innerText;',
+            timeout: timeout, strict: strict);
+        return result?.toString() ?? '';
+      });
 
   @override
-  Future<String> innerHTML({Duration? timeout, bool strict = true}) async {
-    final result =
-        await _run('return el.innerHTML;', timeout: timeout, strict: strict);
-    return result?.toString() ?? '';
-  }
+  Future<String> innerHTML({Duration? timeout, bool strict = true}) =>
+      _call('innerHTML', {'selector': _selector.description}, () async {
+        final result = await _run('return el.innerHTML;',
+            timeout: timeout, strict: strict);
+        return result?.toString() ?? '';
+      });
 
   @override
-  Future<String> inputValue({Duration? timeout, bool strict = true}) async {
-    final result = await _run(
-        "const t = window.__pwDart.retarget(el, 'follow-label'); return t.value;",
-        timeout: timeout,
-        strict: strict);
-    return result?.toString() ?? '';
-  }
+  Future<String> inputValue({Duration? timeout, bool strict = true}) =>
+      _call('inputValue', {'selector': _selector.description}, () async {
+        final result = await _run(
+            "const t = window.__pwDart.retarget(el, 'follow-label'); return t.value;",
+            timeout: timeout,
+            strict: strict);
+        return result?.toString() ?? '';
+      });
 
   @override
   Future<String?> getAttribute(String name,
-      {Duration? timeout, bool strict = true}) async {
-    final result = await _run('return el.getAttribute(${jsonEncode(name)});',
-        timeout: timeout, strict: strict);
-    return result as String?;
-  }
+          {Duration? timeout, bool strict = true}) =>
+      _call('getAttribute', {'selector': _selector.description, 'name': name},
+          () async {
+        final result = await _run(
+            'return el.getAttribute(${jsonEncode(name)});',
+            timeout: timeout,
+            strict: strict);
+        return result as String?;
+      });
 
   @override
-  Future<int> count() async {
-    final resolved = await _resolveFrames(false);
-    final result = await resolved.frame.evaluateInjected(
-        '() => window.__pwDart.guard('
-        '() => window.__pwDart.count(${jsonEncode(resolved.parts)}))');
-    return (_unwrapGuard(result) as num).toInt();
-  }
+  Future<int> count() =>
+      _call('queryCount', {'selector': _selector.description}, () async {
+        final resolved = await _resolveFrames(false);
+        final result =
+            await resolved.frame.evaluateInjected('() => window.__pwDart.guard('
+                '() => window.__pwDart.count(${jsonEncode(resolved.parts)}))');
+        return (_unwrapGuard(result) as num).toInt();
+      });
 
   @override
-  Future<bool> isVisible() async {
-    final result = await _runOnce(
-        'return window.__pwDart.elementState(el, "visible").matches;',
-        strict: false,
-        whenMissing: false);
-    return result == true;
-  }
+  Future<bool> isVisible() =>
+      _call('isVisible', {'selector': _selector.description}, () async {
+        final result = await _runOnce(
+            'return window.__pwDart.elementState(el, "visible").matches;',
+            strict: false,
+            whenMissing: false);
+        return result == true;
+      });
 
   @override
   Future<bool> isHidden() async => !await isVisible();
 
   @override
-  Future<bool> isEnabled({Duration? timeout, bool strict = true}) async {
-    final result = await _run(
-        'return window.__pwDart.elementState(el, "enabled").matches;',
-        timeout: timeout,
-        strict: strict);
-    return result == true;
-  }
+  Future<bool> isEnabled({Duration? timeout, bool strict = true}) =>
+      _call('isEnabled', {'selector': _selector.description}, () async {
+        final result = await _run(
+            'return window.__pwDart.elementState(el, "enabled").matches;',
+            timeout: timeout,
+            strict: strict);
+        return result == true;
+      });
 
   @override
   Future<bool> isDisabled({Duration? timeout, bool strict = true}) async =>
       !await isEnabled(timeout: timeout, strict: strict);
 
   @override
-  Future<bool> isEditable({Duration? timeout, bool strict = true}) async {
-    final result = await _run('''
+  Future<bool> isEditable({Duration? timeout, bool strict = true}) =>
+      _call('isEditable', {'selector': _selector.description}, () async {
+        final result = await _run('''
         try {
           return window.__pwDart.elementState(el, "editable").matches;
         } catch (e) {
           return false;
         }
       ''', timeout: timeout, strict: strict);
-    return result == true;
-  }
+        return result == true;
+      });
 
   @override
   Future<bool> isChecked({Duration? timeout, bool strict = true}) async {
@@ -1082,7 +1147,8 @@ class LocatorImpl extends Locator {
   }
 
   @override
-  Future<BoundingBox?> boundingBox({Duration? timeout, bool strict = true}) async {
+  Future<BoundingBox?> boundingBox(
+      {Duration? timeout, bool strict = true}) async {
     final result = await _run('''
         const rect = el.getBoundingClientRect();
         let x = rect.x, y = rect.y;
@@ -1126,10 +1192,8 @@ class LocatorImpl extends Locator {
 
   @override
   Future<String> ariaSnapshot({Duration? timeout, bool strict = true}) async {
-    final result = await _run(
-        'return window.__pwDart.ariaSnapshot(el, {});',
-        timeout: timeout,
-        strict: strict);
+    final result = await _run('return window.__pwDart.ariaSnapshot(el, {});',
+        timeout: timeout, strict: strict);
     return result?.toString() ?? '';
   }
 
@@ -1157,9 +1221,9 @@ class LocatorImpl extends Locator {
   @override
   Future<dynamic> evaluateAll(String expression) async {
     final resolved = await _resolveFrames(false);
-    final result = await resolved.frame.evaluateInjected(
-        '() => window.__pwDart.guard(() => ($expression)('
-        'window.__pwDart.queryAll(${jsonEncode(resolved.parts)})))');
+    final result = await resolved.frame
+        .evaluateInjected('() => window.__pwDart.guard(() => ($expression)('
+            'window.__pwDart.queryAll(${jsonEncode(resolved.parts)})))');
     return _unwrapGuard(result);
   }
 
@@ -1169,8 +1233,8 @@ class LocatorImpl extends Locator {
     // Wait for the element first so a handle is only taken once it exists.
     final target = await _waitForActionable(
         states: const [], timeout: timeout, strict: strict);
-    final handle = await target.frame.evaluateHandleInjected(
-        '() => ($expression)(${target.resolver})');
+    final handle = await target.frame
+        .evaluateHandleInjected('() => ($expression)(${target.resolver})');
     return _wrapHandle(handle);
   }
 
@@ -1183,7 +1247,8 @@ class LocatorImpl extends Locator {
         await target.frame.evaluateHandleInjected('() => ${target.resolver}');
     final wrapped = _wrapHandle(handle);
     if (wrapped is! ElementHandle) {
-      throw StateError('${_selector.description} did not resolve to an element');
+      throw StateError(
+          '${_selector.description} did not resolve to an element');
     }
     return wrapped;
   }
@@ -1207,29 +1272,31 @@ class LocatorImpl extends Locator {
 
   @override
   Future<void> waitFor(
-      {WaitForSelectorState state = WaitForSelectorState.visible,
-      Duration timeout = kDefaultLocatorTimeout,
-      bool strict = true}) async {
-    switch (state) {
-      case WaitForSelectorState.attached:
-        await _waitForActionable(
-            states: const [], timeout: timeout, strict: strict);
-        return;
-      case WaitForSelectorState.visible:
-        await _waitForActionable(
-            states: const ['visible'], timeout: timeout, strict: strict);
-        return;
-      case WaitForSelectorState.detached:
-      case WaitForSelectorState.hidden:
-        final wantDetached = state == WaitForSelectorState.detached;
-        await _poll(timeout, () async {
-          final resolved = await _resolveFrames(strict).catchError(
-              (Object _) => (
-                    frame: _frame.coreFrame,
-                    parts: <Map<String, dynamic>>[]
-                  ));
-          if (resolved.parts.isEmpty) return null;
-          final result = await resolved.frame.evaluateInjected('''
+          {WaitForSelectorState state = WaitForSelectorState.visible,
+          Duration timeout = kDefaultLocatorTimeout,
+          bool strict = true}) =>
+      _call('waitForSelector',
+          {'selector': _selector.description, 'state': state.name}, () async {
+        switch (state) {
+          case WaitForSelectorState.attached:
+            await _waitForActionable(
+                states: const [], timeout: timeout, strict: strict);
+            return;
+          case WaitForSelectorState.visible:
+            await _waitForActionable(
+                states: const ['visible'], timeout: timeout, strict: strict);
+            return;
+          case WaitForSelectorState.detached:
+          case WaitForSelectorState.hidden:
+            final wantDetached = state == WaitForSelectorState.detached;
+            await _poll(timeout, () async {
+              final resolved = await _resolveFrames(strict).catchError(
+                  (Object _) => (
+                        frame: _frame.coreFrame,
+                        parts: <Map<String, dynamic>>[]
+                      ));
+              if (resolved.parts.isEmpty) return null;
+              final result = await resolved.frame.evaluateInjected('''
             () => {
               const els = window.__pwDart.queryAll(${jsonEncode(resolved.parts)});
               if (!els.length) return 'gone';
@@ -1238,15 +1305,15 @@ class LocatorImpl extends Locator {
                   ? 'present' : 'gone';
             }
           ''');
-          if (result != 'gone') {
-            throw _NotResolved(
-                'element is still ${wantDetached ? 'attached' : 'visible'}');
-          }
-          return null;
-        });
-        return;
-    }
-  }
+              if (result != 'gone') {
+                throw _NotResolved(
+                    'element is still ${wantDetached ? 'attached' : 'visible'}');
+              }
+              return null;
+            });
+            return;
+        }
+      });
 }
 
 /// Signals "not there yet": the poll loop retries until its deadline.

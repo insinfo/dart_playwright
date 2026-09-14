@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:playwright_protocol/playwright_protocol.dart';
 import 'core_js_handle.dart';
 import 'core_page.dart';
+import 'trace/trace_utils.dart';
 
 class CoreFrame {
   final CorePage page;
@@ -14,6 +15,12 @@ class CoreFrame {
   int _navigationOrdinal = 0;
   bool _detached = false;
   final Set<String> _lifecycleEvents = {};
+
+  /// Stable identifier for this frame, in upstream's `frame@<32 hex>` shape.
+  ///
+  /// The trace format keys frame snapshots and HAR entries by it. The engine
+  /// ids ([id]) are not usable there: they are per-engine and are reused.
+  final String guid = 'frame@${createGuid()}';
 
   final EventEmitter _emitter = EventEmitter();
 

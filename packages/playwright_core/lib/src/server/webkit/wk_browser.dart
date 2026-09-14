@@ -10,6 +10,9 @@ import 'wk_page.dart';
 
 class WkBrowser extends EventEmitter implements CoreBrowser {
   @override
+  String get name => 'webkit';
+
+  @override
   final WkConnection connection;
   final _contexts = <WkBrowserContext>[];
   bool _isClosed = false;
