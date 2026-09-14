@@ -61,8 +61,8 @@ class WkScreencast extends FramesScreencast {
     final frame = params as Map<String, dynamic>;
     final data = frame['data'] as String?;
     final generation = _generation;
-    void ack() =>
-        _sendMayFail('Screencast.screencastFrameAck', {'generation': generation});
+    void ack() => _sendMayFail(
+        'Screencast.screencastFrameAck', {'generation': generation});
     if (data == null) {
       ack();
       return;

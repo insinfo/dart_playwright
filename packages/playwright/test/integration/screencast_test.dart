@@ -180,8 +180,8 @@ void main() {
           // num `await for` fica ali para sempre depois que a pagina sumiu.
           final (page, screencast) = await recording();
           final closed = Completer<void>();
-          final subscription = screencast.frames
-              .listen((_) {}, onDone: () => closed.complete());
+          final subscription =
+              screencast.frames.listen((_) {}, onDone: () => closed.complete());
           await Future<void>.delayed(const Duration(milliseconds: 500));
           await page.close();
 
@@ -193,8 +193,8 @@ void main() {
         test('Deve fechar o stream quando o contexto fecha', () async {
           final (_, screencast) = await recording();
           final closed = Completer<void>();
-          final subscription = screencast.frames
-              .listen((_) {}, onDone: () => closed.complete());
+          final subscription =
+              screencast.frames.listen((_) {}, onDone: () => closed.complete());
           await Future<void>.delayed(const Duration(milliseconds: 500));
           await context.close();
 

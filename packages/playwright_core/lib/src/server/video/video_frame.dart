@@ -10,6 +10,10 @@ class VideoFrame {
 
   /// Desde o início da gravação.
   final Duration timestamp;
-  const VideoFrame({required this.data, required this.format,
-      required this.width, required this.height, required this.timestamp});
+  const VideoFrame(
+      {required this.data,
+      required this.format,
+      required this.width,
+      required this.height,
+      required this.timestamp});
 }

@@ -341,9 +341,8 @@ class CrBrowser extends EventEmitter implements CoreBrowser {
       Directory(launchPath).createSync(recursive: true);
       return launchPath;
     }
-    return _downloadsDirectory ??= Directory.systemTemp
-        .createTempSync('playwright-dart-downloads')
-        .path;
+    return _downloadsDirectory ??=
+        Directory.systemTemp.createTempSync('playwright-dart-downloads').path;
   }
 
   void _onClosed() {
@@ -455,15 +454,16 @@ class CrBrowserContext extends EventEmitter
       } catch (error) {
         // Pages sharing a renderer share the locale override; a second one is
         // refused and can be ignored.
-        if (!'$error'.contains('Another locale override is already in effect')) {
+        if (!'$error'
+            .contains('Another locale override is already in effect')) {
           rethrow;
         }
       }
     }
     if (options.timezoneId != null) {
       try {
-        await session.send(
-            'Emulation.setTimezoneOverride', {'timezoneId': options.timezoneId});
+        await session.send('Emulation.setTimezoneOverride',
+            {'timezoneId': options.timezoneId});
       } catch (error) {
         if ('$error'.contains('Timezone override is already in effect')) {
           // Same story as the locale.

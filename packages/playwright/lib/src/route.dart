@@ -75,8 +75,8 @@ class RouteImpl implements Route {
       url: url,
       method: method,
       headers: headers,
-      postData: postDataBytes ??
-          (postData == null ? null : utf8.encode(postData)),
+      postData:
+          postDataBytes ?? (postData == null ? null : utf8.encode(postData)),
     );
   }
 
@@ -112,5 +112,6 @@ class RouteImpl implements Route {
   }
 
   @override
-  Future<void> abort([String errorCode = 'failed']) => _coreRoute.abort(errorCode);
+  Future<void> abort([String errorCode = 'failed']) =>
+      _coreRoute.abort(errorCode);
 }

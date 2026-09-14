@@ -121,7 +121,8 @@ class ElementHandleImpl extends JSHandleImpl implements ElementHandle {
 
   @override
   Future<bool> isVisible() async =>
-      await evaluate('(el) => window.__pwDart.elementState(el, "visible").matches') ==
+      await evaluate(
+          '(el) => window.__pwDart.elementState(el, "visible").matches') ==
       true;
 
   @override
@@ -129,15 +130,15 @@ class ElementHandleImpl extends JSHandleImpl implements ElementHandle {
 
   @override
   Future<bool> isEnabled() async =>
-      await evaluate('(el) => window.__pwDart.elementState(el, "enabled").matches') ==
+      await evaluate(
+          '(el) => window.__pwDart.elementState(el, "enabled").matches') ==
       true;
 
   @override
   Future<bool> isDisabled() async => !await isEnabled();
 
   @override
-  Future<bool> isEditable() async =>
-      await evaluate('''
+  Future<bool> isEditable() async => await evaluate('''
         (el) => {
           try {
             return window.__pwDart.elementState(el, "editable").matches;
@@ -145,20 +146,19 @@ class ElementHandleImpl extends JSHandleImpl implements ElementHandle {
             return false;
           }
         }
-      ''') ==
-      true;
+      ''') == true;
 
   @override
   Future<bool> isChecked() async =>
-      await evaluate('(el) => window.__pwDart.elementState(el, "checked").matches') ==
+      await evaluate(
+          '(el) => window.__pwDart.elementState(el, "checked").matches') ==
       true;
 
   @override
   Future<Frame?> contentFrame() async {
     final frame = _frame;
     if (frame == null) return null;
-    final child =
-        await frame.coreFrame.page.contentFrame(_coreElementHandle);
+    final child = await frame.coreFrame.page.contentFrame(_coreElementHandle);
     if (child == null) return null;
     return FrameImpl(child, frame.page());
   }

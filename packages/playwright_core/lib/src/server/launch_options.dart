@@ -39,7 +39,9 @@ class CoreProxySettings {
     }
     const known = {'http', 'https', 'socks5'};
     if (!known.contains(parsed.scheme)) {
-      throw ArgumentError.value(server, 'proxy.server',
+      throw ArgumentError.value(
+          server,
+          'proxy.server',
           'Unsupported proxy scheme "${parsed.scheme}". Use one of: '
               '${known.join(', ')}');
     }
@@ -179,12 +181,16 @@ class CoreLaunchOptions {
           'channel selects a branded Chromium build; $browserName has none');
     }
     if (chromiumSandbox && browserName != 'chromium') {
-      throw ArgumentError.value(chromiumSandbox, 'chromiumSandbox',
+      throw ArgumentError.value(
+          chromiumSandbox,
+          'chromiumSandbox',
           'chromiumSandbox is a Chromium option; $browserName has no such '
               'sandbox to configure');
     }
     if (firefoxUserPrefs != null && browserName != 'firefox') {
-      throw ArgumentError.value(firefoxUserPrefs, 'firefoxUserPrefs',
+      throw ArgumentError.value(
+          firefoxUserPrefs,
+          'firefoxUserPrefs',
           'firefoxUserPrefs writes Firefox about:config preferences; '
               '$browserName has none');
     }

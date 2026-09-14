@@ -46,8 +46,8 @@ Future<T> waitForStreamEvent<T>(
   ));
 
   for (final abort in abortOn) {
-    subscriptions.add(abort.stream.listen((_) => fail(abort.error()),
-        onError: fail, onDone: () {}));
+    subscriptions.add(abort.stream
+        .listen((_) => fail(abort.error()), onError: fail, onDone: () {}));
   }
 
   if (timeout != null) {

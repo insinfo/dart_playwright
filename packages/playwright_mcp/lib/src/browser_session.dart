@@ -124,13 +124,11 @@ class BrowserSession {
           (type: 'pageerror', text: '${error.name}: ${error.message}'));
     }));
     _subscriptions.add(page.onResponse.listen((response) {
-      _push(
-          networkRequests,
-          (
-            method: response.request().method(),
-            url: response.url(),
-            status: response.status()
-          ));
+      _push(networkRequests, (
+        method: response.request().method(),
+        url: response.url(),
+        status: response.status()
+      ));
     }));
     _subscriptions.add(page.onRequestFailed.listen((request) {
       _push(networkRequests,

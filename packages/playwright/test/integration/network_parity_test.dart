@@ -82,8 +82,8 @@ void main() {
           addTearDown(subscription.cancel);
 
           await page.goto(server.url('/redirect-start'));
-          expect(await page.locator('#arrived').textContent(),
-              equals('arrived'));
+          expect(
+              await page.locator('#arrived').textContent(), equals('arrived'));
 
           final last = requests.firstWhere(
               (r) => r.url() == server.url('/redirect-end'),
@@ -219,10 +219,11 @@ void main() {
             route.continue_();
           });
           await page.goto(server.url('/hello'));
-        }, skip: browserName == 'firefox'
-            ? 'Juggler takes the error code verbatim; there is no table to '
-                'validate against, as upstream also does not validate.'
-            : null);
+        },
+            skip: browserName == 'firefox'
+                ? 'Juggler takes the error code verbatim; there is no table to '
+                    'validate against, as upstream also does not validate.'
+                : null);
 
         // ------------------------------------------------- upload
 
@@ -238,8 +239,8 @@ void main() {
               equals('hello.txt'));
 
           await page.locator('#upload').setInputFiles([]);
-          expect(await page.evaluate('() => window.names("upload")'),
-              equals(''));
+          expect(
+              await page.evaluate('() => window.names("upload")'), equals(''));
         });
 
         test('setInputFiles deve aceitar varios arquivos', () async {
@@ -272,7 +273,6 @@ void main() {
               equals('chosen.txt'));
         });
 
-
         // -------------------------------------------------- screenshot
 
         test('screenshot deve respeitar fullPage e clip', () async {
@@ -285,8 +285,8 @@ void main() {
           // images cannot be the same size.
           expect(fullShot.length, greaterThan(viewportShot.length));
 
-          final clipped = await page.screenshot(
-              clip: (x: 10, y: 20, width: 120, height: 60));
+          final clipped = await page
+              .screenshot(clip: (x: 10, y: 20, width: 120, height: 60));
           expect(clipped.length, lessThan(viewportShot.length));
           // PNG magic number, so we know it is really an image.
           expect(clipped.sublist(0, 4), equals([0x89, 0x50, 0x4E, 0x47]));
@@ -297,8 +297,7 @@ void main() {
           final jpeg = await page.screenshot(type: 'jpeg', quality: 30);
           // JPEG SOI marker.
           expect(jpeg.sublist(0, 2), equals([0xFF, 0xD8]));
-          expect(
-              () => page.screenshot(type: 'png', quality: 30),
+          expect(() => page.screenshot(type: 'png', quality: 30),
               throwsArgumentError);
         });
 
@@ -324,7 +323,6 @@ void main() {
             expect(() => page.pdf(), throwsUnsupportedError);
           }
         });
-
 
         // ---------------------------------------------------- download
 
@@ -354,7 +352,6 @@ void main() {
               await contextDownload.timeout(const Duration(seconds: 25));
           expect(await download.path(), isNotNull);
         });
-
       });
     }
   });

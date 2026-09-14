@@ -34,4 +34,9 @@ export 'src/tracing.dart';
 
 // Re-export common types from protocol
 export 'package:playwright_protocol/playwright_protocol.dart'
-    show ViewportSize, LoadState, WaitUntil, PlaywrightException, TimeoutException;
+    show
+        ViewportSize,
+        LoadState,
+        WaitUntil,
+        PlaywrightException,
+        TimeoutException;

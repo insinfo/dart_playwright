@@ -5,22 +5,22 @@ import 'dart:io';
 class TestServer {
   final HttpServer _server;
   final int port;
-  
+
   TestServer._(this._server) : port = _server.port;
-  
+
   static Future<TestServer> start({int? port}) async {
     final server = await HttpServer.bind('127.0.0.1', port ?? 0);
     final testServer = TestServer._(server);
-    
+
     server.listen((request) {
       testServer._handleRequest(request);
     });
-    
+
     return testServer;
   }
-  
+
   String url(String path) => 'http://127.0.0.1:$port$path';
-  
+
   void _handleRequest(HttpRequest request) {
     final path = request.uri.path;
 
@@ -89,7 +89,8 @@ class TestServer {
       request.response
         ..statusCode = 200
         ..headers.contentType = ContentType('application', 'octet-stream')
-        ..headers.set('Content-Disposition', 'attachment; filename="report.txt"')
+        ..headers
+            .set('Content-Disposition', 'attachment; filename="report.txt"')
         ..write('downloaded payload');
       request.response.close().catchError((_) {});
       return;
@@ -115,7 +116,7 @@ class TestServer {
             ..headers.contentType = ContentType.html
             ..write('<html><body><h1 id="hello">Hello</h1></body></html>');
           break;
-        
+
         case '/init-probe':
           // Records what the init script left behind, read at three moments:
           // while <head> parses, while <body> parses, and after load. A page
@@ -159,9 +160,10 @@ class TestServer {
           request.response
             ..statusCode = 200
             ..headers.contentType = ContentType.html
-            ..write('<html><head><title>Test Page Title</title></head><body></body></html>');
+            ..write(
+                '<html><head><title>Test Page Title</title></head><body></body></html>');
           break;
-        
+
         case '/button':
           // __clicked records event.isTrusted so tests can prove the click
           // came from real protocol input, not a synthetic JS el.click().
@@ -179,7 +181,7 @@ class TestServer {
               </body></html>
             ''');
           break;
-        
+
         case '/input':
           request.response
             ..statusCode = 200
@@ -190,14 +192,15 @@ class TestServer {
               </body></html>
             ''');
           break;
-        
+
         case '/text':
           request.response
             ..statusCode = 200
             ..headers.contentType = ContentType.html
-            ..write('<html><body><div id="content">Hello, World!</div></body></html>');
+            ..write(
+                '<html><body><div id="content">Hello, World!</div></body></html>');
           break;
-        
+
         case '/delayed-element':
           request.response
             ..statusCode = 200
@@ -215,7 +218,7 @@ class TestServer {
               </body></html>
             ''');
           break;
-          
+
         case '/form':
           request.response
             ..statusCode = 200
@@ -674,7 +677,8 @@ usedFunction();
           request.response
             ..statusCode = 200
             ..headers.contentType = ContentType.html
-            ..write('<html><body><a id="grab" href="/download-file" download="report.txt">Grab</a></body></html>');
+            ..write(
+                '<html><body><a id="grab" href="/download-file" download="report.txt">Grab</a></body></html>');
           break;
 
         // A touch target that records event.isTrusted, so a tap can be
@@ -699,7 +703,8 @@ usedFunction();
           request.response
             ..statusCode = 200
             ..headers.contentType = ContentType.html
-            ..write('<html><body style="background: red;"><h1>Red Page</h1></body></html>');
+            ..write(
+                '<html><body style="background: red;"><h1>Red Page</h1></body></html>');
           break;
 
         // Repinta sozinha, para os testes de screencast. Chromium e WebKit so
@@ -727,7 +732,6 @@ usedFunction();
             """);
           break;
 
-
         default:
           request.response
             ..statusCode = 404
@@ -739,7 +743,7 @@ usedFunction();
       request.response.close().catchError((_) {});
     }
   }
-  
+
   Future<void> stop() async {
     await _server.close(force: true);
   }

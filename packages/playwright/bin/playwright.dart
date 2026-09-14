@@ -6,7 +6,9 @@ Future<void> main(List<String> args) async {
   final runner = CommandRunner<void>(
     'playwright',
     'Playwright for Dart — Browser automation',
-  )..addCommand(InstallCommand())..addCommand(ListCommand());
+  )
+    ..addCommand(InstallCommand())
+    ..addCommand(ListCommand());
 
   try {
     await runner.run(args);
@@ -22,7 +24,7 @@ Future<void> main(List<String> args) async {
 class InstallCommand extends Command<void> {
   @override
   String get name => 'install';
-  
+
   @override
   String get description => 'Install browser binaries';
 
@@ -69,7 +71,7 @@ class InstallCommand extends Command<void> {
 class ListCommand extends Command<void> {
   @override
   String get name => 'list';
-  
+
   @override
   String get description => 'List installed browsers';
 

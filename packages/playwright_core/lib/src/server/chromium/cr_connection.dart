@@ -7,7 +7,7 @@ class CDPSession extends EventEmitter {
   final CRConnection connection;
   final String sessionId;
   final String targetType;
-  
+
   bool _isClosed = false;
 
   CDPSession(this.connection, this.sessionId, this.targetType) {
@@ -18,9 +18,11 @@ class CDPSession extends EventEmitter {
   }
 
   /// Send a CDP command to this session.
-  Future<Map<String, dynamic>> send(String method, [Map<String, dynamic>? params]) {
+  Future<Map<String, dynamic>> send(String method,
+      [Map<String, dynamic>? params]) {
     if (_isClosed) {
-      throw TargetClosedException('Session closed. Cannot send command: $method');
+      throw TargetClosedException(
+          'Session closed. Cannot send command: $method');
     }
     return connection._sendMessage(method, params, sessionId);
   }
@@ -36,7 +38,7 @@ class CRConnection extends EventEmitter {
   final ConnectionTransport _transport;
   final _callbacks = <int, Completer<Map<String, dynamic>>>{};
   final _sessions = <String, CDPSession>{};
-  
+
   int _lastId = 0;
   bool _isClosed = false;
 
@@ -65,13 +67,16 @@ class CRConnection extends EventEmitter {
   }
 
   /// Send a CDP command to the browser root session.
-  Future<Map<String, dynamic>> send(String method, [Map<String, dynamic>? params]) {
+  Future<Map<String, dynamic>> send(String method,
+      [Map<String, dynamic>? params]) {
     return _sendMessage(method, params, null);
   }
 
-  Future<Map<String, dynamic>> _sendMessage(String method, Map<String, dynamic>? params, String? sessionId) {
+  Future<Map<String, dynamic>> _sendMessage(
+      String method, Map<String, dynamic>? params, String? sessionId) {
     if (_isClosed) {
-      throw TargetClosedException('Connection closed. Cannot send command: $method');
+      throw TargetClosedException(
+          'Connection closed. Cannot send command: $method');
     }
 
     final id = ++_lastId;
@@ -132,7 +137,8 @@ class CRConnection extends EventEmitter {
     for (final completer in _callbacks.values) {
       // ignore(): avoid unhandled async errors for abandoned senders.
       completer.future.ignore();
-      completer.completeError(TargetClosedException(reason ?? 'Connection closed'));
+      completer
+          .completeError(TargetClosedException(reason ?? 'Connection closed'));
     }
     _callbacks.clear();
 
