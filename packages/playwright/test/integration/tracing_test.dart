@@ -528,6 +528,16 @@ void main() {
 /// samples screenshots, and a navigation in flight holds a screenshot up.
 Future<void> _idleForFilmstrip(Page page) async {
   for (var i = 0; i < 12; i++) {
+    // Repinta a cada volta, e nao so espera. Chromium e WebKit so emitem
+    // quadro de screencast quando a pagina pinta: numa pagina parada o tempo
+    // passar nao produz o segundo quadro, e a tira fica com um so. Isto ja
+    // passou por acidente enquanto o screencast era um stand-in que amostrava
+    // screenshots -- ali qualquer espera virava quadro. O Firefox emite
+    // periodicamente e passava nos dois casos, o que so tornava a diferenca
+    // mais dificil de ver.
+    await page.evaluate('() => { document.body.style.outlineColor = '
+        '`rgb(\${Math.random() * 255 | 0},0,0)`; '
+        'document.body.style.outlineStyle = "solid"; }');
     await page.waitForTimeout(const Duration(milliseconds: 250));
   }
 }
