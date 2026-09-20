@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:playwright_isomorphic/playwright_isomorphic.dart';
 import 'package:playwright_protocol/playwright_protocol.dart';
 
 import 'core_browser.dart';
 import 'core_clock.dart';
 import 'core_page.dart';
+import 'core_route.dart';
 import 'injected/injected_bindings_source.dart';
 
 export 'injected/injected_bindings_source.dart'
@@ -305,6 +307,16 @@ mixin CoreBrowserContextBindings on EventEmitter {
   final List<CoreInitScript> contextInitScripts = <CoreInitScript>[];
   final Map<String, CoreBinding> contextBindings = <String, CoreBinding>{};
 
+  /// `context.route` handlers, replayed onto every page of the context.
+  ///
+  /// Upstream keeps the interceptors on the context and has each page's
+  /// network manager consult them; this port has no context-level channel, so
+  /// the handlers are installed on the pages instead. The `fromContext` flag
+  /// of [CorePageRoutes] is what preserves upstream's order: a page handler is
+  /// always asked before a context handler, whatever the registration order.
+  final List<({Object? pattern, void Function(CoreRoute) handler})>
+      contextRoutes = [];
+
   /// Installs what this context carries onto a page that just joined it.
   ///
   /// Called from the engine's adoption path, before the page is handed to
@@ -316,6 +328,35 @@ mixin CoreBrowserContextBindings on EventEmitter {
     }
     final scripts = page.allInitScripts;
     if (scripts.isNotEmpty) await page.applyInitScripts(scripts);
+    for (final entry in contextRoutes) {
+      await page.route(entry.pattern!, entry.handler, fromContext: true);
+    }
+  }
+
+  /// Intercepts the requests of every page of this context, present and
+  /// future. See [CorePage.route] for the matching rules.
+  Future<void> route(Object pattern, void Function(CoreRoute) handler) async {
+    contextRoutes.add((pattern: pattern, handler: handler));
+    for (final page in trackedPages) {
+      await page.route(pattern, handler, fromContext: true);
+    }
+  }
+
+  /// Drops the context handlers registered for [pattern].
+  Future<void> unroute(Object pattern) async {
+    contextRoutes
+        .removeWhere((entry) => urlMatchesEqual(entry.pattern, pattern));
+    for (final page in trackedPages) {
+      await page.unroute(pattern, fromContext: true);
+    }
+  }
+
+  /// Drops every context handler.
+  Future<void> unrouteAll() async {
+    final patterns = contextRoutes.map((entry) => entry.pattern).toList();
+    for (final pattern in patterns) {
+      await unroute(pattern!);
+    }
   }
 
   /// Adds [source] to every page of this context, present and future.

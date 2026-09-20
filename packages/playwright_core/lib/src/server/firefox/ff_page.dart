@@ -247,6 +247,23 @@ class FfPage extends EventEmitter
             workerSession, event['executionContextId'] as String?));
         worker.workerScriptLoaded();
       });
+      // Juggler gives the worker its own `Runtime.console`, which upstream
+      // routes through the page tagged with the worker (`ffPage.ts:344`).
+      workerSession.on('Runtime.console', (Map<String, dynamic> event) {
+        final location = event['location'] as Map<String, dynamic>?;
+        emit(
+            'console',
+            CoreConsoleMessage(
+              type: normalizeConsoleType(event['type'] as String?),
+              text: describeConsoleArgs(event['args']),
+              location: CoreSourceLocation(
+                url: location?['url'] as String? ?? '',
+                lineNumber: (location?['lineNumber'] as num?)?.toInt() ?? 0,
+                columnNumber: (location?['columnNumber'] as num?)?.toInt() ?? 0,
+              ),
+              worker: worker,
+            ));
+      });
       addWorker(workerId, worker);
     });
     session.on('Page.workerDestroyed', (Map<String, dynamic> params) {
@@ -402,11 +419,15 @@ class FfPage extends EventEmitter
 
   @override
   Future<void> gotoFrame(CoreFrame frame, String url,
-      {WaitUntilState? waitUntil, Duration? timeout}) async {
+      {WaitUntilState? waitUntil, Duration? timeout, String? referer}) async {
     final loaded = frame.waitForNavigation(
         waitUntil: waitUntil, timeout: timeout ?? const Duration(seconds: 30));
     loaded.catchError((_) {});
-    await session.send('Page.navigate', {'url': url, 'frameId': frame.id});
+    await session.send('Page.navigate', {
+      'url': url,
+      'frameId': frame.id,
+      if (referer != null) 'referer': referer,
+    });
     await loaded;
   }
 
@@ -449,7 +470,7 @@ class FfPage extends EventEmitter
   /// Navigate to a URL.
   @override
   Future<void> goto(String url,
-      {WaitUntilState? waitUntil, Duration? timeout}) async {
+      {WaitUntilState? waitUntil, Duration? timeout, String? referer}) async {
     final frame = await frameManager.waitForMainFrame();
     final loaded = frame.waitForNavigation(
         waitUntil: waitUntil, timeout: timeout ?? const Duration(seconds: 30));
@@ -533,6 +554,21 @@ class FfPage extends EventEmitter
           CoreScreenshotOptions options = const CoreScreenshotOptions()}) =>
       screenshotWith(options, path);
 
+  /// Juggler has no background-colour override, so `omitBackground` cannot be
+  /// honoured on Firefox. Upstream's `ffPage.setBackgroundColor` throws the
+  /// same way, so a Firefox screenshot never has a transparent background in
+  /// Playwright either — this is not a gap of this port.
+  @override
+  Future<void> setDefaultBackgroundColor(
+      ({int r, int g, int b, int a})? color) async {
+    if (color != null) {
+      throw PlaywrightException(
+          'omitBackground is not supported on Firefox: the Juggler protocol '
+          'has no background colour override. Upstream Playwright has the '
+          'same limit.');
+    }
+  }
+
   @override
   Future<List<int>> screenshotRect(CoreRect rect, CoreScreenshotOptions options,
       {bool fitsViewport = true}) async {
@@ -563,8 +599,8 @@ class FfPage extends EventEmitter
   bool _routeListenerInstalled = false;
 
   @override
-  Future<void> route(
-      String urlPattern, void Function(CoreRoute) handler) async {
+  Future<void> route(Object urlPattern, void Function(CoreRoute) handler,
+      {bool fromContext = false}) async {
     if (!_routeListenerInstalled) {
       _routeListenerInstalled = true;
       session.on('Network.requestWillBeSent', _onRequestWillBeSent);
@@ -572,12 +608,12 @@ class FfPage extends EventEmitter
     if (!hasRoutes) {
       await session.send('Network.setRequestInterception', {'enabled': true});
     }
-    addRouteEntry(urlPattern, handler);
+    addRouteEntry(urlPattern, handler, fromContext: fromContext);
   }
 
   @override
-  Future<void> unroute(String urlPattern) async {
-    removeRouteEntry(urlPattern);
+  Future<void> unroute(Object urlPattern, {bool fromContext = false}) async {
+    removeRouteEntry(urlPattern, fromContext: fromContext);
     if (!hasRoutes) {
       await session.send('Network.setRequestInterception', {'enabled': false});
     }

@@ -258,6 +258,35 @@ class CrPage extends EventEmitter
     });
     addWorker(sessionId, worker);
 
+    // The worker's console rides its own session, and upstream routes it
+    // through the page tagged with the worker (`crPage.ts:797`), so a
+    // `page.on('console')` listener sees it.
+    workerSession.on('Runtime.consoleAPICalled', (Map<String, dynamic> event) {
+      final stack = event['stackTrace'] as Map<String, dynamic>?;
+      final frames = stack?['callFrames'] as List?;
+      final top = (frames != null && frames.isNotEmpty)
+          ? frames.first as Map<String, dynamic>
+          : null;
+      emit(
+          'console',
+          CoreConsoleMessage(
+            type: normalizeConsoleType(event['type'] as String?),
+            text: describeConsoleArgs(event['args']),
+            location: CoreSourceLocation(
+              url: top?['url'] as String? ?? '',
+              lineNumber: (top?['lineNumber'] as num?)?.toInt() ?? 0,
+              columnNumber: (top?['columnNumber'] as num?)?.toInt() ?? 0,
+            ),
+            worker: worker,
+          ));
+    });
+    // An uncaught error inside the worker is a page error upstream too.
+    workerSession.on('Runtime.exceptionThrown', (Map<String, dynamic> event) {
+      final details = event['exceptionDetails'] as Map<String, dynamic>?;
+      if (details == null) return;
+      emit('pageerror', pageErrorFromCdpExceptionDetails(details));
+    });
+
     // Best effort: the worker may be gone before any of this lands.
     await workerSession
         .send('Runtime.enable')
@@ -471,12 +500,15 @@ class CrPage extends EventEmitter
 
   @override
   Future<void> gotoFrame(CoreFrame frame, String url,
-      {WaitUntilState? waitUntil, Duration? timeout}) async {
+      {WaitUntilState? waitUntil, Duration? timeout, String? referer}) async {
     final loaded = frame.waitForNavigation(
         waitUntil: waitUntil, timeout: timeout ?? const Duration(seconds: 30));
     loaded.catchError((_) {});
-    final result =
-        await session.send('Page.navigate', {'url': url, 'frameId': frame.id});
+    final result = await session.send('Page.navigate', {
+      'url': url,
+      'frameId': frame.id,
+      if (referer != null) 'referrer': referer,
+    });
     if (result['errorText'] != null) {
       throw PlaywrightException(
           'Navigation to $url failed: ${result['errorText']}');
@@ -509,14 +541,15 @@ class CrPage extends EventEmitter
 
   @override
   Future<void> goto(String url,
-      {WaitUntilState? waitUntil, Duration? timeout}) async {
+      {WaitUntilState? waitUntil, Duration? timeout, String? referer}) async {
     final frame = await frameManager.waitForMainFrame();
     final loaded = frame.waitForNavigation(
         waitUntil: waitUntil, timeout: timeout ?? const Duration(seconds: 30));
     // Keep the waiter's timeout handled even while Page.navigate stalls on a
     // slow server; the awaited rethrow below still surfaces it.
     loaded.catchError((_) {});
-    final result = await session.send('Page.navigate', {'url': url});
+    final result = await session.send('Page.navigate',
+        {'url': url, if (referer != null) 'referrer': referer});
     if (result['errorText'] != null) {
       throw PlaywrightException(
           'Navigation to $url failed: ${result['errorText']}');
@@ -595,6 +628,14 @@ class CrPage extends EventEmitter
           {String? path,
           CoreScreenshotOptions options = const CoreScreenshotOptions()}) =>
       screenshotWith(options, path);
+
+  @override
+  Future<void> setDefaultBackgroundColor(
+          ({int r, int g, int b, int a})? color) =>
+      session.send('Emulation.setDefaultBackgroundColorOverride', {
+        if (color != null)
+          'color': {'r': color.r, 'g': color.g, 'b': color.b, 'a': color.a},
+      }) as Future<void>;
 
   @override
   Future<List<int>> screenshotRect(CoreRect rect, CoreScreenshotOptions options,
@@ -676,8 +717,8 @@ class CrPage extends EventEmitter
 
   /// Add a route interception handler.
   @override
-  Future<void> route(
-      String urlPattern, void Function(CoreRoute) handler) async {
+  Future<void> route(Object urlPattern, void Function(CoreRoute) handler,
+      {bool fromContext = false}) async {
     if (!_routeListenerInstalled) {
       _routeListenerInstalled = true;
       session.on('Fetch.requestPaused', _onRequestPaused);
@@ -689,12 +730,12 @@ class CrPage extends EventEmitter
         ]
       });
     }
-    addRouteEntry(urlPattern, handler);
+    addRouteEntry(urlPattern, handler, fromContext: fromContext);
   }
 
   @override
-  Future<void> unroute(String urlPattern) async {
-    removeRouteEntry(urlPattern);
+  Future<void> unroute(Object urlPattern, {bool fromContext = false}) async {
+    removeRouteEntry(urlPattern, fromContext: fromContext);
     if (!hasRoutes) {
       await session.send('Fetch.disable');
     }

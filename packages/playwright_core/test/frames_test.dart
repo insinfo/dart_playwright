@@ -1,7 +1,12 @@
+import 'package:playwright_core/src/server/core_browser.dart';
 import 'package:playwright_core/src/server/core_page.dart';
 import 'package:test/test.dart';
 
 class FakeCorePage extends CorePage {
+  // The frame reads the context to find its baseURL; a bare fake has none.
+  @override
+  CoreBrowserContext? browserContext;
+
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

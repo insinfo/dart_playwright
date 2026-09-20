@@ -76,7 +76,15 @@ class ScreenshotPollingScreencast implements PageScreencast {
       final bytes = await _page
           .screenshot(
               options: CoreScreenshotOptions(
-                  type: 'jpeg', quality: _quality, scale: 'css'))
+                  type: 'jpeg',
+                  quality: _quality,
+                  scale: 'css',
+                  // A video frame is captured many times a second, and the
+                  // default caret hiding walks every DOM and shadow root of
+                  // every frame twice per capture. Upstream never pays that
+                  // for a screencast — its screencast is a protocol stream,
+                  // not a screenshot — so neither does this stand-in.
+                  caret: 'initial'))
           .timeout(_captureTimeout);
       if (_stopped || _controller.isClosed) return;
       _controller.add(VideoFrame(

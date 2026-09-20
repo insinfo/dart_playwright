@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:playwright_protocol/playwright_protocol.dart';
 import 'core_clock.dart';
 import 'core_page.dart';
+import 'core_route.dart';
 import 'launch_options.dart';
 import 'trace/har_recorder.dart';
 import 'trace/instrumentation.dart';
@@ -89,6 +90,11 @@ class CoreContextOptions {
   /// engines take one per context, so this is not a Chromium special case.
   final CoreProxySettings? proxy;
 
+  /// The base every relative URL is resolved against: `page.goto('/login')`,
+  /// and the glob of `route`/`unroute`/`waitForURL` when it is not anchored
+  /// with a leading `*`. Port of upstream's `baseURL` context option.
+  final String? baseURL;
+
   /// Records a video of every page of this context. Null records nothing.
   final CoreRecordVideoOptions? recordVideo;
 
@@ -115,6 +121,7 @@ class CoreContextOptions {
     this.geolocation,
     this.permissions,
     this.proxy,
+    this.baseURL,
     this.recordVideo,
     this.recordHar,
   });
@@ -299,6 +306,16 @@ abstract class CoreBrowserContext extends EventEmitter {
 
   /// Functions exposed on this context.
   Map<String, CoreBinding> get contextBindings;
+
+  /// Intercepts the requests of every page of this context, present and
+  /// future. See [CoreBrowserContextBindings.route].
+  Future<void> route(Object pattern, void Function(CoreRoute) handler);
+
+  /// Drops the context handlers registered for [pattern].
+  Future<void> unroute(Object pattern);
+
+  /// Drops every context handler.
+  Future<void> unrouteAll();
 
   /// The engine this context belongs to: `chromium`, `firefox` or `webkit`.
   String get engineName;

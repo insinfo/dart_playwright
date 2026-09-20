@@ -201,6 +201,12 @@ class WkPage extends EventEmitter
       // the implicit one, addressed by leaving the id out.
       worker.createExecutionContext(WkExecutionContext(workerSession, null));
       worker.workerScriptLoaded();
+      // `wkWorkers.ts#_onConsoleMessage`: the worker's own Console domain,
+      // routed through the page tagged with the worker.
+      workerSession.on(
+          'Console.messageAdded',
+          (Map<String, dynamic> event) => _onWorkerConsoleMessage(
+              worker, event['message'] as Map<String, dynamic>?));
       addWorker(workerId, worker);
       Future.wait(<Future<dynamic>>[
         workerSession.sendToTarget('Runtime.enable'),
@@ -228,6 +234,31 @@ class WkPage extends EventEmitter
       _workerSessions.remove(workerId)?.dispose();
       removeWorker(workerId);
     });
+  }
+
+  /// Port of `wkWorkers.ts#_onConsoleMessage`.
+  void _onWorkerConsoleMessage(
+      CoreWorker worker, Map<String, dynamic>? message) {
+    if (message == null) return;
+    final rawType = message['type'] as String? ?? '';
+    final type = rawType == 'log'
+        ? message['level'] as String? ?? 'log'
+        : (rawType == 'timing' ? 'timeEnd' : rawType);
+    final parameters = message['parameters'];
+    emit(
+        'console',
+        CoreConsoleMessage(
+          type: normalizeConsoleType(type),
+          text: parameters is List && parameters.isNotEmpty
+              ? describeConsoleArgs(parameters)
+              : message['text'] as String? ?? '',
+          location: CoreSourceLocation(
+            url: message['url'] as String? ?? '',
+            lineNumber: ((message['line'] as num?)?.toInt() ?? 1) - 1,
+            columnNumber: ((message['column'] as num?)?.toInt() ?? 1) - 1,
+          ),
+          worker: worker,
+        ));
   }
 
   void _onDialogOpening(Map<String, dynamic> params) {
@@ -398,7 +429,7 @@ class WkPage extends EventEmitter
 
   @override
   Future<void> gotoFrame(CoreFrame frame, String url,
-      {WaitUntilState? waitUntil, Duration? timeout}) async {
+      {WaitUntilState? waitUntil, Duration? timeout, String? referer}) async {
     final loaded = frame.waitForNavigation(
         waitUntil: waitUntil, timeout: timeout ?? const Duration(seconds: 30));
     loaded.catchError((_) {});
@@ -406,6 +437,7 @@ class WkPage extends EventEmitter
       'url': url,
       'pageProxyId': session.pageProxyId,
       'frameId': frame.id,
+      if (referer != null) 'referrer': referer,
     });
     await loaded;
   }
@@ -435,7 +467,7 @@ class WkPage extends EventEmitter
 
   @override
   Future<void> goto(String url,
-      {WaitUntilState? waitUntil, Duration? timeout}) async {
+      {WaitUntilState? waitUntil, Duration? timeout, String? referer}) async {
     final frame = await frameManager.waitForMainFrame();
     final loaded = frame.waitForNavigation(
         waitUntil: waitUntil, timeout: timeout ?? const Duration(seconds: 30));
@@ -447,6 +479,7 @@ class WkPage extends EventEmitter
     await session.connection.send('Playwright.navigate', {
       'url': url,
       'pageProxyId': session.pageProxyId,
+      if (referer != null) 'referrer': referer,
     });
     await loaded;
   }
@@ -528,6 +561,20 @@ class WkPage extends EventEmitter
       screenshotWith(options, path);
 
   @override
+  Future<void> setDefaultBackgroundColor(
+          ({int r, int g, int b, int a})? color) =>
+      session.sendToTarget('Page.setDefaultBackgroundColorOverride', {
+        if (color != null)
+          'color': {'r': color.r, 'g': color.g, 'b': color.b, 'a': color.a},
+      });
+
+  /// WebKit is the one engine that needs a stylesheet toggled before a capture
+  /// so that pending animations are flushed. Port of
+  /// `wkPage.shouldToggleStyleSheetToSyncAnimations`.
+  @override
+  bool get shouldToggleStyleSheetToSyncAnimations => true;
+
+  @override
   Future<List<int>> screenshotRect(CoreRect rect, CoreScreenshotOptions options,
       {bool fitsViewport = true}) async {
     // WebKit takes the rectangle as plain fields plus the coordinate system
@@ -557,8 +604,8 @@ class WkPage extends EventEmitter
   bool _routeListenerInstalled = false;
 
   @override
-  Future<void> route(
-      String urlPattern, void Function(CoreRoute) handler) async {
+  Future<void> route(Object urlPattern, void Function(CoreRoute) handler,
+      {bool fromContext = false}) async {
     if (!_routeListenerInstalled) {
       _routeListenerInstalled = true;
       session.on('Network.requestIntercepted', _onRequestIntercepted);
@@ -573,12 +620,12 @@ class WkPage extends EventEmitter
         'isRegex': true,
       });
     }
-    addRouteEntry(urlPattern, handler);
+    addRouteEntry(urlPattern, handler, fromContext: fromContext);
   }
 
   @override
-  Future<void> unroute(String urlPattern) async {
-    removeRouteEntry(urlPattern);
+  Future<void> unroute(Object urlPattern, {bool fromContext = false}) async {
+    removeRouteEntry(urlPattern, fromContext: fromContext);
     if (!hasRoutes) {
       await session.sendToTarget('Network.removeInterception', {
         'url': '.*',

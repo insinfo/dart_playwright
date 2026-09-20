@@ -28,6 +28,8 @@ import 'network.dart';
 import 'web_socket.dart';
 import 'web_socket_route.dart';
 import 'worker.dart';
+import 'package:playwright_isomorphic/playwright_isomorphic.dart'
+    show constructURLBasedOnBaseURL, urlMatchesEqual;
 import 'instrumented.dart';
 import 'package:playwright_core/src/accessibility.dart';
 
@@ -36,7 +38,12 @@ export 'package:playwright_core/src/server/core_page.dart' show WaitUntilState;
 /// A single tab or page in a browser.
 abstract class Page {
   /// Navigate to a URL.
-  Future<void> goto(String url, {WaitUntilState? waitUntil, Duration? timeout});
+  ///
+  /// [referer] becomes the `Referer` header of the navigation request and
+  /// wins over one set with [setExtraHTTPHeaders]. A relative [url] is
+  /// resolved against the context's `baseURL`.
+  Future<void> goto(String url,
+      {WaitUntilState? waitUntil, Duration? timeout, String? referer});
 
   /// Wait for the page to reach a specific load state.
   Future<void> waitForLoadState(
@@ -47,7 +54,10 @@ abstract class Page {
       {WaitUntilState? waitUntil, Duration? timeout});
 
   /// Wait until the main frame URL matches [url].
-  Future<void> waitForURL(Pattern url, {Duration? timeout});
+  ///
+  /// [url] is a glob [String], a [RegExp] or a `bool Function(Uri)`. See
+  /// [route] for the glob dialect.
+  Future<void> waitForURL(Object url, {Duration? timeout});
 
   /// Reload the page and wait for the navigation to reach [waitUntil].
   Future<void> reload({WaitUntilState? waitUntil});
@@ -86,8 +96,18 @@ abstract class Page {
   /// when [fullPage] is set). [scale] is `device` (the default, honouring the
   /// device pixel ratio) or `css`.
   ///
-  /// Not implemented yet: `omitBackground`, `mask`, `caret`, `animations` and
-  /// `style`.
+  /// [mask] paints a [maskColor] box over everything its locators resolve to,
+  /// which is how a clock or an avatar is kept out of a reference image.
+  ///
+  /// [animations] is `allow` or `disabled`; `disabled` finishes every finite
+  /// CSS animation and transition and cancels the infinite ones. [caret] is
+  /// `hide` (the default) or `initial`. [style] is CSS injected into every
+  /// frame for the duration of the capture.
+  ///
+  /// [omitBackground] paints over a transparent background instead of white.
+  /// It needs an alpha channel, so it is ignored for `jpeg`, and **Firefox
+  /// throws**: the Juggler protocol has no background override, and upstream
+  /// Playwright has the same limit.
   Future<List<int>> screenshot({
     String? path,
     String type = 'png',
@@ -95,6 +115,12 @@ abstract class Page {
     bool fullPage = false,
     ({double x, double y, double width, double height})? clip,
     String scale = 'device',
+    List<Locator> mask,
+    String maskColor,
+    String animations,
+    String caret,
+    String? style,
+    bool omitBackground,
   });
 
   /// Render the page to PDF.
@@ -189,11 +215,21 @@ abstract class Page {
   /// request already carries: a name that collides wins.
   Future<void> setExtraHTTPHeaders(Map<String, String> headers);
 
-  /// Intercept network requests.
-  Future<void> route(String urlPattern, void Function(Route) handler);
+  /// Intercept the network requests whose URL matches [urlPattern].
+  ///
+  /// [urlPattern] is a glob [String], a [RegExp] or a `bool Function(Uri)`.
+  /// The glob is upstream's, not the shell's: `*` stops at `/`, `**` crosses
+  /// it, `?` is one character, `{a,b}` is an alternation, `[]` is literal and
+  /// a backslash escapes. A glob that does not start with `*` is resolved
+  /// against the context's `baseURL` first, so `http://example.com:80/x`
+  /// matches a request reported as `http://example.com/x`.
+  ///
+  /// Handlers run newest first; one that calls [Route.fallback] hands the
+  /// route to the next. A page handler is consulted before the context's.
+  Future<void> route(Object urlPattern, void Function(Route) handler);
 
-  /// Remove the route handler for [urlPattern].
-  Future<void> unroute(String urlPattern);
+  /// Remove the route handler registered for [urlPattern].
+  Future<void> unroute(Object urlPattern);
 
   /// Remove all route handlers.
   Future<void> unrouteAll();
@@ -209,7 +245,7 @@ abstract class Page {
   /// forward does not reach the server, and a handler that never calls
   /// [WebSocketRoute.connectToServer] makes the socket fully mocked — no
   /// connection is opened at all.
-  Future<void> routeWebSocket(String urlPattern, WebSocketRouteHandler handler);
+  Future<void> routeWebSocket(Object urlPattern, WebSocketRouteHandler handler);
 
   /// Evaluate JavaScript expression in the page.
   Future<dynamic> evaluate(String expression);
@@ -581,9 +617,17 @@ class PageImpl implements Page {
 
   @override
   Future<void> goto(String url,
-          {WaitUntilState? waitUntil, Duration? timeout}) =>
-      _call('Frame', 'goto', {'url': url},
-          () => _corePage.goto(url, waitUntil: waitUntil, timeout: timeout));
+          {WaitUntilState? waitUntil, Duration? timeout, String? referer}) =>
+      _call(
+          'Frame',
+          'goto',
+          {'url': url},
+          () => _corePage.goto(
+              constructURLBasedOnBaseURL(
+                  _corePage.browserContext?.options.baseURL, url),
+              waitUntil: waitUntil,
+              timeout: timeout,
+              referer: referer));
 
   @override
   Future<void> waitForLoadState(
@@ -604,7 +648,7 @@ class PageImpl implements Page {
           title: 'Wait for navigation');
 
   @override
-  Future<void> waitForURL(Pattern url, {Duration? timeout}) => _call(
+  Future<void> waitForURL(Object url, {Duration? timeout}) => _call(
       'Frame',
       'waitForURL',
       {'url': '$url'},
@@ -662,12 +706,18 @@ class PageImpl implements Page {
     bool fullPage = false,
     ({double x, double y, double width, double height})? clip,
     String scale = 'device',
+    List<Locator> mask = const [],
+    String maskColor = '#F0F',
+    String animations = 'allow',
+    String caret = 'hide',
+    String? style,
+    bool omitBackground = false,
   }) =>
       _call(
           'Page',
           'screenshot',
           {'type': type, 'fullPage': fullPage},
-          () => _corePage.screenshot(
+          () async => _corePage.screenshot(
                 path: path,
                 options: CoreScreenshotOptions(
                   type: type,
@@ -681,6 +731,12 @@ class PageImpl implements Page {
                           width: clip.width,
                           height: clip.height),
                   scale: scale,
+                  mask: await coreMaskFor(mask),
+                  maskColor: maskColor,
+                  animations: animations,
+                  caret: caret,
+                  style: style,
+                  omitBackground: omitBackground,
                 ),
               ));
 
@@ -766,10 +822,10 @@ class PageImpl implements Page {
   Future<void> setInterceptFileChooser(bool enabled) =>
       _corePage.setInterceptFileChooser(enabled);
 
-  final _routePatterns = <String>{};
+  final _routePatterns = <Object>[];
 
   @override
-  Future<void> route(String urlPattern, void Function(Route) handler) async {
+  Future<void> route(Object urlPattern, void Function(Route) handler) async {
     _routePatterns.add(urlPattern);
     await _corePage.route(urlPattern, (crRoute) {
       final routeImpl = RouteImpl(crRoute);
@@ -778,8 +834,9 @@ class PageImpl implements Page {
   }
 
   @override
-  Future<void> unroute(String urlPattern) async {
-    _routePatterns.remove(urlPattern);
+  Future<void> unroute(Object urlPattern) async {
+    _routePatterns
+        .removeWhere((pattern) => urlMatchesEqual(pattern, urlPattern));
     await _corePage.unroute(urlPattern);
   }
 
@@ -792,7 +849,7 @@ class PageImpl implements Page {
 
   @override
   Future<void> routeWebSocket(
-      String urlPattern, WebSocketRouteHandler handler) async {
+      Object urlPattern, WebSocketRouteHandler handler) async {
     final context = _corePage.browserContext;
     if (context == null) {
       throw PlaywrightException(

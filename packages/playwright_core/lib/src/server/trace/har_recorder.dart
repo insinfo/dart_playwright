@@ -129,6 +129,7 @@ class CoreHarRecorder implements HarTracerDelegate {
         // where they only inflate the archive.
         omitScripts: false,
         urlFilter: options.urlFilter,
+        baseURL: context.options.baseURL,
       ),
     );
     recorder._tracer.start();

@@ -96,7 +96,7 @@ void main() {
         });
 
         test('Deve expor failure quando a rota aborta', () async {
-          await page.route('/style.css', (route) {
+          await page.route('**/style.css', (route) {
             route.abort('connectionrefused');
           });
           final failed = page.onRequestFailed.first;
@@ -162,7 +162,7 @@ void main() {
         // --------------------------------------------------------- route
 
         test('Deve reescrever metodo, headers e corpo no continue', () async {
-          await page.route('/echo-request', (route) {
+          await page.route('**/echo-request', (route) {
             route.continue_(
               method: 'POST',
               headers: {
@@ -184,11 +184,11 @@ void main() {
         test('fallback deve passar a rota para o handler anterior', () async {
           final order = <String>[];
           // Registered first, so it runs last.
-          await page.route('/hello', (route) {
+          await page.route('**/hello', (route) {
             order.add('first');
             route.fulfill(body: '<html><body id="who">first</body></html>');
           });
-          await page.route('/hello', (route) {
+          await page.route('**/hello', (route) {
             order.add('second');
             route.fallback();
           });
@@ -201,7 +201,7 @@ void main() {
 
         test('fallback do ultimo handler deixa a requisicao seguir', () async {
           var called = 0;
-          await page.route('/hello', (route) {
+          await page.route('**/hello', (route) {
             called++;
             route.fallback();
           });
@@ -214,7 +214,7 @@ void main() {
         test('abort deve recusar codigo de erro desconhecido', () async {
           // Chromium and WebKit assert on the code upstream; Firefox passes
           // it through, so the check lives on our side for all three.
-          await page.route('/hello', (route) {
+          await page.route('**/hello', (route) {
             expect(() => route.abort('nao-existe'), throwsArgumentError);
             route.continue_();
           });

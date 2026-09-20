@@ -124,6 +124,7 @@ abstract class BrowserType {
     ({String username, String password, String? origin})? httpCredentials,
     ({double latitude, double longitude, double accuracy})? geolocation,
     List<String>? permissions,
+    String? baseURL,
     RecordVideoOptions? recordVideo,
     RecordHarOptions? recordHar,
   });
@@ -329,6 +330,7 @@ class BrowserTypeImpl implements BrowserType {
     ({String username, String password, String? origin})? httpCredentials,
     ({double latitude, double longitude, double accuracy})? geolocation,
     List<String>? permissions,
+    String? baseURL,
     RecordVideoOptions? recordVideo,
     RecordHarOptions? recordHar,
   }) async {
@@ -353,6 +355,7 @@ class BrowserTypeImpl implements BrowserType {
       httpCredentials: httpCredentials,
       geolocation: geolocation,
       permissions: permissions,
+      baseURL: baseURL,
       recordVideo: recordVideo?.toCore(),
       recordHar: recordHar?.toCore(),
     );

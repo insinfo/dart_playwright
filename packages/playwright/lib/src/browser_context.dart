@@ -16,6 +16,7 @@ import 'network.dart';
 import 'instrumented.dart';
 import 'page.dart';
 import 'page_error.dart';
+import 'route.dart';
 import 'tracing.dart';
 import 'web_socket_route.dart';
 import 'waiter.dart';
@@ -69,10 +70,24 @@ abstract class BrowserContext {
   /// frame called it. See [Page.exposeBinding].
   Future<void> exposeBinding(String name, BindingCallback callback);
 
+  /// Intercept the requests of every page of this context, present and
+  /// future, whose URL matches [urlPattern].
+  ///
+  /// See [Page.route] for the matching rules. A page-level handler is always
+  /// consulted before a context-level one, whatever the registration order,
+  /// which is upstream's order too.
+  Future<void> route(Object urlPattern, void Function(Route) handler);
+
+  /// Remove the context handler registered for [urlPattern].
+  Future<void> unroute(Object urlPattern);
+
+  /// Remove every context handler.
+  Future<void> unrouteAll();
+
   /// Intercept the WebSockets every page of this context opens whose URL
   /// matches [urlPattern]. See [Page.routeWebSocket], which this is the
   /// context-wide form of; a page-level handler wins over this one.
-  Future<void> routeWebSocket(String urlPattern, WebSocketRouteHandler handler);
+  Future<void> routeWebSocket(Object urlPattern, WebSocketRouteHandler handler);
 
   /// Deterministic time for every page of this context.
   ///
@@ -219,8 +234,19 @@ class BrowserContextImpl implements BrowserContext {
           noGlobal: false);
 
   @override
+  Future<void> route(Object urlPattern, void Function(Route) handler) =>
+      _coreContext.route(
+          urlPattern, (coreRoute) => handler(RouteImpl(coreRoute)));
+
+  @override
+  Future<void> unroute(Object urlPattern) => _coreContext.unroute(urlPattern);
+
+  @override
+  Future<void> unrouteAll() => _coreContext.unrouteAll();
+
+  @override
   Future<void> routeWebSocket(
-          String urlPattern, WebSocketRouteHandler handler) =>
+          Object urlPattern, WebSocketRouteHandler handler) =>
       _coreContext.webSocketRoutes
           .route(urlPattern, (route) => handler(WebSocketRouteImpl(route)));
 

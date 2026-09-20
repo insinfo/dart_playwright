@@ -38,3 +38,4 @@ export 'src/locator_parser.dart';
 export 'src/locator_utils.dart';
 export 'src/selector_parser.dart';
 export 'src/string_utils.dart';
+export 'src/url_match.dart';

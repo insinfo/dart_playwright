@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'package:playwright_isomorphic/playwright_isomorphic.dart';
 import 'package:playwright_protocol/playwright_protocol.dart';
 import '../accessibility.dart';
 import 'core_browser.dart';
@@ -40,7 +41,8 @@ export 'core_web_socket_route.dart'
 export 'video/core_video.dart' show CoreVideo;
 export 'core_download.dart' show CoreDownload;
 export 'core_file_chooser.dart' show CoreFileChooser;
-export 'core_screenshot.dart' show CoreRect, CoreScreenshotOptions;
+export 'core_screenshot.dart'
+    show CoreRect, CoreScreenshotMask, CoreScreenshotOptions;
 export 'core_events.dart'
     show CoreConsoleMessage, CorePageError, CoreSourceLocation;
 export 'dialog.dart' show Dialog;
@@ -111,7 +113,8 @@ abstract class CorePage extends EventEmitter {
   /// Whether the page has been closed (by [close], by the script, or because
   /// its context or browser went away).
   bool get isClosed;
-  Future<void> goto(String url, {WaitUntilState? waitUntil, Duration? timeout});
+  Future<void> goto(String url,
+      {WaitUntilState? waitUntil, Duration? timeout, String? referer});
 
   /// Reloads the page and waits for the navigation to reach [waitUntil].
   Future<void> reload({WaitUntilState? waitUntil});
@@ -147,6 +150,18 @@ abstract class CorePage extends EventEmitter {
   /// WebKit takes `coordinateSystem: 'Page'` for the same thing.
   Future<List<int>> screenshotRect(CoreRect rect, CoreScreenshotOptions options,
       {bool fitsViewport = true});
+
+  /// Applies `style`, `caret` and `animations` to every frame of this page.
+  /// See [CorePageScreenshot.preparePageForScreenshot].
+  Future<void> preparePageForScreenshot(CoreScreenshotOptions options);
+
+  /// Undoes [preparePageForScreenshot].
+  Future<void> restorePageAfterScreenshot();
+
+  /// Runs [capture] with the masks painted and `omitBackground` applied.
+  /// See [CorePageScreenshot.screenshotWithDecorations].
+  Future<List<int>> screenshotWithDecorations(
+      CoreScreenshotOptions options, Future<List<int>> Function() capture);
 
   /// Renders the page to PDF.
   ///
@@ -198,7 +213,7 @@ abstract class CorePage extends EventEmitter {
 
   /// Navigates [frame] (not necessarily the main frame) to [url].
   Future<void> gotoFrame(CoreFrame frame, String url,
-      {WaitUntilState? waitUntil, Duration? timeout});
+      {WaitUntilState? waitUntil, Duration? timeout, String? referer});
 
   /// The frame owned by the `iframe`/`frame` element [handle] points at,
   /// or null when the element is not a frame owner.
@@ -220,10 +235,14 @@ abstract class CorePage extends EventEmitter {
       CoreFrame frame, String expression);
 
   /// Intercept network requests.
-  Future<void> route(String urlPattern, void Function(CoreRoute) handler);
+  ///
+  /// [fromContext] marks a handler the owning context replayed onto this
+  /// page; those are consulted only after every page-level handler declined.
+  Future<void> route(Object urlPattern, void Function(CoreRoute) handler,
+      {bool fromContext});
 
   /// Remove a route handler; disables interception when none remain.
-  Future<void> unroute(String urlPattern);
+  Future<void> unroute(Object urlPattern, {bool fromContext});
 
   /// Click [selector] using trusted protocol-level input events.
   ///
@@ -442,6 +461,22 @@ mixin CorePageScreenshot {
   Future<List<int>> screenshotRect(CoreRect rect, CoreScreenshotOptions options,
       {bool fitsViewport = true});
 
+  /// Every frame of this page, so the capture preparation reaches all of them.
+  List<CoreFrame> get frames;
+
+  /// Evaluates [expression] in [frame] with `window.__pwDart` installed.
+  Future<dynamic> evaluateInjected(CoreFrame frame, String expression);
+
+  /// Overrides the colour painted behind the document, or restores the
+  /// engine's own when [color] is null. Only Chromium and WebKit have the
+  /// command; Firefox throws, which is what upstream's `ffPage` does too.
+  Future<void> setDefaultBackgroundColor(({int r, int g, int b, int a})? color);
+
+  /// Whether this engine needs a stylesheet toggled to flush pending
+  /// animations before a capture. Only WebKit does; port of
+  /// `shouldToggleStyleSheetToSyncAnimations`.
+  bool get shouldToggleStyleSheetToSyncAnimations => false;
+
   /// The document rectangle a screenshot with [options] should capture, plus
   /// whether it fits in the viewport (which is what tells Chromium to capture
   /// beyond it).
@@ -529,11 +564,104 @@ mixin CorePageScreenshot {
   Future<List<int>> screenshotWith(
       CoreScreenshotOptions options, String? path) async {
     options.validate();
-    final target = await screenshotRectFor(options);
-    final bytes = await screenshotRect(target.rect, options,
-        fitsViewport: target.fitsViewport);
+    await preparePageForScreenshot(options);
+    List<int> bytes;
+    try {
+      final target = await screenshotRectFor(options);
+      bytes = await screenshotWithDecorations(
+          options,
+          () => screenshotRect(target.rect, options,
+              fitsViewport: target.fitsViewport));
+    } finally {
+      await restorePageAfterScreenshot();
+    }
     if (path != null) await File(path).writeAsBytes(bytes);
     return bytes;
+  }
+
+  /// Applies `style`, `caret` and `animations` to every frame, then waits for
+  /// the fonts. Port of `screenshotter.ts#_preparePageForScreenshot`.
+  Future<void> preparePageForScreenshot(CoreScreenshotOptions options) async {
+    final sync = shouldToggleStyleSheetToSyncAnimations;
+    if (!options.needsPagePreparation && !sync) return;
+    await _evaluateInAllFrames('''
+      () => window.__pwDart.prepareForScreenshots(
+          ${jsonEncode(options.style)},
+          ${options.hideCaret},
+          ${options.disableAnimations},
+          $sync)
+    ''');
+    // Upstream waits for `document.fonts.ready` in the frame that owns the
+    // capture; a page that never settles its fonts would otherwise hang, so
+    // the wait is bounded here and a timeout is not an error.
+    await evaluate('() => document.fonts.ready')
+        .timeout(const Duration(seconds: 5))
+        .catchError((Object _) => null);
+  }
+
+  /// Undoes [preparePageForScreenshot]. Never throws: the page may be gone.
+  Future<void> restorePageAfterScreenshot() =>
+      _evaluateInAllFrames('() => window.__pwDart.cleanupScreenshot()');
+
+  /// Paints the masks and applies `omitBackground` around [capture].
+  ///
+  /// Port of `screenshotter.ts#_screenshot`: both decorations are undone
+  /// whether the capture succeeds or throws.
+  Future<List<int>> screenshotWithDecorations(CoreScreenshotOptions options,
+      Future<List<int>> Function() capture) async {
+    final setBackground = options.shouldSetDefaultBackground;
+    if (setBackground) {
+      await setDefaultBackgroundColor((r: 0, g: 0, b: 0, a: 0));
+    }
+    await _applyMask(options);
+    try {
+      return await capture();
+    } finally {
+      await _clearMask(options);
+      if (setBackground) {
+        await setDefaultBackgroundColor(null).catchError((Object _) {});
+      }
+    }
+  }
+
+  Future<void> _applyMask(CoreScreenshotOptions options) async {
+    if (options.mask.isEmpty) return;
+    // One call per frame, with every selector aimed at that frame, because the
+    // boxes are positioned in the coordinates of the frame that owns them.
+    final byFrame = <CoreFrame, List<List<Map<String, dynamic>>>>{};
+    for (final entry in options.mask) {
+      byFrame.putIfAbsent(entry.frame as CoreFrame, () => []).add(entry.parts);
+    }
+    for (final entry in byFrame.entries) {
+      await evaluateInjected(
+              entry.key,
+              '() => window.__pwDart.maskElements('
+              '${jsonEncode(entry.value)}, ${jsonEncode(options.maskColor)})')
+          .catchError((Object _) => null);
+    }
+  }
+
+  Future<void> _clearMask(CoreScreenshotOptions options) async {
+    if (options.mask.isEmpty) return;
+    for (final frame in {for (final entry in options.mask) entry.frame}) {
+      await evaluateInjected(
+              frame as CoreFrame, '() => window.__pwDart.unmaskElements()')
+          .catchError((Object _) => null);
+    }
+  }
+
+  /// Runs [expression] in every frame, ignoring the frames that refuse it.
+  ///
+  /// Upstream evaluates without stalling, so a frame parked in `alert()` does
+  /// not hold the capture. This port has no non-stalling primitive, so each
+  /// frame gets a deadline instead — the same trade the trace snapshotter
+  /// already makes.
+  Future<void> _evaluateInAllFrames(String expression) async {
+    for (final frame in frames) {
+      await evaluateInjected(frame, expression)
+          .timeout(const Duration(seconds: 5))
+          .catchError((Object _) => null);
+    }
   }
 }
 
@@ -647,44 +775,64 @@ mixin CorePageFileChooser on EventEmitter {
 /// what upstream does; a handler that calls `fallback()` passes the route to
 /// the next one, and when the last one declines the request continues
 /// untouched.
-mixin CorePageRoutes {
-  final routeEntries = <({String pattern, void Function(CoreRoute) handler})>[];
+mixin CorePageRoutes on CorePageOwnership {
+  /// Handlers registered on this page, plus the ones the owning context
+  /// replayed onto it. `fromContext` keeps the two apart: upstream asks the
+  /// page's own dispatcher before the context's, so a context handler only
+  /// ever runs after every page handler declined.
+  final routeEntries = <({
+    Object? pattern,
+    void Function(CoreRoute) handler,
+    bool fromContext
+  })>[];
 
   /// Whether any handler is installed, which is what decides if interception
   /// has to be enabled on the engine.
   bool get hasRoutes => routeEntries.isNotEmpty;
 
-  void addRouteEntry(String pattern, void Function(CoreRoute) handler) {
-    routeEntries.add((pattern: pattern, handler: handler));
+  /// The context's `baseURL`, against which a relative glob is resolved.
+  /// Null while the page has no context yet.
+  String? get routeBaseURL => browserContext?.options.baseURL;
+
+  void addRouteEntry(Object? pattern, void Function(CoreRoute) handler,
+      {bool fromContext = false}) {
+    // Fail at registration, not at the first request: upstream compiles the
+    // glob in `page.route` so `page.route('http://*/foo{')` rejects.
+    if (pattern is String) globToRegexPattern(pattern);
+    routeEntries
+        .add((pattern: pattern, handler: handler, fromContext: fromContext));
   }
 
-  void removeRouteEntry(String pattern) {
-    routeEntries.removeWhere((entry) => entry.pattern == pattern);
+  void removeRouteEntry(Object? pattern, {bool fromContext = false}) {
+    routeEntries.removeWhere((entry) =>
+        entry.fromContext == fromContext &&
+        urlMatchesEqual(entry.pattern, pattern));
   }
 
-  /// Whether [pattern] matches [url].
+  /// Whether [pattern] claims [url].
   ///
-  /// A deliberately small glob: `**/*` matches everything and anything else
-  /// is a substring test after dropping `**/`. The full URL-pattern syntax is
-  /// not ported yet.
-  static bool matchesPattern(String pattern, String url) {
-    if (pattern == '**/*') return true;
-    return url.contains(pattern.replaceAll('**/', ''));
-  }
+  /// [pattern] is a glob [String], a [RegExp] or a `bool Function(Uri)`; the
+  /// glob dialect is upstream's, ported in `urlMatch.dart`.
+  static bool matchesPattern(Object? pattern, String url,
+          {String? baseURL, bool webSocketUrl = false}) =>
+      urlMatches(baseURL, url, pattern, webSocketUrl: webSocketUrl);
 
   /// Whether any handler would claim [url]; the engines use it to decide
   /// between running the chain and continuing the request straight away.
-  bool hasHandlerFor(String url) =>
-      routeEntries.any((entry) => matchesPattern(entry.pattern, url));
+  bool hasHandlerFor(String url) => routeEntries.any(
+      (entry) => matchesPattern(entry.pattern, url, baseURL: routeBaseURL));
 
-  /// Runs the matching handlers for [route], newest first.
+  /// Runs the matching handlers for [route]: the page's own first, newest
+  /// first, then the context's, newest first.
   void dispatchRoute(CoreRoute route) {
-    final handlers = routeEntries
-        .where((entry) => matchesPattern(entry.pattern, route.request.url))
-        .map((entry) => entry.handler)
-        .toList()
-        .reversed
+    final matching = routeEntries
+        .where((entry) => matchesPattern(entry.pattern, route.request.url,
+            baseURL: routeBaseURL))
         .toList();
+    final handlers = [
+      ...matching.where((entry) => !entry.fromContext).toList().reversed,
+      ...matching.where((entry) => entry.fromContext).toList().reversed,
+    ].map((entry) => entry.handler).toList();
 
     var index = 0;
     void runNext() {

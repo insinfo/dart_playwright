@@ -35,6 +35,10 @@ abstract class Browser {
   /// [proxy] routes this context alone, overriding any proxy the browser was
   /// launched with. All three engines take one per context.
   ///
+  /// [baseURL] is resolved against every relative URL: `page.goto('/login')`,
+  /// and an unanchored glob in [Page.route], [Page.unroute] and
+  /// [Page.waitForURL].
+  ///
   /// [recordVideo] films every page of the context into a directory. The file
   /// of a page is only complete once that page closes, so read it through
   /// [Page.video]; see [RecordVideoOptions].
@@ -65,6 +69,7 @@ abstract class Browser {
     ({double latitude, double longitude, double accuracy})? geolocation,
     List<String>? permissions,
     ProxySettings? proxy,
+    String? baseURL,
     RecordVideoOptions? recordVideo,
     RecordHarOptions? recordHar,
   });
@@ -110,6 +115,7 @@ class BrowserImpl implements Browser {
     ({double latitude, double longitude, double accuracy})? geolocation,
     List<String>? permissions,
     ProxySettings? proxy,
+    String? baseURL,
     RecordVideoOptions? recordVideo,
     RecordHarOptions? recordHar,
   }) async {
@@ -143,6 +149,7 @@ class BrowserImpl implements Browser {
               username: proxy.username,
               password: proxy.password,
             ),
+      baseURL: baseURL,
       recordVideo: recordVideo?.toCore(),
       recordHar: recordHar?.toCore(),
     ));
