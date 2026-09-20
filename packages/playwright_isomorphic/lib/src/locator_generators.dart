@@ -1017,7 +1017,7 @@ class JsonlLocatorFactory implements LocatorFactory {
 /// Renders selectors as locators of this port's `package:playwright`.
 ///
 /// This factory has no upstream counterpart: Playwright ships no Dart
-/// binding, so the shapes here follow this port's own [Locator] API. Three
+/// binding, so the shapes here follow this port's own `Locator` API. Three
 /// calls differ from the other languages on purpose:
 ///
 /// * `first` and `last` are getters, so they render without parentheses.

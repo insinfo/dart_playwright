@@ -70,7 +70,7 @@ Map<String, Object?> sanitizeDeviceOptions(
   return cleanedOptions;
 }
 
-/// The signals of [actionInContext], one slot each.
+/// The signals of an [ActionInContext], one slot each.
 class SignalMap {
   final PopupSignal? popup;
   final DownloadSignal? download;
