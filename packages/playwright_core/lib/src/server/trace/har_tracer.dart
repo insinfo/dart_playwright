@@ -9,6 +9,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:playwright_isomorphic/playwright_isomorphic.dart';
 import 'package:playwright_protocol/playwright_protocol.dart';
 
 import '../core_browser.dart';
@@ -47,16 +48,19 @@ class HarTracerOptions {
   final bool omitScripts;
 
   /// Only requests whose URL matches are recorded. A [String] is the same
-  /// small glob `page.route` takes (`**/*` matches everything, anything else
-  /// is a substring test after dropping `**/`); a [RegExp] is matched with
-  /// `hasMatch`. Null records every request.
+  /// glob `page.route` takes (upstream's dialect, see `urlMatch.dart`); a
+  /// [RegExp] is matched with `hasMatch`. Null records every request.
   final Object? urlFilter;
+
+  /// The context's `baseURL`, used to resolve a relative [urlFilter] glob.
+  final String? baseURL;
 
   const HarTracerOptions({
     this.content = HarContentPolicy.attach,
     this.slimMode = false,
     this.omitScripts = true,
     this.urlFilter,
+    this.baseURL,
   });
 
   bool get omitCookies => slimMode;
@@ -298,13 +302,8 @@ class HarTracer {
   }
 
   /// Whether [url] passes [HarTracerOptions.urlFilter].
-  bool _shouldInclude(String url) {
-    final filter = options.urlFilter;
-    if (filter == null) return true;
-    if (filter is RegExp) return filter.hasMatch(url);
-    if (filter is String) return CorePageRoutes.matchesPattern(filter, url);
-    return true;
-  }
+  bool _shouldInclude(String url) =>
+      urlMatches(options.baseURL, url, options.urlFilter);
 
   /// The `log` envelope of a HAR document, with an empty `entries`.
   ///

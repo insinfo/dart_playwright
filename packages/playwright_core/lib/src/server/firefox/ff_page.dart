@@ -402,11 +402,15 @@ class FfPage extends EventEmitter
 
   @override
   Future<void> gotoFrame(CoreFrame frame, String url,
-      {WaitUntilState? waitUntil, Duration? timeout}) async {
+      {WaitUntilState? waitUntil, Duration? timeout, String? referer}) async {
     final loaded = frame.waitForNavigation(
         waitUntil: waitUntil, timeout: timeout ?? const Duration(seconds: 30));
     loaded.catchError((_) {});
-    await session.send('Page.navigate', {'url': url, 'frameId': frame.id});
+    await session.send('Page.navigate', {
+      'url': url,
+      'frameId': frame.id,
+      if (referer != null) 'referer': referer,
+    });
     await loaded;
   }
 
@@ -449,7 +453,7 @@ class FfPage extends EventEmitter
   /// Navigate to a URL.
   @override
   Future<void> goto(String url,
-      {WaitUntilState? waitUntil, Duration? timeout}) async {
+      {WaitUntilState? waitUntil, Duration? timeout, String? referer}) async {
     final frame = await frameManager.waitForMainFrame();
     final loaded = frame.waitForNavigation(
         waitUntil: waitUntil, timeout: timeout ?? const Duration(seconds: 30));
@@ -563,8 +567,8 @@ class FfPage extends EventEmitter
   bool _routeListenerInstalled = false;
 
   @override
-  Future<void> route(
-      String urlPattern, void Function(CoreRoute) handler) async {
+  Future<void> route(Object urlPattern, void Function(CoreRoute) handler,
+      {bool fromContext = false}) async {
     if (!_routeListenerInstalled) {
       _routeListenerInstalled = true;
       session.on('Network.requestWillBeSent', _onRequestWillBeSent);
@@ -572,12 +576,12 @@ class FfPage extends EventEmitter
     if (!hasRoutes) {
       await session.send('Network.setRequestInterception', {'enabled': true});
     }
-    addRouteEntry(urlPattern, handler);
+    addRouteEntry(urlPattern, handler, fromContext: fromContext);
   }
 
   @override
-  Future<void> unroute(String urlPattern) async {
-    removeRouteEntry(urlPattern);
+  Future<void> unroute(Object urlPattern, {bool fromContext = false}) async {
+    removeRouteEntry(urlPattern, fromContext: fromContext);
     if (!hasRoutes) {
       await session.send('Network.setRequestInterception', {'enabled': false});
     }

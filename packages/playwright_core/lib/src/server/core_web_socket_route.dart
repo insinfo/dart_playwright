@@ -207,7 +207,7 @@ class CoreWebSocketRoute {
 
 /// One registered `routeWebSocket` handler.
 class _HandlerEntry {
-  final String pattern;
+  final Object pattern;
   final CoreWebSocketRouteHandler handler;
 
   /// The page this handler belongs to, or null for a context-level one.
@@ -242,7 +242,7 @@ class CoreWebSocketRouteManager {
   ///
   /// The newest handler wins, which is what upstream's `unshift` into
   /// `_webSocketRoutes` buys it (`client/page.ts:588`).
-  Future<void> route(String pattern, CoreWebSocketRouteHandler handler,
+  Future<void> route(Object pattern, CoreWebSocketRouteHandler handler,
       {CorePage? page}) async {
     _handlers.insert(0, _HandlerEntry(pattern, handler, page));
     await _install();
@@ -271,16 +271,22 @@ class CoreWebSocketRouteManager {
     }
   }
 
+  /// A WebSocket URL is matched with the `ws(s)` form of the context's
+  /// `baseURL`, which is what lets a relative glob reach `ws://host/chat`.
+  bool _matches(_HandlerEntry entry, String url) =>
+      CorePageRoutes.matchesPattern(entry.pattern, url,
+          baseURL: context.options.baseURL, webSocketUrl: true);
+
   _HandlerEntry? _handlerFor(CorePage page, String url) {
     // Page-level handlers win over context-level ones, which is the order
     // upstream checks the two dispatchers in.
     for (final entry in _handlers) {
       if (entry.page != page) continue;
-      if (CorePageRoutes.matchesPattern(entry.pattern, url)) return entry;
+      if (_matches(entry, url)) return entry;
     }
     for (final entry in _handlers) {
       if (entry.page != null) continue;
-      if (CorePageRoutes.matchesPattern(entry.pattern, url)) return entry;
+      if (_matches(entry, url)) return entry;
     }
     return null;
   }

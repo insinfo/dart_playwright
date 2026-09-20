@@ -471,12 +471,15 @@ class CrPage extends EventEmitter
 
   @override
   Future<void> gotoFrame(CoreFrame frame, String url,
-      {WaitUntilState? waitUntil, Duration? timeout}) async {
+      {WaitUntilState? waitUntil, Duration? timeout, String? referer}) async {
     final loaded = frame.waitForNavigation(
         waitUntil: waitUntil, timeout: timeout ?? const Duration(seconds: 30));
     loaded.catchError((_) {});
-    final result =
-        await session.send('Page.navigate', {'url': url, 'frameId': frame.id});
+    final result = await session.send('Page.navigate', {
+      'url': url,
+      'frameId': frame.id,
+      if (referer != null) 'referrer': referer,
+    });
     if (result['errorText'] != null) {
       throw PlaywrightException(
           'Navigation to $url failed: ${result['errorText']}');
@@ -509,14 +512,15 @@ class CrPage extends EventEmitter
 
   @override
   Future<void> goto(String url,
-      {WaitUntilState? waitUntil, Duration? timeout}) async {
+      {WaitUntilState? waitUntil, Duration? timeout, String? referer}) async {
     final frame = await frameManager.waitForMainFrame();
     final loaded = frame.waitForNavigation(
         waitUntil: waitUntil, timeout: timeout ?? const Duration(seconds: 30));
     // Keep the waiter's timeout handled even while Page.navigate stalls on a
     // slow server; the awaited rethrow below still surfaces it.
     loaded.catchError((_) {});
-    final result = await session.send('Page.navigate', {'url': url});
+    final result = await session.send('Page.navigate',
+        {'url': url, if (referer != null) 'referrer': referer});
     if (result['errorText'] != null) {
       throw PlaywrightException(
           'Navigation to $url failed: ${result['errorText']}');
@@ -676,8 +680,8 @@ class CrPage extends EventEmitter
 
   /// Add a route interception handler.
   @override
-  Future<void> route(
-      String urlPattern, void Function(CoreRoute) handler) async {
+  Future<void> route(Object urlPattern, void Function(CoreRoute) handler,
+      {bool fromContext = false}) async {
     if (!_routeListenerInstalled) {
       _routeListenerInstalled = true;
       session.on('Fetch.requestPaused', _onRequestPaused);
@@ -689,12 +693,12 @@ class CrPage extends EventEmitter
         ]
       });
     }
-    addRouteEntry(urlPattern, handler);
+    addRouteEntry(urlPattern, handler, fromContext: fromContext);
   }
 
   @override
-  Future<void> unroute(String urlPattern) async {
-    removeRouteEntry(urlPattern);
+  Future<void> unroute(Object urlPattern, {bool fromContext = false}) async {
+    removeRouteEntry(urlPattern, fromContext: fromContext);
     if (!hasRoutes) {
       await session.send('Fetch.disable');
     }

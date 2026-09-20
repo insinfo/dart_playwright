@@ -21,6 +21,9 @@ resolution: workspace
 
 dependencies:
   playwright_protocol: ^0.1.0
+  # URL matching (globs) shared with the trace viewer: upstream keeps the same
+  # code in `packages/isomorphic`.
+  playwright_isomorphic: ^0.1.0
   web_socket_channel: ^3.0.0
   archive: ^4.0.0
   http: ^1.2.0

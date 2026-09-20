@@ -93,7 +93,10 @@ abstract class Frame with LocatorFactory {
       {WaitUntilState? waitUntil, Duration? timeout});
 
   /// Wait until this frame URL matches [url].
-  Future<void> waitForURL(Pattern url, {Duration? timeout});
+  ///
+  /// [url] is a glob [String], a [RegExp] or a `bool Function(Uri)`; see
+  /// [Page.route] for the glob dialect.
+  Future<void> waitForURL(Object url, {Duration? timeout});
 
   /// Wait until [selector] reaches [state] in this frame.
   ///
@@ -330,7 +333,7 @@ class FrameImpl extends Frame {
       _coreFrame.waitForNavigation(waitUntil: waitUntil, timeout: timeout);
 
   @override
-  Future<void> waitForURL(Pattern url, {Duration? timeout}) =>
+  Future<void> waitForURL(Object url, {Duration? timeout}) =>
       _coreFrame.waitForURL(url, timeout: timeout);
 
   @override

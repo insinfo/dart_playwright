@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'package:playwright_isomorphic/playwright_isomorphic.dart';
 import 'package:playwright_protocol/playwright_protocol.dart';
 import '../accessibility.dart';
 import 'core_browser.dart';
@@ -111,7 +112,8 @@ abstract class CorePage extends EventEmitter {
   /// Whether the page has been closed (by [close], by the script, or because
   /// its context or browser went away).
   bool get isClosed;
-  Future<void> goto(String url, {WaitUntilState? waitUntil, Duration? timeout});
+  Future<void> goto(String url,
+      {WaitUntilState? waitUntil, Duration? timeout, String? referer});
 
   /// Reloads the page and waits for the navigation to reach [waitUntil].
   Future<void> reload({WaitUntilState? waitUntil});
@@ -198,7 +200,7 @@ abstract class CorePage extends EventEmitter {
 
   /// Navigates [frame] (not necessarily the main frame) to [url].
   Future<void> gotoFrame(CoreFrame frame, String url,
-      {WaitUntilState? waitUntil, Duration? timeout});
+      {WaitUntilState? waitUntil, Duration? timeout, String? referer});
 
   /// The frame owned by the `iframe`/`frame` element [handle] points at,
   /// or null when the element is not a frame owner.
@@ -220,10 +222,14 @@ abstract class CorePage extends EventEmitter {
       CoreFrame frame, String expression);
 
   /// Intercept network requests.
-  Future<void> route(String urlPattern, void Function(CoreRoute) handler);
+  ///
+  /// [fromContext] marks a handler the owning context replayed onto this
+  /// page; those are consulted only after every page-level handler declined.
+  Future<void> route(Object urlPattern, void Function(CoreRoute) handler,
+      {bool fromContext});
 
   /// Remove a route handler; disables interception when none remain.
-  Future<void> unroute(String urlPattern);
+  Future<void> unroute(Object urlPattern, {bool fromContext});
 
   /// Click [selector] using trusted protocol-level input events.
   ///
@@ -647,44 +653,64 @@ mixin CorePageFileChooser on EventEmitter {
 /// what upstream does; a handler that calls `fallback()` passes the route to
 /// the next one, and when the last one declines the request continues
 /// untouched.
-mixin CorePageRoutes {
-  final routeEntries = <({String pattern, void Function(CoreRoute) handler})>[];
+mixin CorePageRoutes on CorePageOwnership {
+  /// Handlers registered on this page, plus the ones the owning context
+  /// replayed onto it. `fromContext` keeps the two apart: upstream asks the
+  /// page's own dispatcher before the context's, so a context handler only
+  /// ever runs after every page handler declined.
+  final routeEntries = <({
+    Object? pattern,
+    void Function(CoreRoute) handler,
+    bool fromContext
+  })>[];
 
   /// Whether any handler is installed, which is what decides if interception
   /// has to be enabled on the engine.
   bool get hasRoutes => routeEntries.isNotEmpty;
 
-  void addRouteEntry(String pattern, void Function(CoreRoute) handler) {
-    routeEntries.add((pattern: pattern, handler: handler));
+  /// The context's `baseURL`, against which a relative glob is resolved.
+  /// Null while the page has no context yet.
+  String? get routeBaseURL => browserContext?.options.baseURL;
+
+  void addRouteEntry(Object? pattern, void Function(CoreRoute) handler,
+      {bool fromContext = false}) {
+    // Fail at registration, not at the first request: upstream compiles the
+    // glob in `page.route` so `page.route('http://*/foo{')` rejects.
+    if (pattern is String) globToRegexPattern(pattern);
+    routeEntries
+        .add((pattern: pattern, handler: handler, fromContext: fromContext));
   }
 
-  void removeRouteEntry(String pattern) {
-    routeEntries.removeWhere((entry) => entry.pattern == pattern);
+  void removeRouteEntry(Object? pattern, {bool fromContext = false}) {
+    routeEntries.removeWhere((entry) =>
+        entry.fromContext == fromContext &&
+        urlMatchesEqual(entry.pattern, pattern));
   }
 
-  /// Whether [pattern] matches [url].
+  /// Whether [pattern] claims [url].
   ///
-  /// A deliberately small glob: `**/*` matches everything and anything else
-  /// is a substring test after dropping `**/`. The full URL-pattern syntax is
-  /// not ported yet.
-  static bool matchesPattern(String pattern, String url) {
-    if (pattern == '**/*') return true;
-    return url.contains(pattern.replaceAll('**/', ''));
-  }
+  /// [pattern] is a glob [String], a [RegExp] or a `bool Function(Uri)`; the
+  /// glob dialect is upstream's, ported in `urlMatch.dart`.
+  static bool matchesPattern(Object? pattern, String url,
+          {String? baseURL, bool webSocketUrl = false}) =>
+      urlMatches(baseURL, url, pattern, webSocketUrl: webSocketUrl);
 
   /// Whether any handler would claim [url]; the engines use it to decide
   /// between running the chain and continuing the request straight away.
-  bool hasHandlerFor(String url) =>
-      routeEntries.any((entry) => matchesPattern(entry.pattern, url));
+  bool hasHandlerFor(String url) => routeEntries.any(
+      (entry) => matchesPattern(entry.pattern, url, baseURL: routeBaseURL));
 
-  /// Runs the matching handlers for [route], newest first.
+  /// Runs the matching handlers for [route]: the page's own first, newest
+  /// first, then the context's, newest first.
   void dispatchRoute(CoreRoute route) {
-    final handlers = routeEntries
-        .where((entry) => matchesPattern(entry.pattern, route.request.url))
-        .map((entry) => entry.handler)
-        .toList()
-        .reversed
+    final matching = routeEntries
+        .where((entry) => matchesPattern(entry.pattern, route.request.url,
+            baseURL: routeBaseURL))
         .toList();
+    final handlers = [
+      ...matching.where((entry) => !entry.fromContext).toList().reversed,
+      ...matching.where((entry) => entry.fromContext).toList().reversed,
+    ].map((entry) => entry.handler).toList();
 
     var index = 0;
     void runNext() {

@@ -398,7 +398,7 @@ class WkPage extends EventEmitter
 
   @override
   Future<void> gotoFrame(CoreFrame frame, String url,
-      {WaitUntilState? waitUntil, Duration? timeout}) async {
+      {WaitUntilState? waitUntil, Duration? timeout, String? referer}) async {
     final loaded = frame.waitForNavigation(
         waitUntil: waitUntil, timeout: timeout ?? const Duration(seconds: 30));
     loaded.catchError((_) {});
@@ -406,6 +406,7 @@ class WkPage extends EventEmitter
       'url': url,
       'pageProxyId': session.pageProxyId,
       'frameId': frame.id,
+      if (referer != null) 'referrer': referer,
     });
     await loaded;
   }
@@ -435,7 +436,7 @@ class WkPage extends EventEmitter
 
   @override
   Future<void> goto(String url,
-      {WaitUntilState? waitUntil, Duration? timeout}) async {
+      {WaitUntilState? waitUntil, Duration? timeout, String? referer}) async {
     final frame = await frameManager.waitForMainFrame();
     final loaded = frame.waitForNavigation(
         waitUntil: waitUntil, timeout: timeout ?? const Duration(seconds: 30));
@@ -447,6 +448,7 @@ class WkPage extends EventEmitter
     await session.connection.send('Playwright.navigate', {
       'url': url,
       'pageProxyId': session.pageProxyId,
+      if (referer != null) 'referrer': referer,
     });
     await loaded;
   }
@@ -557,8 +559,8 @@ class WkPage extends EventEmitter
   bool _routeListenerInstalled = false;
 
   @override
-  Future<void> route(
-      String urlPattern, void Function(CoreRoute) handler) async {
+  Future<void> route(Object urlPattern, void Function(CoreRoute) handler,
+      {bool fromContext = false}) async {
     if (!_routeListenerInstalled) {
       _routeListenerInstalled = true;
       session.on('Network.requestIntercepted', _onRequestIntercepted);
@@ -573,12 +575,12 @@ class WkPage extends EventEmitter
         'isRegex': true,
       });
     }
-    addRouteEntry(urlPattern, handler);
+    addRouteEntry(urlPattern, handler, fromContext: fromContext);
   }
 
   @override
-  Future<void> unroute(String urlPattern) async {
-    removeRouteEntry(urlPattern);
+  Future<void> unroute(Object urlPattern, {bool fromContext = false}) async {
+    removeRouteEntry(urlPattern, fromContext: fromContext);
     if (!hasRoutes) {
       await session.sendToTarget('Network.removeInterception', {
         'url': '.*',

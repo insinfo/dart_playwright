@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:playwright_isomorphic/playwright_isomorphic.dart';
 import 'package:playwright_protocol/playwright_protocol.dart';
 import 'core_js_handle.dart';
 import 'core_page.dart';
@@ -123,9 +124,12 @@ class CoreFrame {
     _emitter.emit('navigated', url);
   }
 
-  /// Waits until this frame's URL matches [expected]. Strings may contain
-  /// `*`, `**`, and `?` glob wildcards; regular expressions are also accepted.
-  Future<void> waitForURL(Pattern expected, {Duration? timeout}) async {
+  /// Waits until this frame's URL matches [expected].
+  ///
+  /// [expected] is a glob [String] in upstream's dialect (see `urlMatch.dart`),
+  /// a [RegExp], or a `bool Function(Uri)`. A relative glob is resolved
+  /// against the context's `baseURL`, exactly as `route` resolves its own.
+  Future<void> waitForURL(Object expected, {Duration? timeout}) async {
     if (_matchesURL(expected, url)) return;
 
     final completer = Completer<void>();
@@ -147,20 +151,8 @@ class CoreFrame {
     }
   }
 
-  bool _matchesURL(Pattern expected, String value) {
-    if (expected is RegExp) return expected.hasMatch(value);
-    final pattern = expected.toString();
-    if (!pattern.contains('*') && !pattern.contains('?')) {
-      return value == pattern;
-    }
-    const doubleStar = '__PLAYWRIGHT_DOUBLE_STAR__';
-    var source = RegExp.escape(pattern)
-        .replaceAll(r'\*\*', doubleStar)
-        .replaceAll(r'\*', '[^/]*')
-        .replaceAll(r'\?', '.')
-        .replaceAll(doubleStar, '.*');
-    return RegExp('^$source\$').hasMatch(value);
-  }
+  bool _matchesURL(Object expected, String value) =>
+      urlMatches(page.browserContext?.options.baseURL, value, expected);
 
   /// Waits for a specific WaitUntilState for this frame's current navigation.
   Future<void> waitForLoadState(WaitUntilState state,
