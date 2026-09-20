@@ -366,7 +366,11 @@ class CoreWebSocketRouteManager {
     page.on('frameDetached', (dynamic frame) {
       _gone(page, frame is CoreFrame ? frame : null);
     });
-    page.on('close', ([dynamic _]) => _gone(page, null));
+    page.on('close', ([dynamic _]) {
+      _gone(page, null);
+      // Nothing more can come from this page; stop holding on to it.
+      _watchedPages.remove(page);
+    });
     page.on('crash', ([dynamic _]) => _gone(page, null));
   }
 

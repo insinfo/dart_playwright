@@ -78,84 +78,63 @@ void main() {
 
         test('Deve reportar framereceived do servidor', () async {
           await page.goto(server.url('/websocket'));
-          final socketFuture =
-              page.waitForWebSocket(timeout: const Duration(seconds: 20));
+          final log = _SocketLog(page);
+          addTearDown(log.dispose);
           await page
               .evaluate('() => window.openWs(${_json(server.wsUrl('/ws'))})');
-          final socket = await socketFuture;
-          final frame = await socket.waitForFrameReceived(
-              predicate: (f) => f.text() == 'hello',
-              timeout: const Duration(seconds: 20));
-          expect(frame.isText, isTrue);
-          expect(frame.text(), equals('hello'));
+          await _until(() => log.receivedText.contains('hello'));
+          expect(log.received.first.isText, isTrue);
         });
 
         test('Deve reportar framesent da pagina', () async {
           await page.goto(server.url('/websocket'));
-          final socketFuture =
-              page.waitForWebSocket(timeout: const Duration(seconds: 20));
+          final log = _SocketLog(page);
+          addTearDown(log.dispose);
           await page
               .evaluate('() => window.openWs(${_json(server.wsUrl('/ws'))})');
-          final socket = await socketFuture;
-          final sent = socket.waitForFrameSent(
-              predicate: (f) => f.text() == 'ping',
-              timeout: const Duration(seconds: 20));
           await page.evaluate("() => window.sendWs('ping')");
-          expect((await sent).text(), equals('ping'));
-
-          final echoed = await socket.waitForFrameReceived(
-              predicate: (f) => f.text().startsWith('echo:'),
-              timeout: const Duration(seconds: 20));
-          expect(echoed.text(), equals('echo:ping'));
+          await _until(() => log.sentText.contains('ping'));
+          await _until(() => log.receivedText.contains('echo:ping'));
         });
 
         test('Deve decodificar frame binario em bytes', () async {
           await page.goto(server.url('/websocket'));
-          final socketFuture =
-              page.waitForWebSocket(timeout: const Duration(seconds: 20));
+          final log = _SocketLog(page);
+          addTearDown(log.dispose);
           await page
               .evaluate('() => window.openWs(${_json(server.wsUrl('/ws'))})');
-          final socket = await socketFuture;
-          final received = socket.waitForFrameReceived(
-              predicate: (f) => !f.isText,
-              timeout: const Duration(seconds: 20));
           await page.evaluate('() => window.sendWsBinary()');
-          final frame = await received;
+          await _until(() => log.received.any((frame) => !frame.isText));
           // The echo server adds one to every byte of [1, 2, 3].
-          expect(frame.isText, isFalse);
-          expect(frame.binary(), equals([2, 3, 4]));
+          expect(log.received.firstWhere((frame) => !frame.isText).binary(),
+              equals([2, 3, 4]));
+          // What the page sent comes back untouched on the sent side.
+          expect(log.sent.firstWhere((frame) => !frame.isText).binary(),
+              equals([1, 2, 3]));
         });
 
         test('Deve emitir close quando a pagina fecha o socket', () async {
           await page.goto(server.url('/websocket'));
-          final socketFuture =
-              page.waitForWebSocket(timeout: const Duration(seconds: 20));
+          final log = _SocketLog(page);
+          addTearDown(log.dispose);
           await page
               .evaluate('() => window.openWs(${_json(server.wsUrl('/ws'))})');
-          final socket = await socketFuture;
           // Wait for the greeting so the socket is demonstrably open first.
-          await socket.waitForFrameReceived(
-              predicate: (f) => f.text() == 'hello',
-              timeout: const Duration(seconds: 20));
-          final closed =
-              socket.waitForClose(timeout: const Duration(seconds: 20));
+          await _until(() => log.receivedText.contains('hello'));
           await page.evaluate('() => window.closeWs()');
-          await closed;
-          expect(socket.isClosed(), isTrue);
+          await _until(() => log.closed.isNotEmpty);
+          expect(log.sockets.single.isClosed(), isTrue);
         });
 
         test('Deve emitir close quando o servidor fecha o socket', () async {
           await page.goto(server.url('/websocket'));
-          final socketFuture =
-              page.waitForWebSocket(timeout: const Duration(seconds: 20));
+          final log = _SocketLog(page);
+          addTearDown(log.dispose);
           await page
               .evaluate('() => window.openWs(${_json(server.wsUrl('/ws'))})');
-          final socket = await socketFuture;
-          final closed =
-              socket.waitForClose(timeout: const Duration(seconds: 20));
           await page.evaluate("() => window.sendWs('bye')");
-          await closed;
-          expect(socket.isClosed(), isTrue);
+          await _until(() => log.closed.isNotEmpty);
+          expect(log.sockets.single.isClosed(), isTrue);
           final reported = await page.evaluate('() => window.__closed');
           expect((reported as Map)['code'], equals(4001));
         });
@@ -180,27 +159,21 @@ void main() {
 
         test('Handshake recusado vira socketerror e close', () async {
           await page.goto(server.url('/websocket'));
-          final urls = <String>[];
-          final errors = <String>[];
-          final closed = <String>[];
-          // The listeners are attached from inside the `websocket` event: a
+          // The collector subscribes from inside the `websocket` event: a
           // refused handshake errors and closes in the same burst, and this
           // is what upstream's own test does too.
-          final subscription = page.onWebSocket.listen((socket) {
-            urls.add(socket.url());
-            socket.onSocketError.listen(errors.add);
-            socket.onClose.listen((s) => closed.add(s.url()));
-          });
-          addTearDown(subscription.cancel);
+          final log = _SocketLog(page);
+          addTearDown(log.dispose);
           await page.evaluate(
               '() => window.openWs(${_json(server.wsUrl('/ws-refused'))})');
           // Firefox reports the refused handshake as two sockets; see below.
           final expectedSockets = browserName == 'firefox' ? 2 : 1;
-          await _until(
-              () => closed.length >= expectedSockets && errors.isNotEmpty);
+          await _until(() =>
+              log.closed.length >= expectedSockets && log.errors.isNotEmpty);
 
-          expect(urls, everyElement(equals(server.wsUrl('/ws-refused'))));
-          expect(closed, isNotEmpty);
+          expect(log.sockets.map((socket) => socket.url()),
+              everyElement(equals(server.wsUrl('/ws-refused'))));
+          final errors = log.errors;
           if (browserName == 'firefox') {
             // Firefox reports the same refused handshake twice, and upstream
             // does nothing about it: the network layer sees a >= 400 response
@@ -208,11 +181,11 @@ void main() {
             // separately reports `Page.webSocketCreated` plus a
             // `Page.webSocketClosed` carrying `CLOSE_ABNORMAL`. Both errors
             // are real; neither is invented here.
-            expect(urls.length, equals(2));
+            expect(log.sockets.length, equals(2));
             expect(errors, contains('Not Found: 404'));
             expect(errors, contains('CLOSE_ABNORMAL'));
           } else {
-            expect(urls.length, equals(1));
+            expect(log.sockets.length, equals(1));
             // Chromium reports only the frame error; WebKit reports the
             // handshake response as well, so it produces two. What both share
             // is the status.
@@ -475,6 +448,45 @@ Future<void> _until(FutureOr<bool> Function() condition,
     }
     await Future<void>.delayed(const Duration(milliseconds: 25));
   }
+}
+
+/// Everything the sockets of one page report.
+///
+/// It subscribes from inside the `websocket` event, so a frame or an error
+/// emitted in the same burst as the socket itself is not missed — which is
+/// exactly what the greeting the echo server sends on connect, and a refused
+/// handshake, do. Waiting for the socket first and only then subscribing is
+/// a race, and it is the race upstream's own tests avoid the same way.
+class _SocketLog {
+  final sockets = <WebSocket>[];
+  final sent = <WebSocketFrame>[];
+  final received = <WebSocketFrame>[];
+  final errors = <String>[];
+  final closed = <WebSocket>[];
+
+  late final StreamSubscription<WebSocket> _subscription;
+
+  _SocketLog(Page page) {
+    _subscription = page.onWebSocket.listen((socket) {
+      sockets.add(socket);
+      socket.onFrameSent.listen(sent.add);
+      socket.onFrameReceived.listen(received.add);
+      socket.onSocketError.listen(errors.add);
+      socket.onClose.listen(closed.add);
+    });
+  }
+
+  List<String> get sentText => [
+        for (final frame in sent)
+          if (frame.isText) frame.text()
+      ];
+
+  List<String> get receivedText => [
+        for (final frame in received)
+          if (frame.isText) frame.text()
+      ];
+
+  Future<void> dispose() => _subscription.cancel();
 }
 
 /// A `ws://` URL on the test server that nothing answers.
