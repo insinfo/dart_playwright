@@ -9,6 +9,7 @@ workspace:
   - packages/playwright_core
   - packages/playwright
   - packages/playwright_mcp
+  - packages/playwright_trace_viewer
   - packages/playwright_test
 dev_dependencies:
   playwright: any

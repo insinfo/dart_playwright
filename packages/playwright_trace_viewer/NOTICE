@@ -1,0 +1,113 @@
+Playwright for Dart
+Copyright (c) 2025 Isaque Neves
+
+This product is part of a derivative work of Playwright
+(https://github.com/microsoft/playwright), Copyright (c) Microsoft
+Corporation, licensed under the Apache License, Version 2.0.
+
+This is an independent reimplementation in Dart. It is not produced,
+endorsed, or supported by Microsoft Corporation.
+
+"Playwright" is a trademark of Microsoft Corporation. The Apache License,
+Version 2.0 does not grant permission to use it; this project uses the name
+only to describe what it is compatible with.
+
+--------------------------------------------------------------------------
+Files in this package derived from the upstream sources, and modified
+--------------------------------------------------------------------------
+
+lib/src/versions/har.dart
+    Port of packages/isomorphic/trace/versions/har.ts. Upstream declares the
+    HAR 1.2 shapes as TypeScript types, which are erased at runtime; this
+    port needs a reader, so each type became a class with `fromJson` and
+    `toJson`.
+
+lib/src/versions/trace_v10.dart
+    Port of packages/isomorphic/trace/versions/traceV10.ts, as the typed
+    reader of the current format. `ActionPhase` is a Dart enum where upstream
+    has a string union, and `EventTraceEvent` and `ConsoleMessageTraceEvent`
+    share a `TimelineTraceEvent` base because Dart has no union type and the
+    model keeps the two in one list ordered by time.
+
+lib/src/versions/trace_v3.dart .. trace_v9.dart
+    Port of packages/isomorphic/trace/versions/traceV3.ts .. traceV9.ts. The
+    modernizer reads an old trace as raw JSON, exactly as upstream does, so
+    these carry each version's shape as writers: they are what a test uses to
+    build a fixture of a real old trace. A type that did not change from the
+    previous version is re-exported instead of copied; upstream repeats it,
+    because each of its files is a frozen self-contained copy.
+
+lib/src/trace.dart
+    Port of packages/isomorphic/trace/trace.ts.
+
+lib/src/entries.dart
+    Port of packages/isomorphic/trace/entries.ts. `ActionEntry` extends the
+    action event instead of intersecting with it, and carries the two
+    neighbour links that upstream hangs off the object with a `Symbol`.
+
+lib/src/trace_utils.dart
+    Port of packages/isomorphic/trace/traceUtils.ts.
+
+lib/src/trace_modernizer.dart
+    Port of packages/isomorphic/trace/traceModernizer.ts, step by step. The
+    chain is dispatched through a table instead of by building a method name
+    at runtime. One behaviour differs: where upstream indexes `events[0]` in
+    `_modernize_6_to_7` and would throw on an empty list, this port takes the
+    same branch it would take one line later and synthesizes the context
+    event.
+
+lib/src/trace_model.dart
+    Port of packages/isomorphic/trace/traceModel.ts. `ResourceEntry` holds
+    the HAR entry beside its id instead of spreading a copy of it, so the
+    entry the snapshot renderer serves stays the same object. Rendering an
+    action title needs a locator generator, which is a separate front of this
+    port; it arrives as `LocatorDescriber` and defaults to showing the
+    selector as recorded.
+
+lib/src/trace_loader.dart
+    Port of packages/isomorphic/trace/traceLoader.ts. `Blob` became
+    `Uint8List`, and the content type the loader attaches to a resource
+    became `TraceResource` instead of a typed `Blob`.
+
+lib/src/snapshot_storage.dart
+    Port of packages/isomorphic/trace/snapshotStorage.ts.
+
+lib/src/snapshot_renderer.dart
+    Port of packages/isomorphic/trace/snapshotRenderer.ts.
+    `rewriteURLForCustomProtocol` is built on `Uri` instead of the WHATWG
+    `URL`; a URL with an opaque path comes back unchanged, which is what
+    assigning `protocol` and `hostname` on such a URL does in a browser.
+
+lib/src/snapshot_script.dart
+    The `applyPlaywrightAttributes` function of snapshotRenderer.ts. Upstream
+    ships it by calling `.toString()` on the compiled function; Dart cannot,
+    so the source is kept as text, with the TypeScript annotations stripped
+    and nothing else changed.
+
+lib/src/snapshot_server.dart
+    Port of packages/isomorphic/trace/snapshotServer.ts. Upstream answers
+    with `Response` objects of the fetch API, because it runs in a service
+    worker; here an answer is plain data (`SnapshotResponse`), so the same
+    code serves an `HttpServer` of `dart:io` and a service worker compiled by
+    dart2js.
+
+lib/src/lru_cache.dart
+    Port of packages/isomorphic/lruCache.ts.
+
+lib/src/string_utils.dart
+    The two HTML escapers of packages/isomorphic/stringUtils.ts.
+
+lib/src/protocol_metainfo.dart
+    Transcription of packages/isomorphic/protocolMetainfo.ts, which upstream
+    generates from protocol.yml. Regenerate it when the upstream reference is
+    rolled.
+
+lib/src/protocol_formatter.dart
+    Port of packages/isomorphic/protocolFormatter.ts, minus the call into
+    `locatorGenerators.ts`, which is not ported yet; see `LocatorDescriber`.
+
+lib/src/zip_trace_backend.dart and lib/io.dart
+    Written for this port. Upstream unzips the archive inside its service
+    worker with code of its own; here the zip codec is `package:archive` and
+    the platform side is isolated behind `TraceLoaderBackend`, so the model
+    compiles to the web.
