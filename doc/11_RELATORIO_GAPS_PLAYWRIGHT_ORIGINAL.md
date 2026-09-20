@@ -1912,3 +1912,220 @@ Divergencias que o teste prova em vez de esconder:
 - **O casamento de URL e o glob simplificado deste porte**
   (`CorePageRoutes.matchesPattern`), o mesmo que `page.route` ja usava, e nao
   o `URLPattern` completo do upstream. A limitacao e anterior a esta rodada.
+
+## Progresso da rodada de 2026-09-19 (recorder)
+
+Frente `feat/recorder` da Onda 2 do `12_PLANO_CONCLUSAO_PORTE.md`: a ferramenta
+que grava o que o usuario faz no navegador e devolve codigo. Ela senta em cima
+do `playwright_isomorphic` da rodada de codegen; nada de geracao de codigo foi
+reimplementado aqui.
+
+### O que foi portado
+
+De `packages/injected/src/`, como fonte JavaScript em constante Dart, seguindo
+o padrao dos outros `injected_*_source.dart`:
+
+- `selectorGenerator.ts` para
+  `packages/playwright_core/lib/src/server/injected/injected_selector_generator_source.dart`.
+  E a peca central: a ordem de preferencia (test id, papel com nome acessivel,
+  placeholder, label, alt, texto, title e so entao CSS por id, papel sem nome,
+  tag e o caminho estrutural) sao as mesmas constantes de pontuacao do
+  upstream, sem uma heuristica nova.
+- `highlight.ts` mais `highlight.css`, `recorder/recorder.ts`,
+  `recorder/clipPaths.ts` e `recorder/pollingRecorder.ts` para
+  `injected_recorder_source.dart`: o vidro por cima da pagina, o destaque com
+  o locator, a barra flutuante, o dialogo de acoes do botao direito e os
+  ouvintes que viram acao.
+
+De `packages/playwright-core/src/server/`, para
+`packages/playwright/lib/src/recorder/`:
+
+- `recorder.ts` para `recorder.dart` (`Recorder`).
+- `recorder/recorderSignalProcessor.ts` para `recorder_signal_processor.dart`.
+- `recorder/recorderUtils.ts` para `recorder_utils.dart`.
+- `recorder/recorderRunner.ts` para a funcao `performClick` de `recorder.dart`.
+- `recorder/throttledFile.ts` para `throttled_file.dart`.
+- a metade `ProgrammaticRecorderApp` de `recorder/recorderApp.ts` para
+  `recorder_app.dart` (`RecorderCollection`).
+
+Mais `codegen_command.dart`, o comando `codegen` do `program.ts`, ligado ao
+`CommandRunner` de `packages/playwright/bin/playwright.dart`. A superficie
+publica e o barrel novo `package:playwright/recorder.dart`.
+
+### O que grava de verdade
+
+Uma sessao gravada produz, com locator idiomatico e nao seletor cru:
+
+- `click`, incluindo duplo e triplo clique (a janela de 500ms que funde
+  cliques e a do upstream) e clique com o botao direito pelo dialogo de acoes;
+- `fill` em input, textarea, `contenteditable` e `input[type=range]`, com dois
+  `fill` seguidos no mesmo campo fundidos num so;
+- `check`/`uncheck`, tanto por clique quanto por barra de espaco;
+- `select` com uma ou varias opcoes;
+- `press`, com as mesmas exclusoes do upstream (Backspace, Delete, atalho de
+  colar, teclas modificadoras sozinhas);
+- `setInputFiles`;
+- `hover`, pelo dialogo de acoes;
+- `navigate` (`page.goto`), com a regra do upstream para decidir quando uma
+  navegacao vira um `goto` proprio e quando e so um sinal da acao que a
+  causou;
+- `openPage`/`closePage` e os sinais de popup, download e dialogo;
+- as assercoes `assertVisible`, `assertText`, `assertValue`, `assertChecked` e
+  `assertSnapshot`, pelos modos da barra flutuante;
+- a escolha de locator (modo `inspecting`), que devolve o seletor e o aria
+  snapshot do elemento.
+
+O seletor gerado em um iframe sai prefixado pela cadeia de iframes
+(`internal:control=enter-frame`), com o seletor de cada iframe gerado no frame
+pai.
+
+### Diferencas deliberadas
+
+- **O locator do balao vem do driver.** O upstream chama `asLocator` dentro da
+  pagina; isso exigiria uma segunda copia de `locatorGenerators.ts` em
+  JavaScript. Aqui o balao mostra o seletor e e trocado pelo locator assim que
+  o binding `__pw_recorderDescribeSelector` responde; a resposta fica em cache
+  por seletor, entao e uma ida e volta por seletor novo.
+- **Sem inspector.** O `Recorder` do upstream acumula duas funcoes: gravar e
+  ser o inspector do `page.pause()` — pausar, `step`, `resume`, o log de
+  chamadas e a lista de fontes do usuario. Este porte nao tem `Debugger` nem
+  instrumentacao de `CallMetadata`, entao so a metade gravadora existe. Foi a
+  maior amputacao da rodada e esta detalhada em "O que ficou para tras".
+- **Sem o modo `api` do recorder.** O `JsonRecordActionTool` alimenta
+  `browserContext.startRecording`, que este porte nao tem.
+- **Sem a precondicao de auto-expect.** O upstream compara duas arvores aria
+  em modo `autoexpect` para achar o elemento que a acao revelou e gerar um
+  `expect` antes dela. A arvore aria deste porte so tem o modo `default` e nao
+  tem `findNewElement`, entao `generateExpectSignal` fica desligado.
+- **Sem o encurtamento por `internal:control=any-frame`.** O upstream troca
+  uma cadeia de tres ou mais iframes por um `any-frame`; o gerador Dart lanca
+  nesse seletor (registrado na rodada de codegen), entao a cadeia inteira e
+  sempre mantida. O locator fica mais longo e continua valido.
+- **Sinal carrega valores, nao um `Frame`.** O `RecorderSignalProcessor`
+  recebe `(pageGuid, isMainFrame, frameUrl)`, que e tudo o que o upstream le do
+  frame, capturado no instante do sinal. O recorder deste porte roda sobre a
+  API publica, onde um `Frame` nao e chave estavel.
+- **`page@N` no lugar de `page.guid`.** A API publica nao expoe guid; o
+  recorder numera as paginas na ordem em que aparecem, que e tudo que os
+  geradores usam (distinguir paginas e nomear o alias do popup).
+- **Modificadores no clique.** `Frame.click` deste porte nao aceita
+  modificadores, entao `performAction` os ignora — a mesma limitacao que o
+  gerador Dart ja registrava ao emitir o comentario no fim da linha.
+- **O `Highlight` portado e so a metade do recorder**: sem overlays do
+  usuario, sem cursor de acao, sem titulo de acao, sem mascara e sem o laco de
+  `requestAnimationFrame` de `setElementHighlights`. Esses servem
+  `page.highlight`, o `mask` de screenshot e o titulo do screencast, nenhum
+  dos quais existe aqui.
+- **Sem `onGlobalListenersRemoved` e sem o retrato de `builtins`.** O script
+  injetado deste porte nao tem os dois ganchos; os ouvintes sao instalados uma
+  vez e `setTimeout`/`clearTimeout` sao os da pagina. O vidro continua sendo
+  reanexado num temporizador de 500ms, que e o que cobre framework que apaga o
+  DOM na hidratacao.
+
+### O que mudou fora da frente
+
+Tres arquivos ja existentes precisaram crescer para o recorder existir:
+
+- `injected_dom_source.dart`: `getElementAccessibleNameComposite` e
+  `getElementAccessibleDescriptionComposite` passam a devolver
+  `derivedFromContent` alem do texto (porte fiel do `outDerivedFromContent` do
+  `roleUtils.ts`), `getElementLabels` ganhou o `skipRefsInsideElement`,
+  `closestCrossShadow` ganhou o `scope` e `isInsideScope` foi acrescentado.
+  Sem o `derivedFromContent` o gerador nao sabe descartar um nome de papel que
+  so repete o texto que ele foi mandado nao usar.
+- `injected_script_source.dart`: `window.__pwDart` passa a expor
+  `generateSelector`, `generateSelectorSimple`, `isInsideScope` e
+  `elementText`.
+- `selectors.dart`: `Selectors.parse` passa a entender os engines
+  `internal:text`, `internal:label`, `internal:attr`, `internal:testid`,
+  `internal:role`, `internal:has-text`, `internal:has-not-text` e
+  `internal:control=enter-frame`. Sem isso o clique que o dialogo de acoes
+  manda o driver executar nao resolveria o proprio seletor que o recorder
+  acabou de gerar.
+
+### A interface do recorder, e por que ficou de fora
+
+`packages/recorder/src` e uma aplicacao React (`recorder.tsx`, `callLog.tsx`,
+`index.tsx`) que depende de `packages/web` — a base web compartilhada com o
+visualizador de trace, que **ainda nao existe neste porte**; a frente da UI do
+visualizador esta construindo essa base em paralelo. Entregar a versao React
+aqui significaria ou embutir o bundle compilado do upstream, que a decisao do
+`12_PLANO_CONCLUSAO_PORTE.md` recusa, ou duplicar a base web.
+
+Entao a entrega e a de terminal, que e o `ProgrammaticRecorderApp` do proprio
+upstream: `playwright codegen [url]` abre o navegador, imprime o codigo de cada
+acao assim que ela e gravada (`~` na frente quando a linha substitui a
+anterior, que e o caso de dois `fill` no mesmo campo) e imprime o arquivo
+inteiro quando o navegador fecha. `--output` espelha o arquivo em disco
+enquanto grava, com o mesmo `ThrottledFile` de 250ms do upstream, que e o que
+um editor pode observar. `--target` escolhe o gerador; o padrao e `dart-test`,
+porque Dart e o unico binding que este repositorio tem. Quando a base web
+existir, a UI entra por cima do mesmo `RecorderCollection` sem mexer no
+recorder.
+
+O que a barra flutuante ja da, dentro da pagina, e o que a UI daria de mais
+importante: ligar e desligar a gravacao, escolher locator e os quatro modos de
+assercao.
+
+### Testes, numeros medidos
+
+Com `TMP`/`TEMP` proprios da frente e
+`timeout-cli.exe -- dart.exe test -j 1`, em
+`packages/playwright`:
+
+- `test/integration/recorder_test.dart`: **27 testes, todos verdes, 2m11s**,
+  nove casos por motor nos tres motores (chromium, firefox, webkit). Os casos
+  sao transcritos de `tests/library/inspector/cli-codegen-1.spec.ts` e
+  `-2.spec.ts`: clique com locator de papel, `fill` com locator de label, dois
+  `fill` fundidos num so, `check`, `select` com test id, `press`, a navegacao
+  que vira `goto` proprio, a navegacao que fica como sinal do clique que a
+  causou, e a escolha de locator no modo `inspecting`. A entrada e sempre a do
+  protocolo, nunca um `el.click()` sintetico: o script da pagina descarta
+  evento com `isTrusted === false`, entao um teste que usasse JS nao gravaria
+  nada.
+- `test/integration/codegen_e2e_test.dart`: **2 testes, verdes, 2m28s**. O
+  primeiro e a prova que importa: grava uma sessao de verdade (clique, dois
+  `fill`, `check`, `select`, `press` e um clique em link que navega), gera o
+  arquivo Dart nos dois sabores, escreve dentro do workspace, roda
+  `dart analyze` sobre os dois e **executa** o sabor de biblioteca contra a
+  mesma pagina, que continua no ar no processo do teste. Um locator errado
+  reprova ali. O segundo exercita o caminho do comando `codegen`.
+
+`dart analyze` sem issues e `dart format` limpo na arvore inteira.
+
+Tres defeitos reais apareceram so porque o codigo gerado foi executado, e nao
+conferido a olho:
+
+1. A barra flutuante do recorder tem `pointer-events: auto` e fica no
+   centro-superior da janela; na pagina de teste original ela cobria o link, e
+   o clique nunca chegava a pagina. E o motivo do aviso do upstream ("most of
+   our tests put elements at the top left"); a pagina de teste foi reescrita
+   com um controle por linha.
+2. `runCodegen` assinava `context.onClose` depois de deixar o chamador dirigir
+   a pagina, entao um chamador que fechasse o contexto rapido perdia o evento e
+   so saia pelo prazo.
+3. O sabor de biblioteca termina em `browser.close()` e nao encerra o processo;
+   o teste o executa por um invocador de tres linhas que so chama `main()` e
+   `exit(0)`.
+
+### O que ficou para tras
+
+- **O inspector** (`page.pause()`, `step`, `resume`, o log de chamadas e a
+  lista de fontes do usuario). Depende de um `Debugger` e de instrumentacao de
+  `CallMetadata` que este porte nao tem; e uma frente propria, nao um detalhe
+  do recorder.
+- **A UI em React** de `packages/recorder/src`, pelo motivo acima. Junto com
+  ela ficam a caixa "pick locator" com edicao ao vivo do seletor, a troca de
+  linguagem pela interface, o painel de fontes e o `callLog.tsx`.
+- **`browserContext.startRecording`/`stopRecording`** e o `JsonRecordActionTool`
+  que os alimenta.
+- **A precondicao de auto-expect** e o `setAutoExpect`.
+- **O encurtamento por `any-frame`** da cadeia de iframes.
+- **`syncLocalStorageWithSettings`** e o `launchApp` que abre a segunda janela:
+  sao a UI.
+- **Opcoes de linha de comando do upstream que dependem de coisas ainda nao
+  portadas**: `--device` (sem tabela de dispositivos), `--save-storage`/
+  `--load-storage` (sem `storageState` na API publica), `--viewport-size`,
+  `--timezone`, `--lang`, `--geolocation`, `--color-scheme`, `--proxy-server`
+  e `--save-trace`. Nenhuma delas e do recorder; sao opcoes de contexto que o
+  comando repassaria.

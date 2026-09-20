@@ -54,12 +54,16 @@ library;
 
 import 'injected_css_engine_source.dart';
 import 'injected_dom_source.dart';
+import 'injected_selector_generator_source.dart';
 
 /// JavaScript source installing `window.__pwDart` in an execution context.
 ///
 /// Evaluating it twice in the same context is harmless.
-const String kInjectedScriptSource =
-    _prologue + kInjectedDomSource + kInjectedCssEngineSource + _engineSource;
+const String kInjectedScriptSource = _prologue +
+    kInjectedDomSource +
+    kInjectedCssEngineSource +
+    kInjectedSelectorGeneratorSource +
+    _engineSource;
 
 /// Opens the IIFE and bails out when the engine is already installed.
 const String _prologue = r'''
@@ -1002,6 +1006,19 @@ window.__pwDart = {
   count(parts, root) {
     return queryParts(root || document, parts).length;
   },
+
+  // The selector generator the recorder records with. `generateSelector`
+  // returns the selector string plus the elements it currently matches, which
+  // only an in-page caller (the recorder) can use; `generateSelectorSimple`
+  // returns just the string and is what the driver calls to name an iframe.
+  generateSelector,
+  generateSelectorSimple,
+
+  // What the injected recorder needs on top of the generator. Upstream reaches
+  // these through `injectedScript.utils`; here the recorder is a separate
+  // script and only sees `window.__pwDart`.
+  isInsideScope,
+  elementText: element => elementText(new Map(), element),
 
   /// Runs `body`, turning a bad selector into `{error: 'invalid'}` instead of
   /// a raw JS exception, so the Dart side can report it as

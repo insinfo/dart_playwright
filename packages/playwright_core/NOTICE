@@ -31,6 +31,21 @@ lib/src/server/injected/injected_script_source.dart
     accessible-name computation returns plain text, and element stability is
     sampled between polls rather than between animation frames.
 
+lib/src/server/injected/injected_selector_generator_source.dart
+    Hand port of packages/injected/src/selectorGenerator.ts, with the
+    escaping helpers of packages/isomorphic/stringUtils.ts. The preference
+    scores are upstream's. Modified: each candidate token carries both
+    upstream's selector string and this port's structured query parts, so
+    nothing is parsed in the page; the text cache is created per call.
+
+lib/src/server/injected/injected_recorder_source.dart
+    Hand port of packages/injected/src/recorder/recorder.ts,
+    recorder/pollingRecorder.ts, recorder/clipPaths.ts, highlight.ts and
+    highlight.css. Modified: the locator shown in the tooltip is resolved by
+    the driver instead of in the page; the `api` recorder mode, the
+    auto-expect precondition, the user overlays, the action cursor, the
+    action title and the live element-highlight loop are not ported.
+
 lib/src/server/us_keyboard_layout.dart
     Port of packages/playwright-core/src/server/usKeyboardLayout.ts.
     Modified: re-expressed as Dart records and expanded at load time.

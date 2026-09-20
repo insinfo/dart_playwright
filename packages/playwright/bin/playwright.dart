@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:args/command_runner.dart';
+import 'package:playwright/src/recorder/codegen_command.dart';
 import 'package:playwright_core/src/registry/registry.dart';
 
 Future<void> main(List<String> args) async {
@@ -8,7 +9,8 @@ Future<void> main(List<String> args) async {
     'Playwright for Dart — Browser automation',
   )
     ..addCommand(InstallCommand())
-    ..addCommand(ListCommand());
+    ..addCommand(ListCommand())
+    ..addCommand(CodegenCommand());
 
   try {
     await runner.run(args);
