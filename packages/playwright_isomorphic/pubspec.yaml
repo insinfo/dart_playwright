@@ -1,0 +1,23 @@
+name: playwright_isomorphic
+description: >-
+  Selector parsing and source code generation shared by Playwright for Dart:
+  the locator generators behind the recorder and the trace viewer codegen tab.
+  Pure Dart, with no dart:io and no dart:html, so the same code runs in a CLI
+  and in a browser.
+version: 0.1.0
+repository: https://github.com/insinfo/dart_playwright
+issue_tracker: https://github.com/insinfo/dart_playwright/issues
+
+topics:
+  - playwright
+  - codegen
+  - selectors
+  - locators
+
+environment:
+  sdk: ^3.6.2
+
+resolution: workspace
+
+dev_dependencies:
+  test: ^1.25.0

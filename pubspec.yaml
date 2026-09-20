@@ -7,6 +7,7 @@ environment:
 workspace:
   - packages/playwright_protocol
   - packages/playwright_core
+  - packages/playwright_isomorphic
   - packages/playwright
   - packages/playwright_mcp
   - packages/playwright_test
