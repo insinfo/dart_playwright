@@ -21,8 +21,42 @@ class TestServer {
 
   String url(String path) => 'http://127.0.0.1:$port$path';
 
+  /// The `ws://` form of [url], which is what a page passes to `new
+  /// WebSocket(...)`.
+  String wsUrl(String path) => 'ws://127.0.0.1:$port$path';
+
   void _handleRequest(HttpRequest request) {
     final path = request.uri.path;
+
+    // An echo WebSocket: greets the client, then answers every message with
+    // `echo:<message>`, and closes with code 4001 when told to.
+    if (path == '/ws') {
+      WebSocketTransformer.upgrade(request).then((socket) {
+        socket.add('hello');
+        socket.listen((dynamic message) {
+          if (message == 'bye') {
+            socket.close(4001, 'server said bye');
+            return;
+          }
+          if (message is List<int>) {
+            socket.add(<int>[for (final byte in message) byte + 1]);
+            return;
+          }
+          socket.add('echo:$message');
+        }, onError: (Object _) {}, cancelOnError: true);
+      }).catchError((Object _) {});
+      return;
+    }
+
+    // Refuses the upgrade, so the handshake fails with a 4xx. This is how
+    // the socket error path is exercised without killing the server.
+    if (path == '/ws-refused') {
+      request.response
+        ..statusCode = 404
+        ..write('no socket here');
+      request.response.close().catchError((_) {});
+      return;
+    }
 
     // Responds only after a long delay; used to exercise goto timeouts.
     // Handled outside the try/finally so the response is not closed early.
@@ -697,6 +731,74 @@ usedFunction();
                 </script>
               </body></html>
             """);
+          break;
+
+        // Drives a WebSocket from the page. The URL is passed in, because the
+        // port is only known at runtime.
+        case '/websocket':
+          request.response
+            ..statusCode = 200
+            ..headers.contentType = ContentType.html
+            ..write("""
+              <html><body>
+                <script>
+                  window.__received = [];
+                  window.__closed = null;
+                  window.openWs = (url) => new Promise((resolve) => {
+                    const ws = new WebSocket(url);
+                    window.__ws = ws;
+                    ws.onopen = () => resolve('open');
+                    ws.onerror = () => resolve('error');
+                    ws.onmessage = (e) => {
+                      window.__received.push(typeof e.data === 'string'
+                          ? e.data : '[binary]');
+                    };
+                    ws.onclose = (e) => {
+                      window.__closed = { code: e.code, reason: e.reason };
+                    };
+                  });
+                  window.sendWs = (message) => window.__ws.send(message);
+                  window.sendWsBinary = () =>
+                      window.__ws.send(new Uint8Array([1, 2, 3]));
+                  window.closeWs = () => window.__ws.close();
+                  window.readyState = () => window.__ws.readyState;
+                  window.wsProtocol = () => window.__ws.protocol;
+                </script>
+              </body></html>
+            """);
+          break;
+
+        // Spawns a dedicated Web Worker on demand, so a test can start
+        // listening before the worker exists.
+        case '/worker-host':
+          request.response
+            ..statusCode = 200
+            ..headers.contentType = ContentType.html
+            ..write("""
+              <html><body>
+                <script>
+                  window.spawnWorker = () => {
+                    window.__worker = new Worker('/worker.js');
+                    return 'spawned';
+                  };
+                  window.killWorker = () => {
+                    window.__worker.terminate();
+                    window.__worker = undefined;
+                    return 'killed';
+                  };
+                </script>
+              </body></html>
+            """);
+          break;
+
+        case '/worker.js':
+          request.response
+            ..statusCode = 200
+            ..headers.contentType = ContentType('application', 'javascript')
+            ..write('''
+self.__workerMark = 'from worker';
+self.onmessage = (e) => self.postMessage('echo:' + e.data);
+''');
           break;
 
         case '/visual':

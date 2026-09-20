@@ -25,6 +25,8 @@ import 'route.dart';
 import 'dialog.dart';
 import 'video.dart';
 import 'network.dart';
+import 'web_socket.dart';
+import 'worker.dart';
 import 'instrumented.dart';
 import 'package:playwright_core/src/accessibility.dart';
 
@@ -476,6 +478,29 @@ abstract class Page {
   ///
   /// The page becomes unusable; every pending operation on it fails.
   Stream<void> get onCrash;
+
+  /// Event emitted when the page opens a WebSocket.
+  ///
+  /// The socket is announced once, at the handshake, and never again — a
+  /// socket that fails its handshake is announced when it closes instead, so
+  /// nothing is silently dropped.
+  Stream<WebSocket> get onWebSocket;
+
+  /// Wait for the page to open a WebSocket.
+  ///
+  /// Start the wait before the action that opens it, then await both.
+  Future<WebSocket> waitForWebSocket(
+      {bool Function(WebSocket)? predicate, Duration? timeout});
+
+  /// Workers currently attached to this page.
+  List<Worker> workers();
+
+  /// Event emitted when the page spawns a Web Worker.
+  Stream<Worker> get onWorker;
+
+  /// Wait for the page to spawn a Web Worker.
+  Future<Worker> waitForWorker(
+      {bool Function(Worker)? predicate, Duration? timeout});
 
   /// Wait for the page to open a popup.
   ///
@@ -1102,6 +1127,42 @@ class PageImpl implements Page {
           error: () => PlaywrightException('Page crashed'),
         ),
       ];
+
+  @override
+  Stream<WebSocket> get onWebSocket => _corePage
+      .stream<CoreWebSocket>('websocket', sync: true)
+      .map(WebSocketImpl.forCore);
+
+  @override
+  Future<WebSocket> waitForWebSocket(
+          {bool Function(WebSocket)? predicate, Duration? timeout}) =>
+      waitForStreamEvent(
+        'websocket',
+        onWebSocket,
+        predicate: predicate,
+        timeout: timeout,
+        abortOn: _pageAborts,
+      );
+
+  @override
+  List<Worker> workers() =>
+      _corePage.workers.map(WorkerImpl.forCore).toList(growable: false);
+
+  @override
+  Stream<Worker> get onWorker => _corePage
+      .stream<CoreWorker>('worker', sync: true)
+      .map(WorkerImpl.forCore);
+
+  @override
+  Future<Worker> waitForWorker(
+          {bool Function(Worker)? predicate, Duration? timeout}) =>
+      waitForStreamEvent(
+        'worker',
+        onWorker,
+        predicate: predicate,
+        timeout: timeout,
+        abortOn: _pageAborts,
+      );
 
   @override
   Future<Page> waitForPopup({Duration? timeout}) => waitForStreamEvent(

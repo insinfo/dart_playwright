@@ -140,6 +140,16 @@ class FfResponse with CoreResponseState implements CoreResponse {
   }
 }
 
+/// Juggler already reports headers as a `{name, value}` list, so there is
+/// nothing to split here — unlike CDP and WebKit, which report an object.
+List<({String name, String value})> _headersArray(dynamic headers) {
+  if (headers is! List) return const [];
+  return [
+    for (final entry in headers)
+      if (entry is Map) (name: '${entry['name']}', value: '${entry['value']}'),
+  ];
+}
+
 /// Tracks network requests and responses in Firefox (Juggler).
 class FfNetworkManager extends EventEmitter {
   final dynamic session;
@@ -151,6 +161,15 @@ class FfNetworkManager extends EventEmitter {
   /// long.
   final _completed = <String>[];
 
+  /// Ids of the requests that are WebSocket handshakes.
+  ///
+  /// Juggler is the only engine that reports the handshake as an ordinary
+  /// network request. Upstream filters it out here, "to align with Chromium
+  /// and WebKit" (`ffNetworkManager.ts:71`), and forwards the pieces to the
+  /// page instead — which is also the only way Firefox learns the handshake
+  /// headers, since `Page.webSocketOpened` does not carry them.
+  final _webSocketRequestIds = <String>{};
+
   FfNetworkManager(this.session) {
     session.on('Network.requestWillBeSent', _onRequestWillBeSent);
     session.on('Network.responseReceived', _onResponseReceived);
@@ -159,6 +178,16 @@ class FfNetworkManager extends EventEmitter {
   }
 
   void _onRequestWillBeSent(Map<String, dynamic> params) {
+    final requestIdRaw = params['requestId'] as String?;
+    if (params['cause'] == 'TYPE_WEBSOCKET' && requestIdRaw != null) {
+      _webSocketRequestIds.add(requestIdRaw);
+      emit('webSocketRequestWillBeSent', (
+        requestId: requestIdRaw,
+        url: params['url'] as String? ?? '',
+        headers: _headersArray(params['headers']),
+      ));
+      return;
+    }
     final req = FfRequest(params);
     // Juggler names the previous hop explicitly, under a different requestId.
     final redirectedFrom = params['redirectedFrom'] as String?;
@@ -174,7 +203,17 @@ class FfNetworkManager extends EventEmitter {
   void _onResponseReceived(Map<String, dynamic> params) {
     final requestId = params['requestId'] as String?;
     final req = requestId != null ? _requests[requestId] : null;
-    if (req == null) return;
+    if (req == null) {
+      if (requestId != null && _webSocketRequestIds.contains(requestId)) {
+        emit('webSocketResponseReceived', (
+          requestId: requestId,
+          status: (params['status'] as num?)?.toInt() ?? 0,
+          statusText: params['statusText'] as String? ?? '',
+          headers: _headersArray(params['headers']),
+        ));
+      }
+      return;
+    }
     final res = FfResponse(session, params, req);
 
     final ip = params['remoteIPAddress'];
@@ -231,8 +270,13 @@ class FfNetworkManager extends EventEmitter {
   void _onRequestFinished(Map<String, dynamic> params) {
     final requestId = params['requestId'] as String?;
     final req = requestId != null ? _requests[requestId] : null;
+    if (req == null) {
+      if (requestId != null && _webSocketRequestIds.remove(requestId)) {
+        emit('webSocketRequestFinished', (requestId: requestId));
+      }
+      return;
+    }
     if (requestId != null) _retire(requestId);
-    if (req == null) return;
     req.sizes = CoreResourceSizes(
       requestBodySize: req.postDataBuffer?.length ?? 0,
       responseBodySize: (params['encodedBodySize'] as num?)?.toInt() ?? -1,

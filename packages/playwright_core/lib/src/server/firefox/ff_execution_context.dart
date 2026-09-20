@@ -12,7 +12,8 @@ import 'ff_connection.dart';
 /// `Runtime.getObjectProperties` / `Runtime.disposeObject` where CDP has the
 /// `Runtime.callFunctionOn` family.
 class FfExecutionContext implements CoreExecutionContext {
-  final FfSession session;
+  /// Either the page session or a worker tunnel; both answer `Runtime.*`.
+  final FfProtocolSession session;
   final String? executionContextId;
 
   FfExecutionContext(this.session, this.executionContextId);
