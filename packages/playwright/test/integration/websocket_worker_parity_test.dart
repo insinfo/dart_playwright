@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:playwright/playwright.dart';
 import 'package:test/test.dart';
 
@@ -219,6 +221,171 @@ void main() {
           }
         });
 
+        // ------------------------------------------------ WebSocketRoute
+
+        test('Deve mockar o socket inteiro sem servidor', () async {
+          await page.routeWebSocket('**/*', (route) async {
+            route.onMessage((message) {
+              if (message.text() == 'ping') route.send('pong');
+            });
+          });
+          // The mock lives in an init script, so it only reaches the next
+          // document — the navigation has to come after the route.
+          await page.goto(server.url('/websocket'));
+          expect(
+              await page
+                  .evaluate('() => window.openWs(${_json(_unusedWs(server))})'),
+              equals('open'));
+          await page.evaluate("() => window.sendWs('ping')");
+          await _until(() async {
+            final received = await page.evaluate('() => window.__received');
+            return (received as List).contains('pong');
+          });
+          // Nothing ever reached the real server: the URL does not even
+          // exist there.
+          expect(await page.evaluate('() => window.readyState()'), equals(1));
+        });
+
+        test('Deve repassar para o servidor com connectToServer', () async {
+          final fromPage = <String>[];
+          final fromServer = <String>[];
+          await page.routeWebSocket('**/*', (route) async {
+            final serverSide = route.connectToServer();
+            route.onMessage((message) {
+              fromPage.add(message.text());
+              // Rewrite on the way out, to prove the handler is in the path.
+              serverSide.send('routed:${message.text()}');
+            });
+            serverSide.onMessage((message) {
+              fromServer.add(message.text());
+              route.send(message.text());
+            });
+          });
+          await page.goto(server.url('/websocket'));
+          await page
+              .evaluate('() => window.openWs(${_json(server.wsUrl('/ws'))})');
+          await page.evaluate("() => window.sendWs('ping')");
+          await _until(() async {
+            final received = await page.evaluate('() => window.__received');
+            return (received as List).contains('echo:routed:ping');
+          });
+          expect(fromPage, contains('ping'));
+          expect(fromServer, contains('hello'));
+        });
+
+        test('Sem handler o socket passa direto', () async {
+          // A route that matches nothing still installs the mock, so this
+          // proves the passthrough path: the page talks to the real server
+          // through a mocked WebSocket.
+          await page.routeWebSocket('**/never-matches', (route) async {});
+          await page.goto(server.url('/websocket'));
+          await page
+              .evaluate('() => window.openWs(${_json(server.wsUrl('/ws'))})');
+          await page.evaluate("() => window.sendWs('ping')");
+          await _until(() async {
+            final received = await page.evaluate('() => window.__received');
+            final list = received as List;
+            return list.contains('hello') && list.contains('echo:ping');
+          });
+        });
+
+        test('Deve fechar o socket mockado pelo handler', () async {
+          await page.routeWebSocket('**/*', (route) async {
+            route.onMessage((message) async {
+              await route.close(code: 4321, reason: 'handler closed');
+            });
+          });
+          await page.goto(server.url('/websocket'));
+          await page
+              .evaluate('() => window.openWs(${_json(_unusedWs(server))})');
+          await page.evaluate("() => window.sendWs('close me')");
+          await _until(() async {
+            final closed = await page.evaluate('() => window.__closed');
+            return closed != null;
+          });
+          final closed = await page.evaluate('() => window.__closed')
+              as Map<dynamic, dynamic>;
+          expect(closed['code'], equals(4321));
+          expect(closed['reason'], equals('handler closed'));
+        });
+
+        test('Deve ver o fechamento vindo da pagina', () async {
+          final seen = <({int? code, String? reason})>[];
+          await page.routeWebSocket('**/*', (route) async {
+            route.onClose((code, reason) => seen.add((
+                  code: code,
+                  reason: reason,
+                )));
+          });
+          await page.goto(server.url('/websocket'));
+          await page
+              .evaluate('() => window.openWs(${_json(_unusedWs(server))})');
+          await page.evaluate("() => window.__ws.close(3001, 'page said bye')");
+          await _until(() async => seen.isNotEmpty);
+          expect(seen.single.code, equals(3001));
+          expect(seen.single.reason, equals('page said bye'));
+        });
+
+        test('Fechamento sem codigo chega como nulo', () async {
+          final seen = <({int? code, String? reason})>[];
+          await page.routeWebSocket('**/*', (route) async {
+            route.onClose(
+                (code, reason) => seen.add((code: code, reason: reason)));
+          });
+          await page.goto(server.url('/websocket'));
+          await page
+              .evaluate('() => window.openWs(${_json(_unusedWs(server))})');
+          await page.evaluate('() => window.closeWs()');
+          await _until(() async => seen.isNotEmpty);
+          // `close()` with no arguments gives the handler no code, which is
+          // upstream's `undefined`. 1000 is what the browser would put on the
+          // wire, not what the routing API is told, and inventing it here
+          // would be a lie about which of the two the caller is seeing.
+          expect(seen.single.code, isNull);
+          expect(seen.single.reason, isNull);
+        });
+
+        test('Deve rotear no nivel do contexto', () async {
+          await context.routeWebSocket('**/*', (route) async {
+            route.onMessage((message) => route.send('ctx:${message.text()}'));
+          });
+          final second = await context.newPage();
+          await second.goto(server.url('/websocket'));
+          await second
+              .evaluate('() => window.openWs(${_json(_unusedWs(server))})');
+          await second.evaluate("() => window.sendWs('hi')");
+          await _until(() async {
+            final received = await second.evaluate('() => window.__received');
+            return (received as List).contains('ctx:hi');
+          });
+        });
+
+        test('Deve enviar e receber binario pelo route', () async {
+          await page.routeWebSocket('**/*', (route) async {
+            route.onMessage((message) {
+              if (!message.isText) {
+                route.sendBinary(
+                    <int>[for (final byte in message.binary()) byte * 2]);
+              }
+            });
+          });
+          await page.goto(server.url('/websocket'));
+          await page
+              .evaluate('() => window.openWs(${_json(_unusedWs(server))})');
+          await page.evaluate('''() => {
+            window.__binary = null;
+            window.__ws.addEventListener('message', async (e) => {
+              if (typeof e.data !== 'string')
+                window.__binary = Array.from(new Uint8Array(await e.data.arrayBuffer()));
+            });
+            window.sendWsBinary();
+          }''');
+          await _until(
+              () async => await page.evaluate('() => window.__binary') != null);
+          expect(
+              await page.evaluate('() => window.__binary'), equals([2, 4, 6]));
+        });
+
         // -------------------------------------------------------- Worker
 
         test('Deve emitir worker com a url do script', () async {
@@ -299,13 +466,19 @@ String _json(String value) => '"${value.replaceAll('"', r'\"')}"';
 ///
 /// Used where the events being collected arrive in one burst and there is no
 /// single one to wait for.
-Future<void> _until(bool Function() condition,
+Future<void> _until(FutureOr<bool> Function() condition,
     {Duration timeout = const Duration(seconds: 20)}) async {
   final deadline = DateTime.now().add(timeout);
-  while (!condition()) {
+  while (!await condition()) {
     if (DateTime.now().isAfter(deadline)) {
       throw StateError('Condition never held within ${timeout.inSeconds}s');
     }
     await Future<void>.delayed(const Duration(milliseconds: 25));
   }
 }
+
+/// A `ws://` URL on the test server that nothing answers.
+///
+/// A socket pointed at it can only work if `routeWebSocket` mocked it whole:
+/// the server replies 404 to the upgrade.
+String _unusedWs(TestServer server) => server.wsUrl('/mocked-only');

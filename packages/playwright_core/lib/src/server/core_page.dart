@@ -31,6 +31,12 @@ export 'core_web_socket.dart'
         headersObjectToArray,
         stripFragmentFromUrl;
 export 'core_worker.dart' show CorePageWorkers, CoreWorker;
+export 'core_web_socket_route.dart'
+    show
+        CoreWebSocketData,
+        CoreWebSocketRoute,
+        CoreWebSocketRouteHandler,
+        CoreWebSocketRouteManager;
 export 'video/core_video.dart' show CoreVideo;
 export 'core_download.dart' show CoreDownload;
 export 'core_file_chooser.dart' show CoreFileChooser;

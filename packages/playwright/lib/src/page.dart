@@ -26,6 +26,7 @@ import 'dialog.dart';
 import 'video.dart';
 import 'network.dart';
 import 'web_socket.dart';
+import 'web_socket_route.dart';
 import 'worker.dart';
 import 'instrumented.dart';
 import 'package:playwright_core/src/accessibility.dart';
@@ -196,6 +197,19 @@ abstract class Page {
 
   /// Remove all route handlers.
   Future<void> unrouteAll();
+
+  /// Intercept the WebSockets this page opens whose URL matches
+  /// [urlPattern].
+  ///
+  /// The page's `WebSocket` is replaced by a mock, so this has to be called
+  /// **before** the document that opens the socket loads — like
+  /// [addInitScript], it does not touch the document that is open now.
+  ///
+  /// The handler receives the page side of the socket: what it does not
+  /// forward does not reach the server, and a handler that never calls
+  /// [WebSocketRoute.connectToServer] makes the socket fully mocked — no
+  /// connection is opened at all.
+  Future<void> routeWebSocket(String urlPattern, WebSocketRouteHandler handler);
 
   /// Evaluate JavaScript expression in the page.
   Future<dynamic> evaluate(String expression);
@@ -774,6 +788,21 @@ class PageImpl implements Page {
     for (final pattern in _routePatterns.toList()) {
       await unroute(pattern);
     }
+  }
+
+  @override
+  Future<void> routeWebSocket(
+      String urlPattern, WebSocketRouteHandler handler) async {
+    final context = _corePage.browserContext;
+    if (context == null) {
+      throw PlaywrightException(
+          'routeWebSocket needs the page to belong to a browser context');
+    }
+    await context.webSocketRoutes.route(
+      urlPattern,
+      (route) => handler(WebSocketRouteImpl(route)),
+      page: _corePage,
+    );
   }
 
   @override

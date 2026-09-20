@@ -14,6 +14,7 @@ export 'src/frame.dart';
 export 'src/frame_locator.dart';
 export 'src/network.dart';
 export 'src/web_socket.dart';
+export 'src/web_socket_route.dart';
 export 'src/worker.dart';
 export 'src/js_handle.dart';
 export 'src/element_handle.dart';

@@ -17,6 +17,7 @@ import 'instrumented.dart';
 import 'page.dart';
 import 'page_error.dart';
 import 'tracing.dart';
+import 'web_socket_route.dart';
 import 'waiter.dart';
 
 /// An isolated browser context.
@@ -67,6 +68,11 @@ abstract class BrowserContext {
   /// Like [exposeFunction], but the callback is also told which page and
   /// frame called it. See [Page.exposeBinding].
   Future<void> exposeBinding(String name, BindingCallback callback);
+
+  /// Intercept the WebSockets every page of this context opens whose URL
+  /// matches [urlPattern]. See [Page.routeWebSocket], which this is the
+  /// context-wide form of; a page-level handler wins over this one.
+  Future<void> routeWebSocket(String urlPattern, WebSocketRouteHandler handler);
 
   /// Deterministic time for every page of this context.
   ///
@@ -211,6 +217,12 @@ class BrowserContextImpl implements BrowserContext {
   Future<void> exposeBinding(String name, BindingCallback callback) =>
       _coreContext.exposeBinding(name, adaptBindingCallback(callback),
           noGlobal: false);
+
+  @override
+  Future<void> routeWebSocket(
+          String urlPattern, WebSocketRouteHandler handler) =>
+      _coreContext.webSocketRoutes
+          .route(urlPattern, (route) => handler(WebSocketRouteImpl(route)));
 
   late final Clock _clock = ClockImpl(_coreContext.clock);
 
