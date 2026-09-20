@@ -19,6 +19,12 @@ resolution: workspace
 
 dependencies:
   playwright: ^0.1.0
+  # A linha de comando `playwright_test:report`.
+  args: ^2.4.0
+  # Endereca os anexos do relatorio HTML pelo conteudo, como o upstream faz em
+  # `data/<sha1><ext>`: o mesmo screenshot anexado por dez testes vai ao disco
+  # uma vez so.
+  crypto: ^3.0.0
   path: ^1.9.0
   source_map_stack_trace: ^2.1.2
   source_maps: ^0.10.12
@@ -29,6 +35,11 @@ dependencies:
   # falhava noutra -- foi assim que isto apareceu.
   stack_trace: ^1.12.2
   test: ^1.25.0
+  # Import de implementacao de proposito, em lib/src/reporting_protocol.dart:
+  # `Invoker.current` e o unico caminho que existe para um teste em execucao
+  # descobrir qual teste ele e, e e preciso saber isso para arquivar um anexo
+  # no lugar certo do relatorio. Declarado aqui porque a dependencia e real.
+  test_api: ^0.7.0
 
 dev_dependencies:
   # Le de volta o arquivo de trace nos testes de test.step.

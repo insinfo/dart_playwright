@@ -6,6 +6,7 @@ import 'package:playwright/playwright.dart';
 import 'package:test/test.dart';
 
 import 'fixture.dart';
+import 'reporting_protocol.dart';
 import 'soft_failures.dart';
 import 'source_maps.dart';
 import 'step.dart';
@@ -191,7 +192,7 @@ void playwrightTest(
       options.browsers.length == 1
           ? description
           : '$description [$browserName]',
-      () => _runOne(description, browserName, options, body),
+      () => _runAttempt(description, browserName, options, body),
       timeout: timeout ?? const Timeout(Duration(minutes: 2)),
       skip: skip,
       tags: tags,
@@ -258,6 +259,27 @@ void playwrightGroup(
 /// grupo de cada vez roda, porque `dart test` executa um arquivo por isolate e
 /// os grupos de um arquivo em sequencia.
 PlaywrightWebServer? _grupoWebServer;
+
+/// Quantas vezes cada teste ja rodou nesta isolate.
+///
+/// `package:test` faz o retry por dentro: ele chama o corpo de novo, e nada no
+/// fluxo do runner diz qual tentativa produziu um anexo. Este contador diz, e e
+/// o que faz o screenshot da tentativa que falhou aparecer na aba dela e nao na
+/// da tentativa que passou.
+final Map<String, int> _tentativas = {};
+
+Future<void> _runAttempt(
+  String description,
+  String browserName,
+  PlaywrightTestOptions options,
+  Future<void> Function(PlaywrightFixtures) body,
+) {
+  final chave = '$description\u0000$browserName';
+  final tentativa = _tentativas[chave] ?? 0;
+  _tentativas[chave] = tentativa + 1;
+  return runAsAttempt(
+      tentativa, () => _runOne(description, browserName, options, body));
+}
 
 Future<void> _runOne(
   String description,
@@ -397,6 +419,10 @@ Future<String?> _captureFailure(Page page, String description,
     final file = p.join(artifactsPath, '$safe-$browserName.png');
     await Directory(p.dirname(file)).create(recursive: true);
     await page.screenshot(path: file, fullPage: true);
+    // O mesmo nome que o upstream usa, `screenshot`, porque e por ele que o
+    // relatorio decide mostrar a imagem em vez de um link de download.
+    reportAttachment('screenshot',
+        path: p.normalize(file), contentType: 'image/png');
     return file;
   } catch (_) {
     return null;

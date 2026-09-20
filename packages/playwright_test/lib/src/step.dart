@@ -12,6 +12,8 @@ import 'package:playwright_core/src/server/trace/instrumentation.dart'
 // faz certo.
 import 'package:playwright/src/instrumented.dart';
 
+import 'reporting_protocol.dart';
+
 /// A pagina do teste em andamento, para que [step] a encontre sozinho.
 const _currentPageKey = #playwrightTestCurrentPage;
 
@@ -55,22 +57,32 @@ Page? get currentStepPage => Zone.current[_currentPageKey] as Page?;
 /// [page] so e preciso fora de um `playwrightTest`, ou quando o passo age numa
 /// pagina diferente da do teste. Sem pagina nenhuma o passo ainda roda: ele
 /// simplesmente nao tem onde ser gravado.
+///
+/// O passo tambem sai no relatorio (`dart run playwright_test:report`), como
+/// uma linha aninhada embaixo do teste, com duracao e com os anexos que forem
+/// criados dentro dele. Sao dois destinos com a mesma chamada: o trace e para
+/// depurar a pagina, o relatorio e para quem le a suite inteira de fora.
 Future<T> step<T>(
   String title,
   FutureOr<T> Function() body, {
   Page? page,
 }) {
   final target = page ?? currentStepPage;
-  if (target == null) return Future<T>.sync(body);
+  // O passo de relatorio envolve o de trace, e nao o contrario: o marcador de
+  // fim tem de sair depois de o grupo do trace fechar, senao um anexo criado
+  // no fim do passo cairia fora dele.
+  return runReportedStep<T>(title, () {
+    if (target == null) return Future<T>.sync(body);
 
-  final corePage = (target.mainFrame() as FrameImpl).coreFrame.page;
-  return instrumented<T>(
-    page: corePage,
-    type: 'Tracing',
-    method: 'tracingGroup',
-    title: title,
-    body: () async => await body(),
-  );
+    final corePage = (target.mainFrame() as FrameImpl).coreFrame.page;
+    return instrumented<T>(
+      page: corePage,
+      type: 'Tracing',
+      method: 'tracingGroup',
+      title: title,
+      body: () async => await body(),
+    );
+  });
 }
 
 /// Attaches a file to the step that is running, so it shows up in the trace
@@ -101,8 +113,15 @@ Future<T> step<T>(
 /// one it is guessed from the file extension, falling back to
 /// `application/octet-stream`.
 ///
-/// Outside a [step] — or with nothing recording — this does nothing, which is
-/// what lets an attach stay in the code when tracing is off.
+/// Outside a [step] — or with nothing recording — the attachment still reaches
+/// the report; it just has no trace to land in, which is what lets an attach
+/// stay in the code when tracing is off.
+///
+/// There are two destinations and one call, the same split [step] has. The
+/// trace is for somebody debugging the page frame by frame; the report is for
+/// somebody reading the whole suite from outside, who needs to see the
+/// screenshot of the failure without downloading anything. Upstream reaches
+/// both from one `testInfo.attach` and so does this.
 Future<void> attach(
   String name, {
   String? contentType,
@@ -112,6 +131,18 @@ Future<void> attach(
   if (body == null && path == null) {
     throw ArgumentError('attach needs either a body or a path');
   }
+  final resolvedType = contentType ?? _contentTypeFor(path);
+
+  // The report goes first and unconditionally. It takes the path as given
+  // rather than the bytes, so attaching a video does not push a base64 copy of
+  // it through stdout.
+  reportAttachment(
+    name,
+    contentType: resolvedType,
+    path: path,
+    body: path == null ? body : null,
+  );
+
   final metadata = currentCallMetadata;
   // Nothing is recording, or this is not inside a step: reading the file
   // would be work whose result nobody can see.
@@ -119,7 +150,7 @@ Future<void> attach(
   final bytes = body ?? await File(path!).readAsBytes();
   metadata.attachments.add(CoreCallAttachment(
     name: name,
-    contentType: contentType ?? _contentTypeFor(path),
+    contentType: resolvedType,
     body: bytes,
     path: path,
   ));
