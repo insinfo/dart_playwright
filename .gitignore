@@ -30,3 +30,6 @@ scratch/
 # O .deps ainda carrega caminhos absolutos desta maquina e do SDK.
 packages/playwright_test/test/fixtures/web_app/main.dart.js
 packages/playwright_test/test/fixtures/web_app/main.dart.js.*
+
+# Diretorios de TEMP privados das execucoes de teste.
+.tmptest*/
