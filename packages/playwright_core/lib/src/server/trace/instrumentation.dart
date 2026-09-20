@@ -11,6 +11,37 @@ import '../core_page.dart';
 import 'trace_events.dart';
 import 'trace_utils.dart';
 
+/// A file produced while a call was running, offered by the viewer next to
+/// the action's row.
+///
+/// Upstream's counterpart is one entry of `testInfo.attachments`, which its
+/// test runner drains into the `after` event of the enclosing step. The shape
+/// is the same because the trace format is the same; what differs is only
+/// where it comes from.
+class CoreCallAttachment {
+  final String name;
+
+  /// MIME type the viewer uses to decide whether to render the body inline.
+  final String contentType;
+
+  /// Where the file came from, when it came from disk. Informational: the
+  /// recorder always also puts the bytes into the archive, so the viewer can
+  /// open the attachment from a trace carried to another machine.
+  final String? path;
+
+  /// The bytes. Read from [path] by the caller when the attachment came from
+  /// a file, because the recorder itself runs in event handlers and cannot
+  /// wait for a disk read.
+  final List<int> body;
+
+  const CoreCallAttachment({
+    required this.name,
+    required this.contentType,
+    required this.body,
+    this.path,
+  });
+}
+
 /// One public API call, from the moment it starts until it returns.
 ///
 /// This is the Dart counterpart of upstream's `CallMetadata`. Upstream mints
@@ -53,6 +84,10 @@ class CoreCallMetadata {
 
   /// Filled in when the call threw.
   ({String message, String name, String? stack})? error;
+
+  /// Files attached to this call while it ran. The recorder serializes them
+  /// into the `after` event.
+  final attachments = <CoreCallAttachment>[];
 
   CoreCallMetadata({
     required this.type,

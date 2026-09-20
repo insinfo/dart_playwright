@@ -22,6 +22,51 @@ import 'trace_utils.dart';
 /// used; the viewer renders it verbatim.
 const _fallbackHttpVersion = 'HTTP/1.1';
 
+/// What a recorder does with the response bodies.
+///
+/// `omit` keeps only the metadata, `embed` puts the body inside the HAR
+/// document itself (base64 for anything not textual) and `attach` writes it
+/// next to the document as a file the entry points at by `_file`.
+enum HarContentPolicy { omit, embed, attach }
+
+/// How much of each request is recorded, and what happens to the bodies.
+///
+/// Upstream's `HarTracerOptions`, minus the flags only its API-request
+/// context uses. [slimMode] is what its `mode: 'minimal'` sets: the fields a
+/// HAR is replayed from are kept and everything that only a human reader
+/// wants — cookies, timings, addresses, sizes, the page list — is dropped.
+class HarTracerOptions {
+  final HarContentPolicy content;
+
+  /// Upstream's `mode: 'minimal'`.
+  final bool slimMode;
+
+  /// Scripts are excluded from the recorded bodies by default: including them
+  /// makes a trace about ten times bigger for no gain in the DOM view. A
+  /// standalone HAR turns this off, because there the script *is* the point.
+  final bool omitScripts;
+
+  /// Only requests whose URL matches are recorded. A [String] is the same
+  /// small glob `page.route` takes (`**/*` matches everything, anything else
+  /// is a substring test after dropping `**/`); a [RegExp] is matched with
+  /// `hasMatch`. Null records every request.
+  final Object? urlFilter;
+
+  const HarTracerOptions({
+    this.content = HarContentPolicy.attach,
+    this.slimMode = false,
+    this.omitScripts = true,
+    this.urlFilter,
+  });
+
+  bool get omitCookies => slimMode;
+  bool get omitTiming => slimMode;
+  bool get omitServerIp => slimMode;
+  bool get omitSecurityDetails => slimMode;
+  bool get omitSizes => slimMode;
+  bool get omitPages => slimMode;
+}
+
 /// What the recorder does with the bodies and the finished entries.
 abstract class HarTracerDelegate {
   /// A request started. The entry is still being filled in.
@@ -160,10 +205,7 @@ class HarEntry {
 class HarTracer {
   final CoreBrowserContext _context;
   final HarTracerDelegate _delegate;
-
-  /// Scripts are excluded from the snapshot resources by default: including
-  /// them makes a trace about ten times bigger for no gain in the DOM view.
-  bool omitScripts;
+  final HarTracerOptions options;
 
   /// How long a single response body may take before the recorder gives up on
   /// it. Upstream has no cap because it races the body against the page's
@@ -176,6 +218,10 @@ class HarTracer {
   final _listeners =
       <({EventEmitter target, String event, Function listener})>[];
 
+  /// One `har.Page` per page of the context, in the order they opened. Empty
+  /// while [HarTracerOptions.slimMode] is on.
+  final _pageEntries = <CorePage, Map<String, dynamic>>{};
+
   /// The page each in-flight request belongs to.
   ///
   /// The engines report the *frame id* on a request, not the frame, so the
@@ -184,7 +230,8 @@ class HarTracer {
   /// context re-emits the same events.
   final _requestPages = <CoreRequest, CorePage>{};
 
-  HarTracer(this._context, this._delegate, {this.omitScripts = true});
+  HarTracer(this._context, this._delegate,
+      {this.options = const HarTracerOptions()});
 
   bool get started => _started;
 
@@ -198,6 +245,7 @@ class HarTracer {
   }
 
   void _onPage(CorePage page) {
+    _pageEntryFor(page);
     _listen(page, 'request',
         (dynamic request) => _onRequest(page, request as CoreRequest));
     _listen(page, 'response',
@@ -214,6 +262,68 @@ class HarTracer {
     _listeners.add((target: target, event: event, listener: listener));
   }
 
+  /// The `har.Page` of [page], created on first use.
+  ///
+  /// A HAR entry's `pageref` has to name a page of the `pages` array, so the
+  /// entry and the page are created from the same place. In slim mode there
+  /// is no array and no `pageref`.
+  Map<String, dynamic>? _pageEntryFor(CorePage page) {
+    if (options.omitPages) return null;
+    final existing = _pageEntries[page];
+    if (existing != null) return existing;
+    final startedAt = DateTime.now().toUtc();
+    final entry = <String, dynamic>{
+      'startedDateTime': startedAt.toIso8601String(),
+      'id': page.guid,
+      'title': '',
+      'pageTimings': options.omitTiming
+          ? <String, dynamic>{}
+          : <String, dynamic>{'onContentLoad': -1, 'onLoad': -1},
+    };
+    _pageEntries[page] = entry;
+    if (options.omitTiming) return entry;
+    // Upstream keeps the absolute instants while recording and turns them
+    // into offsets when it builds the log; the same two-step, because the
+    // page's own start is the origin and it is already known here.
+    void timing(String key) {
+      final timings = entry['pageTimings'] as Map<String, dynamic>;
+      if ((timings[key] as num) >= 0) return;
+      timings[key] =
+          DateTime.now().toUtc().difference(startedAt).inMilliseconds;
+    }
+
+    _listen(page, 'load', (dynamic _) => timing('onLoad'));
+    _listen(page, 'domcontentloaded', (dynamic _) => timing('onContentLoad'));
+    return entry;
+  }
+
+  /// Whether [url] passes [HarTracerOptions.urlFilter].
+  bool _shouldInclude(String url) {
+    final filter = options.urlFilter;
+    if (filter == null) return true;
+    if (filter is RegExp) return filter.hasMatch(url);
+    if (filter is String) return CorePageRoutes.matchesPattern(filter, url);
+    return true;
+  }
+
+  /// The `log` envelope of a HAR document, with an empty `entries`.
+  ///
+  /// [browserVersion] is passed in rather than read here because the engines
+  /// answer it over the protocol, and this class never awaits.
+  Map<String, dynamic> logHeader({String browserVersion = ''}) => {
+        'version': '1.2',
+        'creator': {
+          'name': 'Playwright',
+          'version': kPlaywrightDartVersion,
+        },
+        'browser': {
+          'name': _context.browser.name,
+          'version': browserVersion,
+        },
+        if (_pageEntries.isNotEmpty) 'pages': _pageEntries.values.toList(),
+        'entries': <Map<String, dynamic>>[],
+      };
+
   void stop() {
     if (!_started) return;
     _started = false;
@@ -222,6 +332,10 @@ class HarTracer {
     }
     _listeners.clear();
   }
+
+  /// Drops the page list, so a tracer restarted on the same context does not
+  /// carry the previous run's pages into the new document.
+  void clearPages() => _pageEntries.clear();
 
   /// Waits for the response bodies still in flight. Never throws: each barrier
   /// swallowed its own failure when it was created.
@@ -239,12 +353,14 @@ class HarTracer {
   void _onRequest(CorePage page, CoreRequest request) {
     final url = Uri.tryParse(request.url);
     if (url == null) return;
+    if (!_shouldInclude(request.url)) return;
     _requestPages[request] = page;
+    final pageEntry = _pageEntryFor(page);
     final entry = HarEntry.create(
       method: request.method,
       url: url,
       frameref: _frameGuid(page, request),
-      pageRef: page.guid,
+      pageRef: pageEntry?['id'] as String?,
       wallTimeMs: request.timing.startTime > 0
           ? request.timing.startTime.round()
           : null,
@@ -286,23 +402,25 @@ class HarTracer {
     }
     double phase(double end, double start) =>
         end != -1 && start != -1 ? _roundish(end - start) : -1;
-    entry.timings['dns'] =
-        phase(timing.domainLookupEnd, timing.domainLookupStart);
-    entry.timings['connect'] = phase(timing.connectEnd, timing.connectStart);
-    entry.timings['ssl'] =
-        phase(timing.connectEnd, timing.secureConnectionStart);
-    entry.timings['send'] = 0;
-    entry.timings['wait'] = phase(timing.responseStart, timing.requestStart);
-    entry.timings['receive'] = -1;
-    entry.computeTotalTime();
+    if (!options.omitTiming) {
+      entry.timings['dns'] =
+          phase(timing.domainLookupEnd, timing.domainLookupStart);
+      entry.timings['connect'] = phase(timing.connectEnd, timing.connectStart);
+      entry.timings['ssl'] =
+          phase(timing.connectEnd, timing.secureConnectionStart);
+      entry.timings['send'] = 0;
+      entry.timings['wait'] = phase(timing.responseStart, timing.requestStart);
+      entry.timings['receive'] = -1;
+      entry.computeTotalTime();
+    }
 
     final remote = response.remoteAddr;
-    if (remote != null) {
+    if (remote != null && !options.omitServerIp) {
       entry.serverIPAddress = remote.ipAddress;
       entry.serverPort = remote.port;
     }
     final security = response.securityDetails;
-    if (security != null) {
+    if (security != null && !options.omitSecurityDetails) {
       entry.securityDetails = <String, dynamic>{
         if (security.protocol != null) 'protocol': security.protocol,
         if (security.subjectName != null) 'subjectName': security.subjectName,
@@ -325,13 +443,18 @@ class HarTracer {
       return;
     }
 
-    final sizes = request.sizes;
-    entry.response['bodySize'] = sizes.responseBodySize;
-    entry.response['headersSize'] = sizes.responseHeadersSize;
-    entry.response['_transferSize'] = sizes.transferSize;
-    entry.request['headersSize'] = sizes.requestHeadersSize;
+    if (!options.omitSizes) {
+      final sizes = request.sizes;
+      entry.response['bodySize'] = sizes.responseBodySize;
+      entry.response['headersSize'] = sizes.responseHeadersSize;
+      entry.response['_transferSize'] = sizes.transferSize;
+      entry.request['headersSize'] = sizes.requestHeadersSize;
+    } else {
+      entry.response.remove('_transferSize');
+    }
 
-    if (omitScripts && request.resourceType == 'script') {
+    if (options.content == HarContentPolicy.omit ||
+        (options.omitScripts && request.resourceType == 'script')) {
       _finish(request, entry);
       return;
     }
@@ -384,16 +507,49 @@ class HarTracer {
 
   void _storeResponseContent(HarEntry entry, List<int> bytes) {
     final content = entry.content;
-    content['size'] = bytes.length;
+    if (!options.omitSizes) content['size'] = bytes.length;
     if (bytes.isEmpty) return;
     final mimeType = content['mimeType'] as String? ?? 'x-unknown';
+    if (options.content == HarContentPolicy.embed) {
+      // A font served with a textual content type is a real thing browsers
+      // cope with and this must not: decoding it as text would corrupt it.
+      // Upstream carves out the same exception.
+      if (_isTextualMimeType(mimeType) && entry.resourceType != 'font') {
+        try {
+          content['text'] = utf8.decode(bytes);
+          return;
+        } catch (_) {
+          // Mislabelled as text but not valid UTF-8; fall through to base64.
+        }
+      }
+      content['text'] = base64Encode(bytes);
+      content['encoding'] = 'base64';
+      return;
+    }
+    if (options.content != HarContentPolicy.attach) return;
     final shortName = '${sha1Hex(bytes)}.${extensionForMimeType(mimeType)}';
     if (_started) content['_file'] = _delegate.onContentBlob(shortName, bytes);
+  }
+
+  /// Whether a body of this type reads back as text. Upstream's
+  /// `isTextualMimeType`.
+  static bool _isTextualMimeType(String mimeType) {
+    final type = mimeType.split(';').first.trim().toLowerCase();
+    if (type.startsWith('text/')) return true;
+    return const {
+      'application/javascript',
+      'application/x-javascript',
+      'application/json',
+      'application/xml',
+      'application/x-www-form-urlencoded',
+      'image/svg+xml',
+    }.contains(type);
   }
 
   void _recordRequestHeaders(HarEntry entry, Map<String, String> headers) {
     final cookies = <Map<String, dynamic>>[];
     for (final header in headers.entries) {
+      if (options.omitCookies) break;
       if (header.key.toLowerCase() != 'cookie') continue;
       for (final pair in header.value.split(';')) {
         cookies.add(_parseCookie(pair));
@@ -406,6 +562,7 @@ class HarTracer {
   void _recordResponseHeaders(HarEntry entry, Map<String, String> headers) {
     final cookies = <Map<String, dynamic>>[];
     for (final header in headers.entries) {
+      if (options.omitCookies) break;
       if (header.key.toLowerCase() != 'set-cookie') continue;
       // Engines that fold repeated `Set-Cookie` headers into one value
       // separate them by newline; splitting keeps each cookie its own row.

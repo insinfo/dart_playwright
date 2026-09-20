@@ -23,9 +23,6 @@ import 'snapshotter.dart';
 import 'trace_events.dart';
 import 'trace_utils.dart';
 
-/// Version of this port, reported in the trace metadata.
-const String kPlaywrightDartVersion = '0.1.0';
-
 /// What to record.
 class CoreTracingOptions {
   /// Base name of the trace files inside the traces directory. A random one is
@@ -88,6 +85,10 @@ class _RecordingState {
 
   bool recording = false;
   final callsInProgress = <String>{};
+
+  /// Ids of the `tracingGroup` rows currently open, innermost last. Every
+  /// action recorded while one is open hangs off it in the viewer's tree.
+  final groupStack = <String>[];
 
   _RecordingState({
     required this.options,
@@ -173,6 +174,7 @@ class CoreTracing
 
     state.recording = true;
     state.callsInProgress.clear();
+    state.groupStack.clear();
 
     if (name != null && name != state.traceName) {
       _changeTraceName(state, name);
@@ -211,6 +213,73 @@ class CoreTracing
     return state.traceName;
   }
 
+  /// The group every new action currently hangs off, if any.
+  String? get _currentGroupId =>
+      _state?.groupStack.isNotEmpty ?? false ? _state!.groupStack.last : null;
+
+  /// Opens a named row in the viewer's action tree. Everything recorded until
+  /// the matching [groupEnd] is nested under it.
+  ///
+  /// The row is a plain `before`/`after` pair with `class: Tracing` and
+  /// `method: tracingGroup` — the viewer has no separate group event, it just
+  /// draws children under a parent. So a group with nothing inside it is a
+  /// row of its own, not an error.
+  ///
+  /// [location] is what the viewer's Source tab jumps to. Without one the
+  /// caller's own frame is used, but only while `sources` is on: writing a
+  /// `stack` whose file is not in the archive would give the Source tab a
+  /// line it cannot open.
+  ///
+  /// Synchronous on purpose, like everything else that appends to the stream:
+  /// see the class comment.
+  void group(String name, {TraceStackFrame? location}) {
+    final state = _state;
+    if (state == null || !state.recording) return;
+    final frame = location ?? (state.options.sources ? _callerFrame() : null);
+    if (frame != null && state.options.sources) {
+      state.sourceFiles.add(frame.file);
+    }
+    final callId = 'call@${createGuid()}';
+    _appendTraceEvent(BeforeActionTraceEvent(
+      callId: callId,
+      startTime: TraceClock.monotonicTime(),
+      title: name,
+      klass: 'Tracing',
+      method: 'tracingGroup',
+      stack: frame == null ? null : [frame],
+      parentId: _currentGroupId,
+    ));
+    state.groupStack.add(callId);
+  }
+
+  /// Closes the innermost group. Closing one that was never opened does
+  /// nothing, which is what upstream does too — a `groupEnd` in a `finally`
+  /// must not turn a failure into a different one.
+  void groupEnd() {
+    final state = _state;
+    if (state == null || state.groupStack.isEmpty) return;
+    final callId = state.groupStack.removeLast();
+    _appendTraceEvent(AfterActionTraceEvent(
+      callId: callId,
+      endTime: TraceClock.monotonicTime(),
+    ));
+  }
+
+  /// A chunk that ends with groups still open would leave `before` rows with
+  /// no `after`, and the viewer renders those as never-finished actions.
+  void _closeAllGroups() {
+    while (_currentGroupId != null) {
+      groupEnd();
+    }
+  }
+
+  /// The first frame outside this SDK, for a group that was not given a
+  /// location of its own.
+  static TraceStackFrame? _callerFrame() {
+    final frames = captureStack(limit: 1);
+    return frames.isEmpty ? null : frames.first;
+  }
+
   /// Closes the current chunk. With [path] the archive is written there;
   /// otherwise it lands next to the trace files. `discard` throws everything
   /// away and returns null.
@@ -224,6 +293,7 @@ class CoreTracing
         return null;
       }
 
+      _closeAllGroups();
       _detachListeners();
       _snapshotter.stop();
       await _stopFilmstrips();
@@ -332,7 +402,10 @@ class CoreTracing
       method: metadata.method,
       params: metadata.params,
       stack: metadata.stack,
-      parentId: metadata.parentId,
+      // An open group is the parent of everything recorded inside it, but
+      // only of the outermost call: a nested call already has a parent of its
+      // own and re-parenting it would flatten the tree.
+      parentId: metadata.parentId ?? _currentGroupId,
     ));
     await _capture(metadata, 'before');
   }
@@ -373,8 +446,38 @@ class CoreTracing
       endTime:
           metadata.endTime == 0 ? TraceClock.monotonicTime() : metadata.endTime,
       error: metadata.error,
+      attachments: _serializeAttachments(metadata.attachments),
     ));
     await _capture(metadata, 'after');
+  }
+
+  /// Writes each attachment's bytes into the archive and returns the events
+  /// pointing at them.
+  ///
+  /// The resource is named by the sha1 of its own bytes, like every other
+  /// blob here, so attaching the same screenshot to ten steps costs one file.
+  /// The bytes go in as a chunk file rather than a cross-chunk one: an
+  /// attachment belongs to the action that produced it, and that action is in
+  /// exactly one chunk.
+  List<TraceAttachment>? _serializeAttachments(
+      List<CoreCallAttachment> attachments) {
+    if (attachments.isEmpty) return null;
+    final state = _state;
+    if (state == null) return null;
+    final serialized = <TraceAttachment>[];
+    for (final attachment in attachments) {
+      final file = 'resources/${sha1Hex(attachment.body)}'
+          '.${extensionForMimeType(attachment.contentType)}';
+      state.chunkFiles.add(file);
+      _appendResource(file, attachment.body);
+      serialized.add(TraceAttachment(
+        name: attachment.name,
+        contentType: attachment.contentType,
+        path: attachment.path,
+        file: file,
+      ));
+    }
+    return serialized;
   }
 
   // -------------------------------------------------------- context events

@@ -67,7 +67,8 @@ class CrBrowser extends EventEmitter implements CoreBrowser {
       // The browser's own default context — browserContextId null — is the
       // one a persistent launch hands back, and the one a CDP connection
       // finds the existing pages in.
-      final context = CrBrowserContext(browser, null, contextOptions);
+      final context = CrBrowserContext(browser, null, contextOptions)
+        ..startHarRecordingIfNeeded();
       browser._contexts.add(context);
       await context.applyDownloadBehavior();
       final permissions = contextOptions.permissions;
@@ -286,7 +287,8 @@ class CrBrowser extends EventEmitter implements CoreBrowser {
       if (proxy != null) 'proxyBypassList': _proxyBypassList(proxy.bypass),
     });
     final context =
-        CrBrowserContext(this, result['browserContextId'] as String, options);
+        CrBrowserContext(this, result['browserContextId'] as String, options)
+          ..startHarRecordingIfNeeded();
     _contexts.add(context);
     await context.applyDownloadBehavior();
     final permissions = options.permissions;
@@ -576,6 +578,9 @@ class CrBrowserContext extends EventEmitter
     // the pages are still there, which is the order upstream's
     // `BrowserContext.close` uses too.
     await finishVideos();
+    // The HAR wants the same window the videos do: the pages are
+    // still alive, so a response body can still be read.
+    await finishHar();
     if (browserContextId == null) {
       // The default context belongs to the profile, not to us: there is no
       // context to dispose, and closing it means closing the browser — which

@@ -196,7 +196,8 @@ class WkBrowser extends EventEmitter implements CoreBrowser {
       CoreContextOptions contextOptions = const CoreContextOptions()}) async {
     await connection.send('Playwright.enable', {});
     if (persistentContext) {
-      final context = WkBrowserContext(this, null, contextOptions);
+      final context = WkBrowserContext(this, null, contextOptions)
+        ..startHarRecordingIfNeeded();
       _contexts.add(context);
       await applyContextOptions(context);
     }
@@ -249,7 +250,8 @@ class WkBrowser extends EventEmitter implements CoreBrowser {
       if (proxy?.bypass != null) 'proxyBypassList': proxy!.bypass,
     });
     final context =
-        WkBrowserContext(this, result['browserContextId'] as String, options);
+        WkBrowserContext(this, result['browserContextId'] as String, options)
+          ..startHarRecordingIfNeeded();
     _contexts.add(context);
     await applyContextOptions(context);
     return context;
@@ -515,6 +517,9 @@ class WkBrowserContext extends EventEmitter
     // the pages are still there, which is the order upstream's
     // `BrowserContext.close` uses too.
     await finishVideos();
+    // The HAR wants the same window the videos do: the pages are
+    // still alive, so a response body can still be read.
+    await finishHar();
     if (isDefault) {
       // The default context belongs to the profile: there is nothing to
       // delete, and closing it means closing the browser, which is what

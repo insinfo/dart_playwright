@@ -30,6 +30,7 @@ export 'src/binding_source.dart'
 export 'package:playwright_core/src/accessibility.dart';
 export 'package:playwright_core/src/aria_template.dart';
 export 'src/route.dart';
+export 'src/har.dart';
 export 'src/tracing.dart';
 export 'src/video.dart';
 
