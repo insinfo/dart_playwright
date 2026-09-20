@@ -138,8 +138,9 @@ ContextEntry _contextFromJson(Map<String, dynamic> json) => ContextEntry(
       ],
       resources: _list(json['resources']).map(HarEntry.fromJson).toList(),
       actions: _list(json['actions']).map(_actionFromJson).toList(),
-      screenshots:
-          _list(json['screenshots']).map(ScreenshotTraceEvent.fromJson).toList(),
+      screenshots: _list(json['screenshots'])
+          .map(ScreenshotTraceEvent.fromJson)
+          .toList(),
       ariaSnapshots: _list(json['ariaSnapshots'])
           .map(AriaSnapshotTraceEvent.fromJson)
           .toList(),

@@ -126,8 +126,8 @@ class Timeline {
     _window.append(div(
         className: 'timeline-window-curtain left',
         style: {'width': '${left}px'}));
-    _window.append(div(
-        className: 'timeline-window-resizer', style: {'left': '-5px'}));
+    _window.append(
+        div(className: 'timeline-window-resizer', style: {'left': '-5px'}));
     _window.append(div(
         className: 'timeline-window-center',
         children: [div(className: 'timeline-window-drag')]));
@@ -169,45 +169,50 @@ class Timeline {
 
   void _installDrag() {
     double? startX;
-    _view.addEventListener('mousedown', ((web.Event event) {
-      final rect = _view.getBoundingClientRect();
-      startX = (event as web.MouseEvent).clientX - rect.left;
-    }).toJS);
-    _view.addEventListener('mouseup', ((web.Event event) {
-      final begin = startX;
-      startX = null;
-      if (begin == null) return;
-      final rect = _view.getBoundingClientRect();
-      final endX = (event as web.MouseEvent).clientX - rect.left;
-      final width = rect.width;
-      if ((endX - begin).abs() < 2) {
-        // A click, not a drag: clear the window and select the last action
-        // that had started by then, which is what the user pointed at.
-        selectedTime = null;
-        onSelectedTimeChanged?.call(null);
-        final time = _positionToTime(width, endX);
-        ActionEntry? found;
-        for (final action in _model?.actions ?? const <ActionEntry>[]) {
-          if (action.startTime <= time) found = action;
-        }
-        if (found != null) onActionSelected?.call(found);
-        _draw();
-        return;
-      }
-      final t1 = _positionToTime(width, begin);
-      final t2 = _positionToTime(width, endX);
-      selectedTime =
-          (minimum: math.min(t1, t2), maximum: math.max(t1, t2));
-      onSelectedTimeChanged?.call(selectedTime);
-      _draw();
-    }).toJS);
+    _view.addEventListener(
+        'mousedown',
+        ((web.Event event) {
+          final rect = _view.getBoundingClientRect();
+          startX = (event as web.MouseEvent).clientX - rect.left;
+        }).toJS);
+    _view.addEventListener(
+        'mouseup',
+        ((web.Event event) {
+          final begin = startX;
+          startX = null;
+          if (begin == null) return;
+          final rect = _view.getBoundingClientRect();
+          final endX = (event as web.MouseEvent).clientX - rect.left;
+          final width = rect.width;
+          if ((endX - begin).abs() < 2) {
+            // A click, not a drag: clear the window and select the last action
+            // that had started by then, which is what the user pointed at.
+            selectedTime = null;
+            onSelectedTimeChanged?.call(null);
+            final time = _positionToTime(width, endX);
+            ActionEntry? found;
+            for (final action in _model?.actions ?? const <ActionEntry>[]) {
+              if (action.startTime <= time) found = action;
+            }
+            if (found != null) onActionSelected?.call(found);
+            _draw();
+            return;
+          }
+          final t1 = _positionToTime(width, begin);
+          final t2 = _positionToTime(width, endX);
+          selectedTime = (minimum: math.min(t1, t2), maximum: math.max(t1, t2));
+          onSelectedTimeChanged?.call(selectedTime);
+          _draw();
+        }).toJS);
     // Double-clicking anywhere clears the window, which is the way back out
     // of a zoom without hunting for an edge.
-    _view.addEventListener('dblclick', ((web.Event _) {
-      selectedTime = null;
-      onSelectedTimeChanged?.call(null);
-      _draw();
-    }).toJS);
+    _view.addEventListener(
+        'dblclick',
+        ((web.Event _) {
+          selectedTime = null;
+          onSelectedTimeChanged?.call(null);
+          _draw();
+        }).toJS);
   }
 }
 
@@ -265,8 +270,7 @@ class FilmStrip {
     final gapLeft = (startTime - boundaries.minimum) / span * width;
     final gapRight = (boundaries.maximum - endTime) / span * width;
     final effectiveWidth = (endTime - startTime) / span * width;
-    final count =
-        (effectiveWidth / (size.width + 2 * _frameMargin)).truncate();
+    final count = (effectiveWidth / (size.width + 2 * _frameMargin)).truncate();
 
     final lane = div(className: 'film-strip-lane', style: {
       'margin-left': '${gapLeft}px',
@@ -304,8 +308,7 @@ class FilmStrip {
     if (width <= 0 || height <= 0) {
       return (width: _tileWidth, height: _tileHeight);
     }
-    final scale =
-        math.max(width / _tileWidth, height / _tileHeight);
+    final scale = math.max(width / _tileWidth, height / _tileHeight);
     return (
       width: (width / scale).truncateToDouble(),
       height: (height / scale).truncateToDouble(),

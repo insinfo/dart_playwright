@@ -115,13 +115,10 @@ class SourceTab {
     stackTrace = StackTraceView();
     _fileNameLabel = div();
     _toolbar = div(className: 'toolbar', children: [
-      div(
-          className: 'source-tab-file-name',
-          children: [_fileNameLabel]),
+      div(className: 'source-tab-file-name', children: [_fileNameLabel]),
     ]);
     _code = div(
-        className: 'cm-wrapper',
-        attrs: {'data-testid': 'source-code-mirror'});
+        className: 'cm-wrapper', attrs: {'data-testid': 'source-code-mirror'});
     final sourceCode = div(
         className: 'vbox',
         attrs: {'data-testid': 'source-code'},

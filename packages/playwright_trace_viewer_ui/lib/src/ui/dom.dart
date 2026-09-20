@@ -131,7 +131,8 @@ web.HTMLButtonElement toolbarButton({
   void Function()? onClick,
 }) {
   final button = el('button',
-      className: clsx([className, 'toolbar-button', icon, toggled ? 'toggled' : null]),
+      className:
+          clsx([className, 'toolbar-button', icon, toggled ? 'toggled' : null]),
       attrs: {
         'title': title ?? '',
         'aria-label': ariaLabel ?? title ?? '',

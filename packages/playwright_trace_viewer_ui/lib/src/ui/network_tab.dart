@@ -179,7 +179,8 @@ class NetworkTab {
   }
 
   bool _matches(_Entry entry) {
-    if (_selectedTypes.isNotEmpty && !_selectedTypes.any((t) => _isType(entry, t))) {
+    if (_selectedTypes.isNotEmpty &&
+        !_selectedTypes.any((t) => _isType(entry, t))) {
       return false;
     }
     // The search matches the whole URL, not the shortened name the grid

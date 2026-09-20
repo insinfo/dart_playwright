@@ -116,7 +116,9 @@ class SnapshotTab {
     _wrapper = div(className: 'snapshot-wrapper', children: [_container]);
 
     element.append(toolbar);
-    element.append(div(className: 'vbox', attrs: {'tabindex': '0'}, children: [
+    element.append(div(className: 'vbox', attrs: {
+      'tabindex': '0'
+    }, children: [
       _wrapper,
     ]));
     _renderPhaseTabs();
@@ -259,8 +261,8 @@ class SnapshotTab {
   ///
   /// Upstream inlines the same `data:` URL so the panel always has something
   /// to show rather than an iframe stuck on the previous action.
-  static final String _blankUrl = 'data:text/html;base64,${base64Encode(utf8.encode(
-      '<body></body><style>body { color-scheme: light dark; background: light-dark(white, #333) }</style>'))}';
+  static final String _blankUrl =
+      'data:text/html;base64,${base64Encode(utf8.encode('<body></body><style>body { color-scheme: light dark; background: light-dark(white, #333) }</style>'))}';
 
   Future<void> _load() async {
     final iteration = ++_iteration;

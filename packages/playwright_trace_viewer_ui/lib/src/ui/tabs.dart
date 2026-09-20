@@ -48,8 +48,8 @@ class CallTab {
         text: renderFullTitleForCall(metainfo, sdkLanguage: sdkLanguage)));
 
     tab.append(div(className: 'call-section', text: 'Time'));
-    tab.append(_line('start', msToString(action.startTime - startTimeOffset),
-        'literal'));
+    tab.append(_line(
+        'start', msToString(action.startTime - startTimeOffset), 'literal'));
     tab.append(_line(
         'duration',
         action.endTime != 0
@@ -219,8 +219,7 @@ class ErrorsTab {
             text: short);
         button.onClick.listen((_) => onRevealInSource?.call(error));
         header.append(div(
-            className: 'action-location',
-            children: [textNode('@ '), button]));
+            className: 'action-location', children: [textNode('@ '), button]));
       }
       body.append(div(style: {
         'display': 'flex',
@@ -274,14 +273,10 @@ class ConsoleTab {
           span(
               className: 'console-time',
               text: msToString(entry.timestamp - startTimeOffset)),
-          span(
-              className: 'console-source',
-              text: entry.source,
-              attrs: {
-                'title': entry.source == 'test'
-                    ? 'Runner message'
-                    : 'Browser message'
-              }),
+          span(className: 'console-source', text: entry.source, attrs: {
+            'title':
+                entry.source == 'test' ? 'Runner message' : 'Browser message'
+          }),
           if (entry.location != null)
             span(className: 'console-location', text: entry.location!),
           span(className: 'console-line-message', text: entry.message),
@@ -376,8 +371,8 @@ class MetadataView {
           DateTime.fromMillisecondsSinceEpoch(wallTime.toInt()).toString(),
           'datetime'));
     }
-    body.append(
-        _line('duration', msToString(model.endTime - model.startTime), 'number'));
+    body.append(_line(
+        'duration', msToString(model.endTime - model.startTime), 'number'));
     if (model.testTimeout != null) {
       body.append(
           _line('test timeout', msToString(model.testTimeout), 'number'));
@@ -469,11 +464,7 @@ class AttachmentsTab {
           ]),
           div(children: [
             el('a',
-                attrs: {
-                  'href': url,
-                  'target': '_blank',
-                  'rel': 'noreferrer'
-                },
+                attrs: {'href': url, 'target': '_blank', 'rel': 'noreferrer'},
                 text: attachment.name)
           ]),
         ]));
@@ -526,9 +517,8 @@ class AttachmentsTab {
         // from taking the whole panel.
         final lines = text.split('\n').length.clamp(5, 20);
         body.style.height = '${lines * 20}px';
-        body.append(div(className: 'cm-wrapper', children: [
-          el('pre', text: text)
-        ]));
+        body.append(
+            div(className: 'cm-wrapper', children: [el('pre', text: text)]));
       }));
     };
     final wrapper = div(children: [expandable.element, body]);

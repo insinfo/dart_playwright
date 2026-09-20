@@ -72,8 +72,8 @@ class ViewerAssets {
       final name = entity.path
           .replaceAll(r'\', '/')
           .substring(bundle.path.replaceAll(r'\', '/').length + 1);
-      assets[name] =
-          ViewerAsset(Uint8List.fromList(await entity.readAsBytes()), _typeOf(name));
+      assets[name] = ViewerAsset(
+          Uint8List.fromList(await entity.readAsBytes()), _typeOf(name));
     }
     return ViewerAssets(assets);
   }
@@ -84,7 +84,8 @@ class ViewerAssets {
 /// This is what `tool/build_ui.dart` calls to produce the versioned bundle
 /// and what the server calls when that bundle is missing.
 Future<Directory> buildViewer(String packageRoot, {String? outputRoot}) async {
-  final out = Directory(outputRoot ?? '$packageRoot/.dart_tool/trace_viewer_ui');
+  final out =
+      Directory(outputRoot ?? '$packageRoot/.dart_tool/trace_viewer_ui');
   await out.create(recursive: true);
 
   for (final entry in const [

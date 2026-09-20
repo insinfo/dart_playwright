@@ -79,7 +79,8 @@ class TraceViewerServer {
   TraceViewerServer(this.trace, this.assets);
 
   /// The origin the viewer is reachable at, once [start] has run.
-  String get origin => 'http://${_httpServer!.address.host}:${_httpServer!.port}';
+  String get origin =>
+      'http://${_httpServer!.address.host}:${_httpServer!.port}';
 
   /// The URL to open, which carries the trace name for the page title.
   String get url => '$origin/';
@@ -156,8 +157,8 @@ class TraceViewerServer {
       // subresource requests are later looked up by, so it has to be the
       // absolute one the browser used.
       final snapshotUrl = '$origin${uri.toString()}';
-      return _send(
-          request, trace.snapshotServer.serveSnapshot(callId, params, snapshotUrl));
+      return _send(request,
+          trace.snapshotServer.serveSnapshot(callId, params, snapshotUrl));
     }
     if (path.startsWith('/snapshotInfo/')) {
       final callId =

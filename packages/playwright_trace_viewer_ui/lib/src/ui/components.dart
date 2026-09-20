@@ -52,8 +52,11 @@ class SplitView {
         main = div(className: 'split-view-main'),
         sidebar = div(className: 'split-view-sidebar'),
         element = div(
-            className: clsx(
-                ['split-view', orientation, sidebarIsFirst ? 'sidebar-first' : null])) {
+            className: clsx([
+          'split-view',
+          orientation,
+          sidebarIsFirst ? 'sidebar-first' : null
+        ])) {
     final stored = _settingName == null
         ? null
         : _readStoredSize('$_settingName.$orientation:size');
@@ -133,13 +136,17 @@ class SplitView {
           startSize = _size;
           web.document.body!.style.userSelect = 'none';
         }).toJS);
-    web.document.addEventListener('mousemove', ((web.Event e) {
-      move(e as web.MouseEvent);
-    }).toJS);
-    web.document.addEventListener('mouseup', ((web.Event _) {
-      startOffset = null;
-      web.document.body!.style.userSelect = 'inherit';
-    }).toJS);
+    web.document.addEventListener(
+        'mousemove',
+        ((web.Event e) {
+          move(e as web.MouseEvent);
+        }).toJS);
+    web.document.addEventListener(
+        'mouseup',
+        ((web.Event _) {
+          startOffset = null;
+          web.document.body!.style.userSelect = 'inherit';
+        }).toJS);
   }
 }
 
@@ -336,7 +343,8 @@ class ListView<T> {
             className: 'list-view vbox $name-list-view',
             attrs: {if (ariaLabel != null) 'aria-label': ariaLabel}) {
     _content = div(
-        className: clsx(['list-view-content', notSelectable ? 'not-selectable' : null]),
+        className: clsx(
+            ['list-view-content', notSelectable ? 'not-selectable' : null]),
         attrs: {'tabindex': '0'});
     element.append(_content);
   }
@@ -376,14 +384,18 @@ class ListView<T> {
         onAccepted?.call(item, capturedIndex);
       }).toJS;
       if (!notSelectable) {
-        entry.addEventListener('mouseenter', ((web.Event _) {
-          entry.classList.add('highlighted');
-          onHighlighted?.call(item);
-        }).toJS);
-        entry.addEventListener('mouseleave', ((web.Event _) {
-          entry.classList.remove('highlighted');
-          onHighlighted?.call(null);
-        }).toJS);
+        entry.addEventListener(
+            'mouseenter',
+            ((web.Event _) {
+              entry.classList.add('highlighted');
+              onHighlighted?.call(item);
+            }).toJS);
+        entry.addEventListener(
+            'mouseleave',
+            ((web.Event _) {
+              entry.classList.remove('highlighted');
+              onHighlighted?.call(null);
+            }).toJS);
       }
       _content.append(entry);
     }
@@ -544,9 +556,8 @@ class TreeView {
         final autoExpand = autoExpandDepth > depth &&
             _rows.length < 25 &&
             expandState != false;
-        final bool? expanded = item.children.isEmpty
-            ? null
-            : (expandState ?? autoExpand);
+        final bool? expanded =
+            item.children.isEmpty ? null : (expandState ?? autoExpand);
         _rows[item.id] = _TreeRow(
           depth: depth,
           expanded: expanded,
@@ -577,9 +588,8 @@ class TreeView {
       // A row and its children are siblings in the DOM only at the top; a
       // group's children live inside its own [role=group], which is what
       // upstream's aria-controls points at.
-      final parentElement = row.parent == null
-          ? _content
-          : (_groups[row.parent!.id] ?? _content);
+      final parentElement =
+          row.parent == null ? _content : (_groups[row.parent!.id] ?? _content);
       parentElement.append(_buildRow(item, row));
     }
   }
@@ -603,19 +613,22 @@ class TreeView {
     );
     entry.onClick.listen((_) => onSelected?.call(item));
     entry.ondblclick = ((web.Event _) => onAccepted?.call(item)).toJS;
-    entry.addEventListener('mouseenter', ((web.Event _) {
-      entry.classList.add('highlighted');
-      onHighlighted?.call(item);
-    }).toJS);
-    entry.addEventListener('mouseleave', ((web.Event _) {
-      entry.classList.remove('highlighted');
-      onHighlighted?.call(null);
-    }).toJS);
+    entry.addEventListener(
+        'mouseenter',
+        ((web.Event _) {
+          entry.classList.add('highlighted');
+          onHighlighted?.call(item);
+        }).toJS);
+    entry.addEventListener(
+        'mouseleave',
+        ((web.Event _) {
+          entry.classList.remove('highlighted');
+          onHighlighted?.call(null);
+        }).toJS);
 
     final children = <web.Node>[entry];
     if (row.expanded == true && item.children.isNotEmpty) {
-      final group =
-          div(attrs: {'id': groupId, 'role': 'group'});
+      final group = div(attrs: {'id': groupId, 'role': 'group'});
       _groups[item.id] = group;
       children.add(group);
     }
@@ -644,68 +657,75 @@ class TreeView {
       attrs: {'aria-hidden': 'true'},
       style: {'min-width': '16px', 'margin-right': '4px'},
     );
-    chevron.addEventListener('click', ((web.Event event) {
-      event.stopPropagation();
-      event.preventDefault();
-      if ((event as web.MouseEvent).altKey) {
-        toggleSubtree(item);
-      } else {
-        toggleExpanded(item);
-      }
-    }).toJS);
-    chevron.addEventListener('dblclick', ((web.Event event) {
-      event.stopPropagation();
-      event.preventDefault();
-    }).toJS);
+    chevron.addEventListener(
+        'click',
+        ((web.Event event) {
+          event.stopPropagation();
+          event.preventDefault();
+          if ((event as web.MouseEvent).altKey) {
+            toggleSubtree(item);
+          } else {
+            toggleExpanded(item);
+          }
+        }).toJS);
+    chevron.addEventListener(
+        'dblclick',
+        ((web.Event event) {
+          event.stopPropagation();
+          event.preventDefault();
+        }).toJS);
     return chevron;
   }
 
   void _installKeyboard() {
-    _content.addEventListener('keydown', ((web.Event event) {
-      final key = (event as web.KeyboardEvent).key;
-      final selected = _selectedItem;
-      if (key == 'Enter') {
-        if (event.target == _content && selected != null) {
-          onAccepted?.call(selected);
-        }
-        return;
-      }
-      if (key != 'ArrowUp' &&
-          key != 'ArrowDown' &&
-          key != 'ArrowLeft' &&
-          key != 'ArrowRight') {
-        return;
-      }
-      event.stopPropagation();
-      event.preventDefault();
-      if (key == 'ArrowLeft') {
-        if (selected == null) return;
-        final row = _rows[selected.id];
-        if (row?.expanded == true) {
-          expandedItems[selected.id] = false;
-          _index();
-          _draw();
-        } else if (row?.parent != null) {
-          onSelected?.call(row!.parent!);
-        }
-        return;
-      }
-      if (key == 'ArrowRight') {
-        if (selected == null || selected.children.isEmpty) return;
-        expandedItems[selected.id] = true;
-        _index();
-        _draw();
-        return;
-      }
-      if (_flattened.isEmpty) return;
-      if (selected == null) {
-        onSelected?.call(key == 'ArrowDown' ? _flattened.first : _flattened.last);
-        return;
-      }
-      final row = _rows[selected.id];
-      final next = key == 'ArrowDown' ? row?.next : row?.previous;
-      if (next != null) onSelected?.call(next);
-    }).toJS);
+    _content.addEventListener(
+        'keydown',
+        ((web.Event event) {
+          final key = (event as web.KeyboardEvent).key;
+          final selected = _selectedItem;
+          if (key == 'Enter') {
+            if (event.target == _content && selected != null) {
+              onAccepted?.call(selected);
+            }
+            return;
+          }
+          if (key != 'ArrowUp' &&
+              key != 'ArrowDown' &&
+              key != 'ArrowLeft' &&
+              key != 'ArrowRight') {
+            return;
+          }
+          event.stopPropagation();
+          event.preventDefault();
+          if (key == 'ArrowLeft') {
+            if (selected == null) return;
+            final row = _rows[selected.id];
+            if (row?.expanded == true) {
+              expandedItems[selected.id] = false;
+              _index();
+              _draw();
+            } else if (row?.parent != null) {
+              onSelected?.call(row!.parent!);
+            }
+            return;
+          }
+          if (key == 'ArrowRight') {
+            if (selected == null || selected.children.isEmpty) return;
+            expandedItems[selected.id] = true;
+            _index();
+            _draw();
+            return;
+          }
+          if (_flattened.isEmpty) return;
+          if (selected == null) {
+            onSelected
+                ?.call(key == 'ArrowDown' ? _flattened.first : _flattened.last);
+            return;
+          }
+          final row = _rows[selected.id];
+          final next = key == 'ArrowDown' ? row?.next : row?.previous;
+          if (next != null) onSelected?.call(next);
+        }).toJS);
   }
 }
 
@@ -858,14 +878,14 @@ class Expandable {
           'codicon ${expanded ? 'codicon-chevron-down' : 'codicon-chevron-right'}',
       style: {'color': 'var(--vscode-foreground)', 'margin-left': '5px'},
     );
-    final button = el('button',
-        className: 'expandable-title-button',
-        attrs: {
-          'id': '$id-title',
-          'aria-expanded': '$expanded',
-          'aria-controls': '$id-region',
-        },
-        children: [_chevron, title]);
+    final button = el('button', className: 'expandable-title-button', attrs: {
+      'id': '$id-title',
+      'aria-expanded': '$expanded',
+      'aria-controls': '$id-region',
+    }, children: [
+      _chevron,
+      title
+    ]);
     button.onClick.listen((_) => this.expanded = !_expanded);
     titleRow.append(button);
     for (final child in titleChildren) {

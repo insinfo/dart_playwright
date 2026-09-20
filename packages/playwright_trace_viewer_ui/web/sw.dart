@@ -62,19 +62,25 @@ external JSPromise<JSAny?> _fetch(String input);
 void main() {
   // Take over the open snapshot frames as soon as this worker installs,
   // rather than waiting for the next navigation.
-  _self.addEventListener('install', ((JSObject _) {
-    _self.skipWaiting();
-  }).toJS);
-  _self.addEventListener('activate', ((JSObject _) {
-    _self.clients.claim();
-  }).toJS);
-  _self.addEventListener('fetch', ((_FetchEvent event) {
-    final url = event.request.url;
-    // Anything the viewer serves itself goes straight to the network; only
-    // what the snapshot asked of another origin needs rewriting.
-    if (url.startsWith(_self.location.origin)) return;
-    event.respondWith(_proxy(event).toJS);
-  }).toJS);
+  _self.addEventListener(
+      'install',
+      ((JSObject _) {
+        _self.skipWaiting();
+      }).toJS);
+  _self.addEventListener(
+      'activate',
+      ((JSObject _) {
+        _self.clients.claim();
+      }).toJS);
+  _self.addEventListener(
+      'fetch',
+      ((_FetchEvent event) {
+        final url = event.request.url;
+        // Anything the viewer serves itself goes straight to the network; only
+        // what the snapshot asked of another origin needs rewriting.
+        if (url.startsWith(_self.location.origin)) return;
+        event.respondWith(_proxy(event).toJS);
+      }).toJS);
 }
 
 Future<JSAny?> _proxy(_FetchEvent event) async {

@@ -30,3 +30,5 @@ dependencies:
 
 dev_dependencies:
   test: ^1.25.0
+  # Builds the trace archive the server tests are pointed at.
+  archive: ^4.0.0

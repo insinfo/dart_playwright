@@ -19,7 +19,7 @@
 import 'dart:io';
 
 import 'package:playwright/playwright.dart';
-import 'package:playwright_trace_viewer_ui/server.dart';
+import 'package:playwright_trace_viewer_ui/playwright_trace_viewer_ui.dart';
 
 Future<void> main(List<String> args) async {
   if (args.isEmpty) {

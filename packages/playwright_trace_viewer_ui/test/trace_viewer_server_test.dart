@@ -12,7 +12,7 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:playwright_trace_viewer_ui/server.dart';
+import 'package:playwright_trace_viewer_ui/playwright_trace_viewer_ui.dart';
 import 'package:test/test.dart';
 
 import 'fixture.dart';
@@ -64,8 +64,8 @@ void main() {
     });
 
     test('hands the whole model over at /contexts', () async {
-      final json = jsonDecode(await getBody('/contexts'))
-          as Map<String, dynamic>;
+      final json =
+          jsonDecode(await getBody('/contexts')) as Map<String, dynamic>;
       final decoded = contextEntriesFromJson(json);
       expect(decoded.contexts, hasLength(1));
       expect(decoded.contexts.single.actions, hasLength(2));
@@ -85,8 +85,9 @@ void main() {
     });
 
     test('answers snapshotInfo with the recorded viewport', () async {
-      final json = jsonDecode(await getBody('/snapshotInfo/call%401?phase=before'))
-          as Map<String, dynamic>;
+      final json =
+          jsonDecode(await getBody('/snapshotInfo/call%401?phase=before'))
+              as Map<String, dynamic>;
       expect(json['url'], 'http://localhost/');
       expect((json['viewport'] as Map)['width'], 900);
       expect((json['viewport'] as Map)['height'], 600);
@@ -162,9 +163,8 @@ void main() {
 
 /// The smallest asset set the shell routes need.
 ViewerAssets _stubAssets() => ViewerAssets({
-      'index.html': ViewerAsset(
-          utf8Bytes('<html><body>viewer</body></html>'),
+      'index.html': ViewerAsset(utf8Bytes('<html><body>viewer</body></html>'),
           'text/html; charset=utf-8'),
-      'sw.js': ViewerAsset(
-          utf8Bytes('// stub'), 'text/javascript; charset=utf-8'),
+      'sw.js':
+          ViewerAsset(utf8Bytes('// stub'), 'text/javascript; charset=utf-8'),
     });

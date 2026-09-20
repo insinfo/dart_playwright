@@ -8,7 +8,6 @@
 /// the whole oracle run exists to catch.
 library;
 
-
 import 'package:playwright_trace_viewer/playwright_trace_viewer.dart';
 import 'package:playwright_trace_viewer_ui/src/wire.dart';
 import 'package:test/test.dart';
@@ -51,8 +50,8 @@ void main() {
       final loader = await _load();
       final json =
           contextEntriesToJson(loader.contextEntries, traceUri: 'fixture.zip');
-      final model = TraceModel(
-          'fixture.zip', contextEntriesFromJson(json).contexts);
+      final model =
+          TraceModel('fixture.zip', contextEntriesFromJson(json).contexts);
 
       final navigate =
           model.actions.firstWhere((action) => action.method == 'goto');
@@ -71,8 +70,8 @@ void main() {
       final loader = await _load();
       final json =
           contextEntriesToJson(loader.contextEntries, traceUri: 'fixture.zip');
-      final model = TraceModel(
-          'fixture.zip', contextEntriesFromJson(json).contexts);
+      final model =
+          TraceModel('fixture.zip', contextEntriesFromJson(json).contexts);
 
       // `TimelineTraceEvent` is sealed, and the tag in the JSON is the only
       // thing that tells the two subclasses apart on the way back.
@@ -86,8 +85,8 @@ void main() {
       final loader = await _load();
       final json =
           contextEntriesToJson(loader.contextEntries, traceUri: 'fixture.zip');
-      final model = TraceModel(
-          'fixture.zip', contextEntriesFromJson(json).contexts);
+      final model =
+          TraceModel('fixture.zip', contextEntriesFromJson(json).contexts);
 
       final frames = model.pages.single.screencastFrames;
       expect(frames, hasLength(1));

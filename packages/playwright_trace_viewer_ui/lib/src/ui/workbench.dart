@@ -9,7 +9,6 @@
 /// snapshot in the middle and the tabs at the bottom.
 library;
 
-
 import 'package:playwright_trace_viewer/playwright_trace_viewer.dart';
 import 'package:web/web.dart' as web;
 
@@ -55,8 +54,7 @@ class Workbench {
     final sdkLanguage = model.sdkLanguage ?? 'javascript';
 
     timeline = Timeline();
-    actionList =
-        ActionList(sdkLanguage: sdkLanguage, stats: model.stats);
+    actionList = ActionList(sdkLanguage: sdkLanguage, stats: model.stats);
     snapshotTab = SnapshotTab(traceUri: traceUri)..model = model;
     callTab = CallTab()
       ..startTimeOffset = model.startTime
@@ -86,9 +84,7 @@ class Workbench {
         id: 'actions',
         title: 'Actions',
         body: div(className: 'vbox', children: [
-          div(
-              className: 'workbench-action-filter',
-              children: [_filterInput]),
+          div(className: 'workbench-action-filter', children: [_filterInput]),
           actionList.element,
         ]),
       ),
@@ -195,8 +191,8 @@ class Workbench {
       ('route', 'Network routes'),
       ('configuration', 'Configuration'),
     ]) {
-      final checkbox = el('input', attrs: {'type': 'checkbox'})
-          as web.HTMLInputElement;
+      final checkbox =
+          el('input', attrs: {'type': 'checkbox'}) as web.HTMLInputElement;
       checkbox.onChange.listen((_) {
         if (checkbox.checked) {
           actionsFilter.add(entry.$1);
