@@ -1,0 +1,32 @@
+name: playwright_trace_viewer_ui
+description: >-
+  The UI of the Playwright trace viewer, in Dart: the action list, the
+  snapshot panel, the timeline and the tabs, compiled to the web with dart2js,
+  plus the HttpServer that serves them. No Node, no npm, and no bundle of the
+  official viewer embedded.
+version: 0.1.0
+repository: https://github.com/insinfo/dart_playwright
+issue_tracker: https://github.com/insinfo/dart_playwright/issues
+
+topics:
+  - playwright
+  - trace
+  - tracing
+  - debugging
+
+environment:
+  sdk: ^3.6.2
+
+resolution: workspace
+
+dependencies:
+  # The model. Everything this package draws comes out of it.
+  playwright_trace_viewer: ^0.1.0
+  # The DOM, for the dart2js half. `lib/server.dart` never imports it.
+  web: ^1.1.0
+  # Finds a source file in the archive: the recorder names it by the sha1 of
+  # its path, so serving one means hashing the path the same way.
+  crypto: ^3.0.0
+
+dev_dependencies:
+  test: ^1.25.0
