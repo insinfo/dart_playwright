@@ -1431,3 +1431,155 @@ navegador.
   ja portados noutro lugar (`aria_template.dart` e o script injetado), nao
   foram movidos para ca.
 - **Unificar o parser de CSS** com a copia JavaScript do script injetado.
+
+## Progresso da rodada de 2026-09-19 (modelo do trace)
+
+Primeira metade do visualizador de trace portado de verdade, que e a decisao
+do `12_PLANO_CONCLUSAO_PORTE.md`: o **modelo**, puro Dart e sem UI. Outro
+agente constroi a interface em cima do que esta aqui, entao a superficie
+publica deste pacote e um contrato, e o `README.md` dele a descreve inteira.
+
+Pacote novo: `packages/playwright_trace_viewer`, no `workspace:` da raiz.
+
+### O que foi portado
+
+De `referencias/playwright-typescript/packages/isomorphic/trace` (4697 linhas
+de TypeScript):
+
+- `versions/traceV3.ts` .. `traceV10.ts` e `trace.ts` para
+  `lib/src/versions/trace_v3.dart` .. `trace_v10.dart` e `lib/src/trace.dart`;
+- `versions/har.ts` para `lib/src/versions/har.dart`, agora com o lado leitor
+  que faltava — o gravador ja escrevia o formato desde a rodada do tracing;
+- `traceModernizer.ts` para `lib/src/trace_modernizer.dart`, a cadeia inteira;
+- `traceModel.ts`, `traceLoader.ts`, `entries.ts` e `traceUtils.ts` para
+  `trace_model.dart`, `trace_loader.dart`, `entries.dart` e
+  `trace_utils.dart`;
+- `snapshotStorage.ts`, `snapshotRenderer.ts` e `snapshotServer.ts` para
+  `snapshot_storage.dart`, `snapshot_renderer.dart`, `snapshot_script.dart` e
+  `snapshot_server.dart`;
+- `lruCache.ts` e os dois escapadores de `stringUtils.ts`.
+
+Mais duas dependencias que o `traceModel.ts` tem e que nao estavam na lista:
+`protocolMetainfo.ts` (as 327 linhas da tabela que o upstream gera do
+`protocol.yml`) e `protocolFormatter.ts`, sem as quais a lista de acoes
+mostraria `Frame.click` em vez de "Click" e nao teria como filtrar por grupo.
+
+### A versao corrente do leitor e a 10, e a do gravador continua 9
+
+A rodada do tracing decidiu emitir a **9** porque o visualizador mais novo
+instalavel do npm tem `latestVersion` 9 e recusaria uma 10. Essa razao
+continua valendo e nada mudou no gravador.
+
+O leitor e o outro lado da mesma moeda e a escolha e oposta: a versao corrente
+dele e a **10**, como a do upstream. Modernizar so ate a 9 nao economizaria
+nada — o `_modernize_9_to_10` teria de existir de qualquer jeito para ler o
+trace de um Playwright 1.64 — e pararia na 9 um leitor que ja sabe ler a 10.
+Entao `kLatestTraceVersion = 10` e o `kRecorderTraceVersion = 9` fica ao lado,
+documentando o que este porte escreve.
+
+Os dois se encontram no meio: a 9 que sai do gravador sobe pela cadeia e cai
+na mesma forma de memoria que a 10 de um trace futuro. O `_modernize_9_to_10`
+so adota o `stepId` como `callId`, e este gravador nunca emite `stepId`, entao
+para o trace deste porte o passo e a identidade — o que o teste de ponta a
+ponta confirma.
+
+### A cadeia, passo a passo
+
+Cada `_modernize_N_to_M` existe porque algum trace no mundo tem aquela forma,
+e nenhum foi resumido:
+
+| Passo | O que conserta |
+| --- | --- |
+| 0 -> 1 | o erro da acao era uma string solta |
+| 1 -> 2 | o snapshot do frame principal vinha com o viewport errado |
+| 2 -> 3 | o recurso ainda nao era uma entrada HAR |
+| 3 -> 4 | abre o envelope `CallMetadata` e descarta o que e interno |
+| 4 -> 5 | a mensagem de console vinha partida em `object` mais `event` |
+| 5 -> 6 | o log sai do `after` e vira eventos `log`, com tempo -1 |
+| 6 -> 7 | o contexto declara `origin` e `monotonicTime`; a acao ganha `stepId` |
+| 7 -> 8 | `apiName` vira o `title` ja renderizado |
+| 8 -> 9 | o nome do snapshot vira fase; todo `sha1` vira caminho `file` |
+| 9 -> 10 | o `stepId` e adotado como `callId`, em tudo que o referencia |
+
+Duas consequencias que so aparecem quando se roda a cadeia inteira, e que os
+testes fixam:
+
+- num trace de versao 3 a 8 sem `stepId` proprio, o `6 -> 7` cunha
+  `apiName@wallTime` e o `9 -> 10` o adota, entao o `callId` final de uma acao
+  velha e `page.click@1700000000000`. O `frame-snapshot` e o `.stacks` passam
+  pelo mesmo remapeamento, senao o painel de snapshot e a aba Source nao acham
+  mais nada;
+- a pilha que vinha dentro do `CallMetadata` da versao 3 **nao** sobrevive: o
+  `3 -> 4` nao a copia, e quem passa a fornece-la e o arquivo `.stacks`. E o
+  comportamento do upstream, e esta anotado no teste.
+
+### O nucleo nao pode tocar a plataforma
+
+O pacote sera compilado por dart2js junto com a UI, entao nada em `lib/src`
+importa `dart:io`, `dart:html` ou `package:web`. O unico trabalho de
+plataforma e chegar ao arquivo, e ele fica atras de `TraceLoaderBackend`:
+
+- `ZipTraceLoaderBackend` le um zip que ja esta na memoria, com o
+  `package:archive`, que e Dart puro e compila para a web;
+- `lib/io.dart` acrescenta o lado `dart:io` — `openTraceFile`,
+  `loadTraceFile` e `DirectoryTraceLoaderBackend` para um trace ao vivo — e e
+  o unico arquivo que o CLI importa.
+
+Pela mesma razao o `snapshotServer.ts` ficou **agnostico de transporte**. O
+upstream devolve `Response` da fetch API porque vive num service worker; aqui
+a resposta e dado puro (`SnapshotResponse`: status, cabecalhos e bytes), entao
+o mesmo codigo serve um `HttpServer` do `dart:io` e um service worker
+compilado. Essa separacao e o ponto: o modelo nao sabe qual dos dois esta do
+outro lado.
+
+Conferido de duas formas: um teste barato que varre `lib/` atras de
+importacao proibida, e uma compilacao de verdade —
+`dart compile js tool/web_smoke.dart` gera 765 KB de JavaScript sem um aviso.
+
+### O que so a juncao revelou
+
+- **O `.toString()` da funcao nao existe em Dart.** O upstream embute o
+  bootstrap do snapshot chamando `.toString()` na propria funcao, entao o que
+  vai para o navegador e o JavaScript que o TypeScript compilou. Aqui a funcao
+  virou texto em `snapshot_script.dart`, com as anotacoes de TypeScript
+  retiradas a mao e nada mais mudado — se fossem mantidas, o navegador
+  recusaria `const scrollTops: Element[] = []` e o snapshot nao desenharia.
+- **`new URL` e `Uri` discordam sobre caminho opaco.** O
+  `rewriteURLForCustomProtocol` troca protocolo e hostname; no navegador esses
+  dois setters sao no-op numa URL de caminho opaco, como `blob:https://x/y`.
+  Com `Uri` isso precisa ser dito: sem autoridade, devolve a URL como veio.
+- **O tipo numerico do JSON vaza para o id.** O `6 -> 7` monta o `stepId` com
+  `${apiName}@${wallTime}`. Uma fixture que escrevesse `wallTime` como
+  `double` produziria `page.click@1700000000000.0` e nenhum snapshot seria
+  encontrado depois. Os escritores das versoes velhas declaram `num`, que e o
+  que o JSON tem.
+- **`Number.MIN_VALUE` nao e o menor negativo.** O `endTime` do modelo comeca
+  em `Number.MIN_VALUE`, que em JavaScript e o menor positivo. Virou
+  `double.minPositive`, nao `-double.maxFinite`.
+
+### O que ficou para tras, e por que
+
+- **O gerador de locator.** `renderTitleForCall` renderiza um seletor como
+  locator chamando `asLocatorDescription` do `locatorGenerators.ts`, que e a
+  frente `feat/codegen`. Aqui ele entra como `LocatorDescriber`, uma funcao
+  injetavel cujo padrao mostra o seletor como foi gravado. Quando o codegen
+  entrar, a UI passa a de verdade e nada mais muda.
+- **`ariaSnapshotRenderer.ts`.** O modelo ja carrega os eventos
+  `aria-snapshot` e responde por chamada e fase; desenhar a arvore de
+  acessibilidade e trabalho da UI, e o gravador ainda nao emite esses eventos.
+- **O modo `live`.** O `TraceLoaderBackend` ja tem `isLive()` e o
+  `DirectoryTraceLoaderBackend` existe, mas nao ha quem releia o diretorio
+  enquanto ele cresce; isso pertence ao `show-trace` da Onda 2.
+- **`multiTraceModel` e a fusao de varios arquivos de trace num so
+  visualizador.** O `TraceModel` ja junta os contextos de um arquivo; juntar
+  arquivos diferentes e da UI.
+
+### Numeros
+
+81 testes de unidade, que nao precisam de navegador e rodam em menos de um
+segundo, mais 8 testes de ponta a ponta que gravam um trace de verdade no
+Chromium com `context.tracing` e o abrem com o `TraceLoader`/`TraceModel`:
+saem as acoes com os titulos renderizados, a rede com o corpo de cada
+resposta, a mensagem de console da pagina, o arquivo `.dart` da acao, a tira
+de filme, os snapshots de DOM das duas fases e a pagina redesenhada, com o
+alvo marcado e a folha de estilo servida do proprio trace.

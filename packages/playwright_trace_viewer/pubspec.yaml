@@ -1,0 +1,33 @@
+name: playwright_trace_viewer
+description: >-
+  The trace model behind the Playwright trace viewer, in pure Dart: the
+  versioned trace format, the modernizer that brings old traces up to the
+  current one, the action tree, and the snapshot renderer. No UI, no dart:io
+  in the core, so it compiles to the web with dart2js.
+version: 0.1.0
+repository: https://github.com/insinfo/dart_playwright
+issue_tracker: https://github.com/insinfo/dart_playwright/issues
+
+topics:
+  - playwright
+  - trace
+  - tracing
+  - debugging
+
+environment:
+  sdk: ^3.6.2
+
+resolution: workspace
+
+dependencies:
+  # Reads the trace zip. `package:archive/archive.dart` is pure Dart and the
+  # zip codec it exports compiles to the web; only `archive_io.dart` pulls in
+  # `dart:io`, and only `lib/io.dart` of this package imports that.
+  archive: ^4.0.0
+
+dev_dependencies:
+  test: ^1.25.0
+  # Only the end-to-end test uses this: it records a trace with this port and
+  # reads it back with this model. The library does not depend on the viewer,
+  # so there is no cycle.
+  playwright: ^0.1.0

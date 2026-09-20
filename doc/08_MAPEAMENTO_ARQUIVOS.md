@@ -273,3 +273,51 @@
 | 🔴 v0.5 | ~10 | ~435 KB |
 | ⬜ Skip | ~15 | ~120 KB |
 | **Total** | **~138** | **~2,260 KB** |
+
+---
+
+## 12. packages/isomorphic/trace/ → playwright_trace_viewer/
+
+O modelo do visualizador de trace, portado na rodada de 2026-09-19. E a
+metade sem UI: puro Dart, sem `dart:io` e sem `package:web`, para compilar
+junto com a interface por dart2js. Ver a secao "Progresso da rodada de
+2026-09-19 (modelo do trace)" do `11_RELATORIO_GAPS_PLAYWRIGHT_ORIGINAL.md`.
+
+| Arquivo TS | Arquivo Dart | Marco | Notas |
+|---|---|---|---|
+| `trace.ts` | `lib/src/trace.dart` | 🟡 v0.3 | Reexporta a versao corrente |
+| `versions/traceV3.ts` | `lib/src/versions/trace_v3.dart` | 🟡 v0.3 | Escritor, para fixture |
+| `versions/traceV4.ts` | `lib/src/versions/trace_v4.dart` | 🟡 v0.3 | Idem |
+| `versions/traceV5.ts` | `lib/src/versions/trace_v5.dart` | 🟡 v0.3 | Idem |
+| `versions/traceV6.ts` | `lib/src/versions/trace_v6.dart` | 🟡 v0.3 | Idem |
+| `versions/traceV7.ts` | `lib/src/versions/trace_v7.dart` | 🟡 v0.3 | Idem |
+| `versions/traceV8.ts` | `lib/src/versions/trace_v8.dart` | 🟡 v0.3 | Idem |
+| `versions/traceV9.ts` | `lib/src/versions/trace_v9.dart` | 🟡 v0.3 | O que o gravador emite |
+| `versions/traceV10.ts` | `lib/src/versions/trace_v10.dart` | 🟡 v0.3 | Leitor tipado |
+| `versions/har.ts` | `lib/src/versions/har.dart` | 🟡 v0.3 | Lado leitor do HAR |
+| `traceModernizer.ts` | `lib/src/trace_modernizer.dart` | 🟡 v0.3 | Cadeia 0 -> 10 |
+| `traceModel.ts` | `lib/src/trace_model.dart` | 🟡 v0.3 | Acoes, arvore, fontes |
+| `traceLoader.ts` | `lib/src/trace_loader.dart` | 🟡 v0.3 | Mais `TraceLoaderBackend` |
+| `entries.ts` | `lib/src/entries.dart` | 🟡 v0.3 | Contexto, pagina, acao |
+| `traceUtils.ts` | `lib/src/trace_utils.dart` | 🟡 v0.3 | Tabela do `.stacks` |
+| `snapshotStorage.ts` | `lib/src/snapshot_storage.dart` | 🟡 v0.3 | Indice por chamada e fase |
+| `snapshotRenderer.ts` | `lib/src/snapshot_renderer.dart` | 🟡 v0.3 | Mais `snapshot_script.dart` |
+| `snapshotServer.ts` | `lib/src/snapshot_server.dart` | 🟡 v0.3 | Agnostico de transporte |
+
+Dependencias que o `traceModel.ts` tem fora do diretorio:
+
+| Arquivo TS | Arquivo Dart | Marco | Notas |
+|---|---|---|---|
+| `../lruCache.ts` | `lib/src/lru_cache.dart` | 🟡 v0.3 | Cache do HTML renderizado |
+| `../stringUtils.ts` | `lib/src/string_utils.dart` | 🟡 v0.3 | So os dois escapadores |
+| `../protocolMetainfo.ts` | `lib/src/protocol_metainfo.dart` | 🟡 v0.3 | 327 entradas, gerado la |
+| `../protocolFormatter.ts` | `lib/src/protocol_formatter.dart` | 🟡 v0.3 | Sem `locatorGenerators` |
+| `../locatorGenerators.ts` | ⏳ `feat/codegen` | ⚫ v0.6+ | Entra por `LocatorDescriber` |
+
+Escrito para este porte, sem original:
+
+| Arquivo Dart | Notas |
+|---|---|
+| `lib/src/zip_trace_backend.dart` | Le o zip com `package:archive`, Dart puro |
+| `lib/io.dart` | O lado `dart:io`: arquivo e diretorio ao vivo |
+| `tool/web_smoke.dart` | Entrada que prova a compilacao por dart2js |
