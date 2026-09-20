@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:playwright_test/playwright_test.dart';
 
+import 'package_dir.dart';
+
 /// Exercita [PlaywrightWebServer] sem navegador nenhum: o que esta em jogo
 /// aqui e processo, porta e prontidao.
 void main() {
@@ -32,6 +34,7 @@ void main() {
   }) async {
     final s = await PlaywrightWebServer.start(
       command: command,
+      cwd: packageDir,
       url: url,
       port: port,
       readyUrl: readyUrl,
@@ -124,6 +127,7 @@ void main() {
       final processo = await Process.start(
         dart,
         ['run', 'test/fixtures/spawn_server.dart', '--port=$porta'],
+        workingDirectory: packageDir,
       );
       processo.stdout.drain<void>();
       processo.stderr.drain<void>();
@@ -179,6 +183,7 @@ void main() {
       final externo = await Process.start(
         dart,
         ['run', 'test/fixtures/serve_app.dart', '--port=$porta'],
+        workingDirectory: packageDir,
       );
       externo.stdout.drain<void>();
       externo.stderr.drain<void>();
@@ -206,6 +211,7 @@ void main() {
       final externo = await Process.start(
         dart,
         ['run', 'test/fixtures/serve_app.dart', '--port=$porta'],
+        workingDirectory: packageDir,
       );
       externo.stdout.drain<void>();
       externo.stderr.drain<void>();
@@ -218,6 +224,7 @@ void main() {
       await expectLater(
         PlaywrightWebServer.start(
           command: '"$dart" run test/fixtures/serve_app.dart --port=$porta',
+          cwd: packageDir,
           url: 'http://127.0.0.1:$porta/',
           reuseExistingServer: false,
           timeout: const Duration(seconds: 15),
@@ -239,6 +246,7 @@ void main() {
           // Sobe, imprime, mas escuta na porta errada: a sonda nunca acerta.
           command: '"$dart" run test/fixtures/serve_app.dart '
               '--port=$outraPorta',
+          cwd: packageDir,
           url: 'http://127.0.0.1:$porta/',
           timeout: const Duration(seconds: 8),
         ),

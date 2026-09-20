@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:playwright_test/playwright_test.dart';
 
+import 'package_dir.dart';
 import 'web_app_fixture.dart';
 
 /// Prova a integracao: um teste que falha com um erro estourado no navegador
@@ -24,7 +25,10 @@ void main() {
         '--concurrency=1',
         '--reporter=expanded',
       ],
-      workingDirectory: Directory.current.path,
+      // A suite de fixture e nomeada relativamente, e um processo filho herda
+      // o diretorio de quem o lancou -- que so era este pacote quando o
+      // `dart test` rodava de dentro dele.
+      workingDirectory: packageDir,
     );
     final saida = '${resultado.stdout}\n${resultado.stderr}';
 

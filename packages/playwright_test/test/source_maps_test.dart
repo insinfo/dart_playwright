@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:playwright_test/playwright_test.dart';
 
+import 'package_dir.dart';
 import 'web_app_fixture.dart';
 
 /// Um source map minusculo e deterministico: a linha 3 coluna 1 de `app.js`
@@ -176,6 +177,7 @@ void main() {
       return PlaywrightWebServer.start(
         command: '"${Platform.resolvedExecutable}" run '
             'test/fixtures/serve_app.dart --port=$porta',
+        cwd: packageDir,
         url: 'http://127.0.0.1:$porta/',
         readyUrl: 'http://127.0.0.1:$porta/main.dart.js',
         readyBody: 'explodeDeliberadamente',

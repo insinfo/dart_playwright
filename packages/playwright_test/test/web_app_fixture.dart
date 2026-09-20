@@ -1,7 +1,15 @@
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
+
+import 'package_dir.dart';
+
 /// Onde vive o app Dart de teste.
-const appDir = 'test/fixtures/web_app';
+///
+/// Absoluto de proposito: `dart compile js` roda com este diretorio como
+/// `workingDirectory`, e um caminho relativo so resolvia com o `dart test`
+/// rodando de dentro do pacote.
+final String appDir = p.join(packageDir, 'test', 'fixtures', 'web_app');
 
 /// Compila `test/fixtures/web_app/main.dart` se ainda nao houver bundle atual.
 ///
