@@ -3,8 +3,6 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:playwright/playwright.dart';
-import 'package:playwright_core/src/server/trace/instrumentation.dart'
-    show CoreCallAttachment;
 // Import de implementacao de proposito: `instrumented` e o unico caminho que
 // existe para reportar uma chamada ao gravador de trace, e um passo de teste e
 // exatamente isso — uma chamada com nome proprio. A alternativa seria montar o

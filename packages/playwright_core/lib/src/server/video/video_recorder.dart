@@ -43,7 +43,7 @@ const _closeTimeout = Duration(seconds: 30);
 ///
 /// Cada quadro MJPEG e embrulhado num Cluster Matroska com o seu timestamp e
 /// empurrado para o stdin do ffmpeg; e o ffmpeg, com `-r fps` na saida, que
-/// duplica quadros quando a pagina fica parada. Ver [ebml.dart].
+/// duplica quadros quando a pagina fica parada. Ver `ebml.dart`.
 class VideoRecorder {
   final Process _process;
   final IOSink _stdin;

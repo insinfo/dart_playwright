@@ -5,6 +5,12 @@ import 'package:playwright_core/src/server/trace/instrumentation.dart';
 import 'package:playwright_core/src/server/trace/trace_events.dart';
 import 'package:playwright_core/src/server/trace/trace_utils.dart';
 
+/// Re-exported so `playwright_test` can name an attachment without taking a
+/// dependency on `playwright_core` of its own: `step.dart` already imports
+/// this file, for the instrumentation it cannot get anywhere else.
+export 'package:playwright_core/src/server/trace/instrumentation.dart'
+    show CoreCallAttachment;
+
 /// Zone key holding the id of the call currently running.
 ///
 /// A public method that calls another public method (`check` clicks, `clear`
