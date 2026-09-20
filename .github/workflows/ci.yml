@@ -136,9 +136,14 @@ jobs:
         # from our own Dart registry in the next step.
         run: npx --yes playwright install-deps chromium firefox webkit
 
-      - name: Install browsers
+      # ffmpeg belongs in this list: it is a registry entry like the browsers,
+      # and it is what muxes the screencast frames into a .webm. Without it 40
+      # of the video and screencast tests fail with `Video rendering requires
+      # ffmpeg binary`. The apt `ffmpeg` that `install-deps` pulls in is a
+      # system package the registry never looks at.
+      - name: Install browsers and ffmpeg
         working-directory: packages/playwright
-        run: dart run playwright install chromium firefox webkit
+        run: dart run playwright install chromium firefox webkit ffmpeg
 
       # The whole parity suite, on all three engines. A bare `dart test` at the
       # workspace root picks nothing up, so the test directories are named.
