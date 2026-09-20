@@ -96,8 +96,18 @@ abstract class Page {
   /// when [fullPage] is set). [scale] is `device` (the default, honouring the
   /// device pixel ratio) or `css`.
   ///
-  /// Not implemented yet: `omitBackground`, `mask`, `caret`, `animations` and
-  /// `style`.
+  /// [mask] paints a [maskColor] box over everything its locators resolve to,
+  /// which is how a clock or an avatar is kept out of a reference image.
+  ///
+  /// [animations] is `allow` or `disabled`; `disabled` finishes every finite
+  /// CSS animation and transition and cancels the infinite ones. [caret] is
+  /// `hide` (the default) or `initial`. [style] is CSS injected into every
+  /// frame for the duration of the capture.
+  ///
+  /// [omitBackground] paints over a transparent background instead of white.
+  /// It needs an alpha channel, so it is ignored for `jpeg`, and **Firefox
+  /// throws**: the Juggler protocol has no background override, and upstream
+  /// Playwright has the same limit.
   Future<List<int>> screenshot({
     String? path,
     String type = 'png',
@@ -105,6 +115,12 @@ abstract class Page {
     bool fullPage = false,
     ({double x, double y, double width, double height})? clip,
     String scale = 'device',
+    List<Locator> mask,
+    String maskColor,
+    String animations,
+    String caret,
+    String? style,
+    bool omitBackground,
   });
 
   /// Render the page to PDF.
@@ -690,12 +706,18 @@ class PageImpl implements Page {
     bool fullPage = false,
     ({double x, double y, double width, double height})? clip,
     String scale = 'device',
+    List<Locator> mask = const [],
+    String maskColor = '#F0F',
+    String animations = 'allow',
+    String caret = 'hide',
+    String? style,
+    bool omitBackground = false,
   }) =>
       _call(
           'Page',
           'screenshot',
           {'type': type, 'fullPage': fullPage},
-          () => _corePage.screenshot(
+          () async => _corePage.screenshot(
                 path: path,
                 options: CoreScreenshotOptions(
                   type: type,
@@ -709,6 +731,12 @@ class PageImpl implements Page {
                           width: clip.width,
                           height: clip.height),
                   scale: scale,
+                  mask: await coreMaskFor(mask),
+                  maskColor: maskColor,
+                  animations: animations,
+                  caret: caret,
+                  style: style,
+                  omitBackground: omitBackground,
                 ),
               ));
 

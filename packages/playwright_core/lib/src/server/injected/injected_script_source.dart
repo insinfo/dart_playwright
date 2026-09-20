@@ -3,7 +3,8 @@
 // Version 2.0. Ported to Dart and modified; the modifications are summarized
 // in the NOTICE file of this package.
 //
-// Upstream source: packages/injected/src/{domUtils,selectorUtils,roleUtils,roleSelectorEngine,layoutSelectorUtils,selectorEvaluator,injectedScript,ariaSnapshot,ariaSnapshotDistiller}.ts and
+// Upstream source: packages/injected/src/{domUtils,selectorUtils,roleUtils,roleSelectorEngine,layoutSelectorUtils,selectorEvaluator,injectedScript,ariaSnapshot,ariaSnapshotDistiller}.ts,
+// packages/playwright-core/src/server/screenshotter.ts and
 // packages/isomorphic/{stringUtils,cssTokenizer,cssParser,yaml}.ts
 
 // The in-page selector engine.
@@ -962,6 +963,169 @@ function ariaSnapshotRoot() {
   return document.body || document.querySelector('frameset') || document.documentElement;
 }
 
+// ------------------------------------------------------------- screenshots
+
+// Port of `screenshotter.ts#inPagePrepareForScreenshots`, evaluated in every
+// frame before a capture and undone after it. The cleanup handle is parked on
+// `window` under upstream's own name, because the capture and the cleanup are
+// two separate evaluations and nothing else survives between them.
+function prepareForScreenshots(screenshotStyle, hideCaret, disableAnimations, syncAnimations) {
+  // In WebKit, sync the animations.
+  if (syncAnimations) {
+    const style = document.createElement('style');
+    style.textContent = 'body {}';
+    document.head.appendChild(style);
+    document.documentElement.getBoundingClientRect();
+    style.remove();
+  }
+
+  if (!screenshotStyle && !hideCaret && !disableAnimations)
+    return;
+
+  const collectRoots = (root, roots = []) => {
+    roots.push(root);
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+    do {
+      const node = walker.currentNode;
+      const shadowRoot = node instanceof Element ? node.shadowRoot : null;
+      if (shadowRoot)
+        collectRoots(shadowRoot, roots);
+    } while (walker.nextNode());
+    return roots;
+  };
+
+  const roots = collectRoots(document);
+  const cleanupCallbacks = [];
+
+  if (screenshotStyle) {
+    for (const root of roots) {
+      const styleTag = document.createElement('style');
+      styleTag.textContent = screenshotStyle;
+      if (root === document)
+        document.documentElement.append(styleTag);
+      else
+        root.append(styleTag);
+      cleanupCallbacks.push(() => styleTag.remove());
+    }
+  }
+
+  if (hideCaret) {
+    const elements = new Map();
+    for (const root of roots) {
+      root.querySelectorAll('input,textarea,[contenteditable]').forEach(element => {
+        elements.set(element, {
+          value: element.style.getPropertyValue('caret-color'),
+          priority: element.style.getPropertyPriority('caret-color')
+        });
+        element.style.setProperty('caret-color', 'transparent', 'important');
+      });
+    }
+    cleanupCallbacks.push(() => {
+      for (const [element, value] of elements)
+        element.style.setProperty('caret-color', value.value, value.priority);
+    });
+  }
+
+  if (disableAnimations) {
+    const infiniteAnimationsToResume = new Set();
+    const handleAnimations = root => {
+      for (const animation of root.getAnimations()) {
+        if (!animation.effect || animation.playbackRate === 0 || infiniteAnimationsToResume.has(animation))
+          continue;
+        const endTime = animation.effect.getComputedTiming().endTime;
+        if (Number.isFinite(endTime)) {
+          try {
+            animation.finish();
+          } catch (e) {
+            // animation.finish() should not throw for finite animations, but
+            // we'd like to be on the safe side.
+          }
+        } else {
+          try {
+            animation.cancel();
+            infiniteAnimationsToResume.add(animation);
+          } catch (e) {
+            // animation.cancel() should not throw for infinite animations, but
+            // we'd like to be on the safe side.
+          }
+        }
+      }
+    };
+    for (const root of roots) {
+      const handleRootAnimations = handleAnimations.bind(null, root);
+      handleRootAnimations();
+      root.addEventListener('transitionrun', handleRootAnimations);
+      root.addEventListener('animationstart', handleRootAnimations);
+      cleanupCallbacks.push(() => {
+        root.removeEventListener('transitionrun', handleRootAnimations);
+        root.removeEventListener('animationstart', handleRootAnimations);
+      });
+    }
+    cleanupCallbacks.push(() => {
+      for (const animation of infiniteAnimationsToResume) {
+        try {
+          animation.play();
+        } catch (e) {
+          // animation.play() should never throw, but we'd like to be on the
+          // safe side.
+        }
+      }
+    });
+  }
+
+  window.__pwCleanupScreenshot = () => {
+    for (const cleanupCallback of cleanupCallbacks)
+      cleanupCallback();
+    delete window.__pwCleanupScreenshot;
+  };
+}
+
+// Paints an opaque box over every element the mask selectors resolve to.
+//
+// Upstream reuses the recorder's `Highlight`: a `popover` glass pane with a
+// closed shadow root, which also drives the inspector's tooltips. That whole
+// class is not ported, so the boxes go into a plain fixed-position container
+// instead. Two consequences, both accepted: a page stylesheet with a universal
+// selector can reach these nodes, and nothing re-positions a box if the layout
+// moves between masking and capture — the capture is the very next protocol
+// call, so there is nothing in between to move it.
+const kMaskContainerTag = 'x-pw-dart-mask';
+
+function maskElements(partsList, color) {
+  unmaskElements();
+  const container = document.createElement(kMaskContainerTag);
+  container.style.position = 'fixed';
+  container.style.left = '0';
+  container.style.top = '0';
+  container.style.right = '0';
+  container.style.bottom = '0';
+  container.style.pointerEvents = 'none';
+  container.style.zIndex = '2147483647';
+  let count = 0;
+  for (const parts of partsList) {
+    // `strict: false` upstream: a mask selector is allowed to hit many nodes.
+    for (const element of queryParts(document, parts)) {
+      const box = element.getBoundingClientRect();
+      const boxElement = document.createElement('div');
+      boxElement.style.position = 'absolute';
+      boxElement.style.left = box.x + 'px';
+      boxElement.style.top = box.y + 'px';
+      boxElement.style.width = box.width + 'px';
+      boxElement.style.height = box.height + 'px';
+      boxElement.style.backgroundColor = color;
+      container.appendChild(boxElement);
+      count++;
+    }
+  }
+  document.documentElement.appendChild(container);
+  return count;
+}
+
+function unmaskElements() {
+  for (const container of document.querySelectorAll(kMaskContainerTag))
+    container.remove();
+}
+
 window.__pwDart = {
   normalizeWhiteSpace,
   isElementVisible,
@@ -1045,6 +1209,14 @@ window.__pwDart = {
   },
 
   describe: describeSelector,
+
+  prepareForScreenshots,
+  cleanupScreenshot() {
+    if (window.__pwCleanupScreenshot)
+      window.__pwCleanupScreenshot();
+  },
+  maskElements,
+  unmaskElements,
 };
 })();
 ''';

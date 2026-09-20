@@ -601,6 +601,14 @@ class CrPage extends EventEmitter
       screenshotWith(options, path);
 
   @override
+  Future<void> setDefaultBackgroundColor(
+          ({int r, int g, int b, int a})? color) =>
+      session.send('Emulation.setDefaultBackgroundColorOverride', {
+        if (color != null)
+          'color': {'r': color.r, 'g': color.g, 'b': color.b, 'a': color.a},
+      }) as Future<void>;
+
+  @override
   Future<List<int>> screenshotRect(CoreRect rect, CoreScreenshotOptions options,
       {bool fitsViewport = true}) async {
     var clipScale = 1.0;

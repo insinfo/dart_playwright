@@ -530,6 +530,20 @@ class WkPage extends EventEmitter
       screenshotWith(options, path);
 
   @override
+  Future<void> setDefaultBackgroundColor(
+          ({int r, int g, int b, int a})? color) =>
+      session.sendToTarget('Page.setDefaultBackgroundColorOverride', {
+        if (color != null)
+          'color': {'r': color.r, 'g': color.g, 'b': color.b, 'a': color.a},
+      });
+
+  /// WebKit is the one engine that needs a stylesheet toggled before a capture
+  /// so that pending animations are flushed. Port of
+  /// `wkPage.shouldToggleStyleSheetToSyncAnimations`.
+  @override
+  bool get shouldToggleStyleSheetToSyncAnimations => true;
+
+  @override
   Future<List<int>> screenshotRect(CoreRect rect, CoreScreenshotOptions options,
       {bool fitsViewport = true}) async {
     // WebKit takes the rectangle as plain fields plus the coordinate system

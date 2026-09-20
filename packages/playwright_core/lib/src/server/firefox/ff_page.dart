@@ -537,6 +537,21 @@ class FfPage extends EventEmitter
           CoreScreenshotOptions options = const CoreScreenshotOptions()}) =>
       screenshotWith(options, path);
 
+  /// Juggler has no background-colour override, so `omitBackground` cannot be
+  /// honoured on Firefox. Upstream's `ffPage.setBackgroundColor` throws the
+  /// same way, so a Firefox screenshot never has a transparent background in
+  /// Playwright either — this is not a gap of this port.
+  @override
+  Future<void> setDefaultBackgroundColor(
+      ({int r, int g, int b, int a})? color) async {
+    if (color != null) {
+      throw PlaywrightException(
+          'omitBackground is not supported on Firefox: the Juggler protocol '
+          'has no background colour override. Upstream Playwright has the '
+          'same limit.');
+    }
+  }
+
   @override
   Future<List<int>> screenshotRect(CoreRect rect, CoreScreenshotOptions options,
       {bool fitsViewport = true}) async {

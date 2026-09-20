@@ -248,6 +248,12 @@ abstract class Locator with LocatorFactory {
     String scale = 'device',
     Duration? timeout,
     bool strict = true,
+    List<Locator> mask,
+    String maskColor,
+    String animations,
+    String caret,
+    String? style,
+    bool omitBackground,
   });
 
   /// Clear the input field.
@@ -470,6 +476,20 @@ class LocatorImpl extends Locator {
   /// frame the earlier groups landed in.
   static String _resolverJs(List<Map<String, dynamic>> parts, bool strict) =>
       'window.__pwDart.query(${jsonEncode(parts)}, $strict)';
+
+  /// The `(frame, parts)` pair a screenshot mask needs.
+  ///
+  /// Returns null when the frame chain does not resolve, which is what
+  /// upstream's `callOnSelector` does for a mask that matches nothing: a mask
+  /// is decoration, so it never fails the capture.
+  Future<CoreScreenshotMask?> resolveForMask() async {
+    try {
+      final resolved = await _resolveFrames(false);
+      return (frame: resolved.frame as Object, parts: resolved.parts);
+    } catch (_) {
+      return null;
+    }
+  }
 
   /// Walks the frame boundaries in the selector, returning the frame the last
   /// group must be resolved in together with that group.
@@ -828,23 +848,47 @@ class LocatorImpl extends Locator {
     String scale = 'device',
     Duration? timeout,
     bool strict = true,
+    List<Locator> mask = const [],
+    String maskColor = '#F0F',
+    String animations = 'allow',
+    String caret = 'hide',
+    String? style,
+    bool omitBackground = false,
   }) =>
       _call('screenshot', {'selector': _selector.description, 'type': type},
           () async {
-        final target = await _waitForActionable(
-            states: const ['visible', 'stable'],
-            timeout: timeout,
-            strict: strict);
-        final rect = await _corePage.documentRectForTarget(
-            target.frame, target.resolver);
-        final options =
-            CoreScreenshotOptions(type: type, quality: quality, scale: scale);
+        final options = CoreScreenshotOptions(
+          type: type,
+          quality: quality,
+          scale: scale,
+          mask: await coreMaskFor(mask),
+          maskColor: maskColor,
+          animations: animations,
+          caret: caret,
+          style: style,
+          omitBackground: omitBackground,
+        );
         options.validate();
-        final bytes = await _corePage.screenshotRect(rect, options,
-            // An element taller than the viewport still has to be captured whole.
-            fitsViewport: false);
-        if (path != null) await File(path).writeAsBytes(bytes);
-        return bytes;
+        // Upstream prepares the page before scrolling the element into view,
+        // because `style` can change the layout the element ends up at.
+        await _corePage.preparePageForScreenshot(options);
+        try {
+          final target = await _waitForActionable(
+              states: const ['visible', 'stable'],
+              timeout: timeout,
+              strict: strict);
+          final rect = await _corePage.documentRectForTarget(
+              target.frame, target.resolver);
+          final bytes = await _corePage.screenshotWithDecorations(
+              options,
+              () => _corePage.screenshotRect(rect, options,
+                  // An element taller than the viewport is still captured whole.
+                  fitsViewport: false));
+          if (path != null) await File(path).writeAsBytes(bytes);
+          return bytes;
+        } finally {
+          await _corePage.restorePageAfterScreenshot();
+        }
       });
 
   @override
@@ -1333,4 +1377,18 @@ class _NotResolved implements Exception {
   _NotResolved(this.reason);
   @override
   String toString() => reason.toString();
+}
+
+/// Resolves the `mask:` option of a screenshot into what the core takes.
+///
+/// A locator whose frame chain does not resolve is dropped, the way upstream
+/// drops a mask that matches nothing.
+Future<List<CoreScreenshotMask>> coreMaskFor(List<Locator> mask) async {
+  final resolved = <CoreScreenshotMask>[];
+  for (final locator in mask) {
+    if (locator is! LocatorImpl) continue;
+    final entry = await locator.resolveForMask();
+    if (entry != null) resolved.add(entry);
+  }
+  return resolved;
 }
