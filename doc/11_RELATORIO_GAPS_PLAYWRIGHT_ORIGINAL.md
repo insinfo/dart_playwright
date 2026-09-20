@@ -1262,3 +1262,172 @@ Para considerar o port tão completo quanto o Playwright original na camada de b
 O port atual tem uma vantagem forte sobre wrappers baseados em Node: ele controla o caminho nativo em Dart. Para alcançar o Playwright original, o trabalho principal agora é transformar essa base em uma API ampla e estável.
 
 A ordem mais eficiente é: primeiro corrigir as abstrações multi-engine e eventos; depois expandir `Page`/`Locator`/`Frame`; depois completar rede, artefatos e contexto; por último, construir o ecossistema de testes e ferramentas.
+
+## Progresso da rodada de 2026-09-19 (codegen)
+
+Frente `feat/codegen` da Onda 1 do `12_PLANO_CONCLUSAO_PORTE.md`: a geracao de
+codigo que o recorder e a aba de codegen do visualizador de trace consomem.
+
+### Onde o codigo ficou, e por que
+
+Pacote novo: `packages/playwright_isomorphic`. Ele espelha o
+`packages/isomorphic` do upstream e nao importa `dart:io` nem
+`dart:html`/`package:web` -- so `dart:convert`. Isso e requisito, nao detalhe
+de estilo: o mesmo codigo vai rodar dentro do visualizador compilado por
+dart2js e dentro do CLI do recorder.
+
+As alternativas foram descartadas assim:
+
+- `playwright_core` esta amarrado a `dart:io` (processo, transporte, registry).
+- `playwright_protocol` e puro, mas o que ele descreve e o protocolo; codegen
+  nao e protocolo, e o pacote e dependencia de todos os outros.
+- Um diretorio dentro de `playwright` faria a UI web arrastar a API de browser
+  inteira.
+
+### O que foi portado
+
+De `packages/isomorphic/`:
+
+- `stringUtils.ts` para `lib/src/string_utils.dart`.
+- `cssTokenizer.ts` e `cssParser.ts` para `lib/src/css_tokenizer.dart` e
+  `lib/src/css_parser.dart`.
+- `selectorParser.ts` para `lib/src/selector_parser.dart`.
+- `locatorUtils.ts` para `lib/src/locator_utils.dart`.
+- `locatorGenerators.ts` para `lib/src/locator_generators.dart`.
+- `locatorParser.ts` para `lib/src/locator_parser.dart`.
+- `codegen/types.ts`, `codegen/language.ts`, `codegen/languages.ts` e
+  `codegen/actions.d.ts` para `lib/src/codegen/`.
+- `codegen/javascript.ts`, `python.ts`, `java.ts`, `csharp.ts` e `jsonl.ts`
+  para `lib/src/codegen/`.
+
+Mais um gerador novo, `lib/src/codegen/dart.dart`, que o upstream nao tem
+porque nao existe binding Dart oficial.
+
+O `cssParser`/`cssTokenizer` entraram porque **nao estavam portados como
+Dart**: o que existe e uma traducao para JavaScript dentro de
+`injected_css_engine_source.dart`, uma string que so roda na pagina. E
+`parseSelector` depende de `parseCSS` para distinguir um seletor de uma
+expressao de locator -- e exatamente isso que faz
+`locatorOrSelectorAsSelector('javascript', "getByTestId('x')")` devolver o
+seletor em vez do texto cru. Sem ele o caminho inverso nao funciona. Fica a
+duplicacao: a mesma gramatica existe agora em Dart (aqui) e em JavaScript (no
+script injetado). Unifica-las exigiria compilar o Dart para a pagina, o que e
+outro contrato.
+
+O `selectors.dart` de `playwright_core` **nao foi duplicado**: ele e um
+*builder* de partes de seletor em JSON, com um parser simplificado; o que esta
+aqui e o parser fiel do upstream, que produz `ParsedSelectorPart` com
+`name`/`body`/`source`. Sao camadas diferentes e nenhuma chama a outra.
+
+### Superficie publica
+
+Um unico barrel, `package:playwright_isomorphic/playwright_isomorphic.dart`.
+O que o recorder e a UI do visualizador vao usar:
+
+- `asLocator(lang, selector)` e `asLocators(lang, selector, ...)`: seletor
+  para locator idiomatico. `asLocators` devolve todas as grafias fieis, que e
+  o que alimenta o seletor de alternativas do recorder.
+- `asLocatorDescription(lang, selector)` e `locatorCustomDescription(selector)`,
+  para `internal:describe`.
+- `locatorOrSelectorAsSelector(lang, texto, testIdAttr)`: o caminho inverso,
+  usado a cada tecla na caixa "pick locator". Devolve `''` quando o texto nao
+  e nem seletor nem locator valido.
+- `parseSelector`, `stringifySelector`, `splitSelectorByFrame`,
+  `visitAllSelectorParts`, `parseAttributeSelector`.
+- `parseCss`, `serializeCssSelector`, `tokenizeCss`.
+- `getByRoleSelector`, `getByTestIdSelector`, `getByTextSelector` e o resto do
+  `locatorUtils`.
+- `languageSet()`, `generateCode(actions, gerador, opcoes)`, a hierarquia
+  `Action`/`Signal`/`ActionInContext`, e `LanguageGenerator` com
+  `JavaScriptLanguageGenerator`, `PythonLanguageGenerator`,
+  `JavaLanguageGenerator`, `CSharpLanguageGenerator`, `JsonlLanguageGenerator`
+  e `DartLanguageGenerator`.
+- `JsRegExp`, que substitui o `RegExp` do JavaScript nas assinaturas.
+
+### Diferencas deliberadas
+
+- **`JsRegExp`.** O `RegExp` do Dart nao guarda o source nem a string de
+  flags, entao `/a/im` nao sobrevive a uma ida e volta por ele. `JsRegExp`
+  guarda os dois. `JsRegExp.fromPattern` reproduz o `EscapeRegExpPattern` do
+  ECMA-262 (a barra vira barra escapada), sem o qual `getByText` com regex
+  contendo barra nao volta a ser o mesmo seletor -- foi o unico ponto em que
+  a semantica do JavaScript precisou ser imitada de proposito.
+- **Tabela de dispositivos.** O upstream importa um JSON de 80 KB dentro do
+  proprio codegen. Aqui `deviceDescriptors` e um mapa vazio que o embedder
+  preenche: o visualizador nao tem uso para a lista, e este porte ainda nao
+  implementa `devices` (Milestone 4).
+- **Ordem do `languageSet()`.** Dart vem primeiro. E o porte Dart.
+- **`or_`/`and_` do Python.** O upstream troca `.or_(` por `or(` e perde o
+  ponto separador, entao `locatorOrSelectorAsSelector('python', ...)` nao
+  fecha o ciclo para esses dois. Portado como esta, com comportamento
+  identico ao do upstream; nao ha teste upstream cobrindo o caso.
+- **U+2028 e U+2029** nao sao escapados em `JsRegExp.fromPattern`. O V8
+  escapa; nenhum seletor consegue carrega-los e nenhum caso upstream
+  exercita isso.
+
+### O gerador Dart
+
+Dois sabores: `DartLanguageMode.test` (emite `package:playwright_test`,
+`playwrightTest`, `expectLocator`) e `DartLanguageMode.library` (emite
+`package:playwright`, `Playwright.create()` e um `main()` proprio, com as
+assertions comentadas, como o sabor "Library" do JavaScript faz).
+
+Onde a API deste porte difere, e o que foi feito:
+
+- `first` e `last` sao getters, entao saem sem parenteses.
+- Locator aninhado (`has`, `hasNot`, `and`, `or`) sai prefixado com `page.`:
+  Dart nao tem uma funcao `locator()` solta como as cadeias fluentes das
+  outras linguagens sugerem. O codigo gerado sempre tem um `page` em escopo.
+- `internal:control=any-frame` e `internal:chain` nao tem equivalente
+  (`frameLocator()` sem seletor e `locator(Locator)` nao existem aqui), entao
+  o gerador lanca e `asLocator` cai no seletor cru -- o mesmo caminho que o
+  upstream usa para entrada invalida.
+- `click` deste porte nao aceita modificadores, entao eles saem como
+  comentario no fim da linha em vez de sumirem calados.
+- O aria snapshot sai como string de uma linha com quebra escapada, nao como
+  bloco de tres aspas: no sabor library a assertion esta comentada e um bloco
+  vazaria do comentario, e o formatador reindentaria as linhas, mudando o
+  proprio snapshot.
+
+### Testes, numeros medidos
+
+`cd packages/playwright_isomorphic && timeout-cli.exe 10m -- dart.exe test -j 1`
+resultou em **89 testes, todos verdes, 7 segundos**. Nenhum precisa de
+navegador.
+
+- `test/locator_generator_test.dart` (29): transcricao de
+  `tests/library/locator-generator.spec.ts` do upstream. Alem do valor
+  esperado por linguagem, cada caso faz a ida e volta de `asLocator` para
+  `locatorOrSelectorAsSelector` e de volta ao seletor original, como o
+  upstream faz.
+- `test/codegen_test.dart` (18): cabecalhos e acoes transcritos de
+  `tests/library/inspector/cli-codegen-javascript`, `-python`,
+  `-python-async`, `-pytest`, `-java` e `-csharp`.
+- `test/css_parser_test.dart` (3): transcricao de
+  `tests/library/css-parser.spec.ts`, incluindo os 22 seletores malformados.
+- `test/selector_parser_test.dart` (28): `parseSelector`,
+  `splitSelectorByFrame`, `parseAttributeSelector`, `stringUtils` e
+  `JsRegExp`.
+- `test/dart_locator_test.dart` (10): o `DartLocatorFactory`.
+- `test/dart_codegen_compiles_test.dart` (1): gera um arquivo com uma acao de
+  cada tipo nos dois sabores, escreve dentro do workspace e roda
+  `dart analyze` sobre ele. E o teste que prova que a saida do gerador Dart
+  compila de verdade contra `package:playwright` e `package:playwright_test`,
+  em vez de ser conferida a olho. Pegou dois defeitos reais durante o porte.
+
+`dart format` limpo e `dart analyze` sem issues na arvore inteira.
+
+### O que ficou para tras
+
+- **Recorder e inspector** (`packages/recorder/src`, `server/recorder/`): Onda
+  2 do plano. Esta frente e a base deles, nao eles.
+- **`internal:chain` e `frameLocator()` sem seletor no gerador Dart**:
+  dependem de `Locator.locator(Locator)` e de um `frameLocator()` sem
+  argumento na API publica deste porte. Sao dois metodos novos em
+  `packages/playwright`, fora do escopo desta frente.
+- **`deviceDescriptors`**: o mapa existe e fica vazio ate `devices` ser
+  implementado.
+- **`ariaSnapshot.ts` e `ariaSnapshotRenderer.ts`** do `packages/isomorphic`:
+  ja portados noutro lugar (`aria_template.dart` e o script injetado), nao
+  foram movidos para ca.
+- **Unificar o parser de CSS** com a copia JavaScript do script injetado.

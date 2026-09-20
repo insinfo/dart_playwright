@@ -80,6 +80,22 @@ been modified:
       stringUtils.ts and packages/playwright-core/src/utils/
       isomorphic/locatorUtils.ts.
 
+  packages/playwright_isomorphic/lib/src/
+      Port of packages/isomorphic/: stringUtils.ts, selectorParser.ts,
+      cssParser.ts, locatorUtils.ts, locatorGenerators.ts, locatorParser.ts
+      and codegen/{language,languages,types,actions.d,javascript,python,
+      java,csharp,jsonl}.ts. Differences: a JsRegExp value type replaces
+      the JavaScript RegExp, because Dart's RegExp does not keep the source
+      and the flag string; the device descriptor table is injected by the
+      embedder instead of being bundled; and codegen/dart.dart is new, with
+      no upstream counterpart, emitting code for this port's own API.
+
+  packages/playwright_isomorphic/lib/src/css_tokenizer.dart
+      Port of packages/isomorphic/cssTokenizer.ts, itself derived from
+      https://github.com/tabatkins/parse-css, which is CC0 licensed. The
+      token class hierarchy collapses into one class with a type enum, and
+      line and column tracking is dropped.
+
 Other files across packages/playwright and packages/playwright_core are
 independent Dart implementations whose behaviour is aligned with named
 upstream sources; those alignments are documented in the comments of each

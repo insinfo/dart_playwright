@@ -1,0 +1,4 @@
+tags:
+  analyzer:
+    # Roda `dart analyze` num processo separado: mais lento que os demais.
+    timeout: 3x
