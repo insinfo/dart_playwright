@@ -11,9 +11,12 @@ workspace:
   - packages/playwright
   - packages/playwright_mcp
   - packages/playwright_trace_viewer
+  - packages/playwright_trace_viewer_ui
   - packages/playwright_test
 dev_dependencies:
   playwright: any
   ffi: any
+  # `tool/open_trace_in_dart_viewer.dart` drives this port's own viewer.
+  playwright_trace_viewer_ui: any
 dependencies:
   win32: ^5.10.1

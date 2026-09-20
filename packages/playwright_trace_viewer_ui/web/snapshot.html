@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Playwright Snapshot</title>
+  <style>
+    html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; }
+    iframe { width: 100%; height: 100%; border: none; }
+  </style>
+</head>
+<body>
+  <!--
+    One snapshot on its own, which is what the panel's "open in a new tab"
+    button leads to. The frame is navigated by the opener, which passes the
+    snapshot URL it already built; nothing is computed here.
+  -->
+  <iframe name="snapshot" title="DOM Snapshot" sandbox="allow-same-origin allow-scripts"></iframe>
+  <script>
+    // Only a path on this origin is ever followed, so a crafted `r` cannot
+    // turn this page into an open redirect.
+    const target = new URLSearchParams(location.search).get('r');
+    if (target) {
+      const resolved = new URL(target, location.href);
+      if (resolved.origin === location.origin)
+        document.querySelector('iframe').src = resolved.href;
+    }
+  </script>
+</body>
+</html>

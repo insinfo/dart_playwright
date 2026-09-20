@@ -1,0 +1,1960 @@
+/*
+  The trace viewer's stylesheet.
+
+  Every rule below the first block is copied from Playwright's own sources,
+  file by file, because the CSS is plain and has no React in it: the panels
+  this port draws carry the same class names, so upstream's stylesheet styles
+  them unchanged. Each section says which file it came from.
+
+  Copyright (c) Microsoft Corporation, licensed under the Apache License,
+  Version 2.0. The one hand-written section is at the end.
+*/
+
+/* ==== packages/web/src/common.css ==== */
+/*
+  Copyright (c) Microsoft Corporation.
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+*/
+
+:root {
+  color-scheme: light dark;
+}
+
+body {
+  --transparent-blue: #2196F355;
+  --light-pink: #ff69b460;
+  --gray: #888888;
+  --sidebar-width: 250px;
+  --box-shadow: rgba(0, 0, 0, 0.133) 0px 1.6px 3.6px 0px, rgba(0, 0, 0, 0.11) 0px 0.3px 0.9px 0px;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  margin: 0;
+  overflow: hidden;
+  display: flex;
+  overscroll-behavior-x: none;
+}
+
+#root {
+  width: 100%;
+  height: 100%;
+  display: flex;
+}
+
+body, dialog {
+  background-color: var(--vscode-panel-background);
+  color: var(--vscode-foreground);
+  font-family: var(--vscode-font-family);
+  font-weight: var(--vscode-font-weight);
+  font-size: var(--vscode-font-size);
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--vscode-textLink-foreground);
+}
+
+a:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 1px;
+  border-radius: 2px;
+}
+
+dialog {
+  border: none;
+  padding: 0;
+  box-shadow: var(--box-shadow);
+  line-height: 28px;
+  max-width: 400px;
+}
+
+dialog .title {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  padding: 0 5px;
+  height: 32px;
+  background-color: var(--vscode-sideBar-background);
+  max-width: 400px;
+}
+
+dialog .title .codicon {
+  margin-right: 3px;
+}
+
+dialog .body {
+  padding: 10px;
+  text-align: center;
+}
+
+.button {
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+  margin: 10px;
+  border: none;
+  height: 28px;
+  min-width: 40px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.button:focus {
+  outline: 1px solid var(--vscode-focusBorder);
+}
+
+.button:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+
+.button.secondary {
+  color: var(--vscode-button-secondaryForeground);
+  background: var(--vscode-button-secondaryBackground);
+}
+
+.button.secondary:hover {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
+* {
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 0;
+}
+
+*[hidden],
+.hidden {
+  display: none !important;
+}
+
+.invisible {
+  visibility: hidden !important;
+}
+
+svg {
+  fill: currentColor;
+}
+
+.vbox {
+  display: flex;
+  flex-direction: column;
+  flex: auto;
+  position: relative;
+}
+
+.fill {
+   position: absolute;
+   top: 0;
+   right: 0;
+   bottom: 0;
+   left: 0;
+}
+
+.hbox {
+  display: flex;
+  flex: auto;
+  position: relative;
+}
+
+.spacer {
+  flex: auto;
+}
+
+.codicon-check {
+  color: var(--vscode-charts-green);
+}
+
+.codicon-error {
+  color: var(--vscode-errorForeground);
+}
+
+.codicon-warning {
+  color: var(--vscode-list-warningForeground);
+}
+
+.codicon-circle-outline {
+  color: var(--vscode-disabledForeground);
+}
+
+input[type=text], input[type=search] {
+  color: var(--vscode-input-foreground);
+  background-color: var(--vscode-input-background);
+  border: none;
+  outline: none;
+}
+
+input[type=text]:focus-visible, input[type=search]:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+.codicon-loading {
+  animation: spin 1s infinite linear;
+}
+
+::placeholder {
+  color: var(--vscode-input-placeholderForeground);
+}
+
+@keyframes spin {
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+/* ==== packages/web/src/components/splitView.css ==== */
+/*
+  Copyright (c) Microsoft Corporation.
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+*/
+
+.split-view {
+  display: flex;
+  flex: auto;
+  position: relative;
+}
+
+.split-view.vertical {
+  flex-direction: column;
+}
+
+.split-view.vertical.sidebar-first {
+  flex-direction: column-reverse;
+}
+
+.split-view.horizontal {
+  flex-direction: row;
+}
+
+.split-view.horizontal.sidebar-first {
+  flex-direction: row-reverse;
+}
+
+.split-view-main {
+  display: flex;
+  flex: auto;
+}
+
+.split-view-sidebar {
+  display: flex;
+  flex: none;
+}
+
+.split-view.vertical:not(.sidebar-first) > .split-view-sidebar {
+  border-top: 1px solid var(--vscode-panel-border);
+}
+
+.split-view.horizontal:not(.sidebar-first) > .split-view-sidebar {
+  border-left: 1px solid var(--vscode-panel-border);
+}
+
+.split-view.vertical.sidebar-first > .split-view-sidebar {
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.split-view.horizontal.sidebar-first > .split-view-sidebar {
+  border-right: 1px solid var(--vscode-panel-border);
+}
+
+.split-view-resizer {
+  position: absolute;
+  z-index: 100;
+}
+
+.split-view.vertical > .split-view-resizer {
+  left: 0;
+  right: 0;
+  height: 12px;
+  cursor: ns-resize;
+}
+
+.split-view.horizontal > .split-view-resizer {
+  top: 0;
+  bottom: 0;
+  width: 12px;
+  cursor: ew-resize;
+}
+
+/* ==== packages/web/src/components/toolbar.css ==== */
+/*
+  Copyright (c) Microsoft Corporation.
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+*/
+
+.toolbar {
+  position: relative;
+  display: flex;
+  color: var(--vscode-sideBarTitle-foreground);
+  min-height: 30px;
+  align-items: center;
+  flex: none;
+  padding-right: 4px;
+}
+
+.toolbar.toolbar-sidebar-background {
+  background-color: var(--vscode-sideBar-background);
+}
+
+.toolbar:not(.no-shadow):after {
+  content: '';
+  display: block;
+  position: absolute;
+  pointer-events: none;
+  top: 0;
+  bottom: 0;
+  left: -2px;
+  right: -2px;
+  box-shadow: var(--vscode-scrollbar-shadow) 0 6px 6px -6px;
+  z-index: 100;
+}
+
+.toolbar.no-min-height {
+  min-height: 0;
+}
+
+.toolbar input {
+  padding: 0 5px;
+  line-height: 24px;
+  outline: none;
+  margin: 0 4px;
+}
+
+.toolbar select {
+  background: none;
+  outline: none;
+  padding: 3px;
+  margin: 2px;
+}
+
+.toolbar option {
+  background-color: var(--vscode-tab-activeBackground)
+}
+
+.toolbar input, .toolbar select {
+  border: none;
+  color: var(--vscode-input-foreground);
+  background-color: var(--vscode-input-background);
+}
+
+.toolbar input:focus-visible, .toolbar select:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+/* ==== packages/web/src/components/toolbarButton.css ==== */
+/*
+  Copyright (c) Microsoft Corporation.
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+*/
+
+.toolbar-button {
+  position: relative;
+  flex: none;
+  border: none;
+  outline: none;
+  color: var(--vscode-sideBarTitle-foreground);
+  background: transparent;
+  padding: 4px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 4px;
+}
+
+.toolbar-button:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+.toolbar-button:disabled {
+  color: var(--vscode-disabledForeground) !important;
+  cursor: default;
+}
+
+.toolbar-button:not(:disabled):hover {
+  background-color: var(--vscode-toolbar-hoverBackground);
+}
+
+.toolbar-button:not(:disabled):active {
+  background-color: var(--vscode-toolbar-activeBackground);
+}
+
+.toolbar-button.toggled {
+  color: var(--vscode-notificationLink-foreground);
+}
+
+.toolbar-button-error-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: var(--vscode-notificationsErrorIcon-foreground);
+}
+
+.toolbar-separator {
+  flex: none;
+  background-color: var(--vscode-menu-separatorBackground);
+  width: 1px;
+  padding: 0;
+  margin: 5px 4px;
+  height: 16px;
+}
+
+/* ==== packages/web/src/components/tabbedPane.css ==== */
+/*
+  Copyright (c) Microsoft Corporation.
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+*/
+
+.tabbed-pane {
+  display: flex;
+  flex: auto;
+  overflow: hidden;
+}
+
+.tabbed-pane .toolbar {
+  background-color: var(--vscode-sideBar-background);
+}
+
+.tabbed-pane .tab-content {
+  display: flex;
+  flex: auto;
+  overflow: hidden;
+  position: relative;
+  flex-direction: column;
+}
+
+.tabbed-pane-tab {
+  padding: 2px 6px 0 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: inherit;
+  font: inherit;
+  outline: none;
+  height: 100%;
+}
+
+.tabbed-pane-tab:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+.tabbed-pane-tab-label {
+  max-width: 250px;
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: inline-block;
+}
+
+.tabbed-pane-tab.selected {
+  background-color: var(--vscode-tab-activeBackground);
+}
+
+.tabbed-pane-tab-counter {
+  padding: 0 4px;
+  background: var(--vscode-menu-separatorBackground);
+  border-radius: 8px;
+  height: 16px;
+  margin-left: 4px;
+  line-height: 16px;
+  min-width: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tabbed-pane-tab-counter.error {
+  background: var(--vscode-list-errorForeground);
+  color: var(--vscode-button-foreground);
+}
+
+/* ==== packages/web/src/components/listView.css ==== */
+/*
+  Copyright (c) Microsoft Corporation.
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+*/
+
+.list-view-content {
+  display: flex;
+  flex-direction: column;
+  flex: auto;
+  position: relative;
+  user-select: none;
+  overflow: hidden auto;
+  outline: 1px solid transparent;
+}
+
+.list-view-entry {
+  display: flex;
+  flex: none;
+  cursor: pointer;
+  align-items: center;
+  white-space: nowrap;
+  line-height: 28px;
+  padding-left: 5px;
+}
+
+.list-view-content.not-selectable > .list-view-entry {
+  cursor: inherit;
+}
+
+.list-view-entry.highlighted:not(.selected) {
+  background-color: var(--vscode-list-inactiveSelectionBackground) !important;
+}
+
+.list-view-entry.selected {
+  z-index: 10;
+}
+
+.list-view-indent {
+  min-width: 16px;
+}
+
+.list-view-content:focus .list-view-entry.selected {
+  background-color: var(--vscode-list-activeSelectionBackground);
+  color: var(--vscode-list-activeSelectionForeground);
+  outline: 1px solid var(--vscode-focusBorder);
+}
+
+.list-view-content .list-view-entry.selected {
+  background-color: var(--vscode-list-inactiveSelectionBackground);
+}
+
+.list-view-content:focus .list-view-entry.selected * {
+  color: var(--vscode-list-activeSelectionForeground) !important;
+  background-color: transparent !important;
+}
+
+.list-view-content:focus .list-view-entry.selected .codicon {
+  color: var(--vscode-list-activeSelectionForeground) !important;
+}
+
+.list-view-empty {
+  flex: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.list-view-entry.error {
+  color: var(--vscode-list-errorForeground);
+  background-color: var(--vscode-inputValidation-errorBackground);
+}
+
+.list-view-entry.warning {
+  color: var(--vscode-list-warningForeground);
+  background-color: var(--vscode-inputValidation-warningBackground);
+}
+
+.list-view-entry.info {
+  background-color: var(--vscode-inputValidation-infoBackground);
+}
+
+/* ==== packages/web/src/components/treeView.css ==== */
+/*
+  Copyright (c) Microsoft Corporation.
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+*/
+
+.tree-view-content {
+  display: flex;
+  flex-direction: column;
+  flex: auto;
+  position: relative;
+  user-select: none;
+  overflow: hidden auto;
+  outline: 1px solid transparent;
+}
+
+.tree-view-entry {
+  display: flex;
+  flex: none;
+  cursor: pointer;
+  align-items: center;
+  white-space: nowrap;
+  line-height: 28px;
+  padding-left: 5px;
+}
+
+.tree-view-content.not-selectable > .tree-view-entry {
+  cursor: inherit;
+}
+
+.tree-view-entry.highlighted:not(.selected) {
+  background-color: var(--vscode-list-inactiveSelectionBackground) !important;
+}
+
+.tree-view-entry.selected {
+  z-index: 10;
+}
+
+.tree-view-indent {
+  min-width: 16px;
+}
+
+.tree-view-content:focus .tree-view-entry.selected {
+  background-color: var(--vscode-list-activeSelectionBackground);
+  color: var(--vscode-list-activeSelectionForeground);
+  outline: 1px solid var(--vscode-focusBorder);
+}
+
+.tree-view-content .tree-view-entry.selected {
+  background-color: var(--vscode-list-inactiveSelectionBackground);
+}
+
+.tree-view-content:focus .tree-view-entry.selected * {
+  color: var(--vscode-list-activeSelectionForeground) !important;
+  background-color: transparent !important;
+}
+
+.tree-view-content:focus .tree-view-entry.selected .codicon {
+  color: var(--vscode-list-activeSelectionForeground) !important;
+}
+
+.tree-view-content:focus .tree-view-entry.selected button.eye.toggled {
+  border-radius: 6px;
+  outline: 1px solid var(--vscode-button-foreground);
+}
+
+.tree-view-empty {
+  flex: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tree-view-entry.error {
+  color: var(--vscode-list-errorForeground);
+  background-color: var(--vscode-inputValidation-errorBackground);
+}
+
+.tree-view-entry.warning {
+  color: var(--vscode-list-warningForeground);
+  background-color: var(--vscode-inputValidation-warningBackground);
+}
+
+.tree-view-entry.info {
+  background-color: var(--vscode-inputValidation-infoBackground);
+}
+
+/* ==== packages/web/src/components/gridView.css ==== */
+/*
+  Copyright (c) Microsoft Corporation.
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+*/
+
+.grid-view {
+  display: flex;
+  position: relative;
+  flex: auto;
+}
+
+.grid-view .list-view-entry {
+  padding-left: 0;
+}
+
+.grid-view-cell {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 5px;
+  flex: none;
+}
+
+.grid-view-header {
+  user-select: none;
+  display: flex;
+  flex: 0 0 30px;
+  align-items: center;
+  flex-direction: row;
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.grid-view-header .codicon-triangle-up {
+  display: none;
+}
+.grid-view-header .codicon-triangle-down {
+  display: none;
+}
+
+.grid-view-header > .filter-positive .codicon-triangle-down {
+  display: initial !important;
+}
+
+.grid-view-header > .filter-negative .codicon-triangle-up {
+  display: initial !important;
+}
+
+.grid-view-header-cell {
+  flex: none;
+  align-items: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-left: 10px;
+  cursor: pointer;
+  display: flex;
+  white-space: nowrap;
+}
+
+.grid-view-header-cell-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: auto;
+}
+
+/* ==== packages/web/src/components/expandable.css ==== */
+/*
+  Copyright (c) Microsoft Corporation.
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+*/
+
+.expandable {
+  flex: none;
+  flex-direction: column;
+  line-height: 28px;
+}
+
+.expandable-title {
+  flex: none;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.expandable-title-button {
+  all: unset;
+  display: flex;
+  align-items: center;
+  padding-right: 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.expandable-title > a {
+  padding: 0 4px;
+  border-radius: 4px;
+}
+
+/* Links are flex items here, as tall as the row; the inset ring keeps the
+   content below from covering it. */
+.expandable-title-button:focus-visible,
+.expandable-title > a:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+.expandable-content {
+  margin-left: 25px;
+}
+
+/* ==== packages/web/src/components/errorMessage.css ==== */
+/*
+  Copyright (c) Microsoft Corporation.
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+*/
+
+.error-message {
+  font-family: var(--vscode-editor-font-family);
+  font-weight: var(--vscode-editor-font-weight);
+  font-size: var(--vscode-editor-font-size);
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 10px;
+}
+
+/* ==== packages/trace-viewer/src/ui/workbench.css ==== */
+/*
+  Copyright (c) Microsoft Corporation.
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+*/
+
+.workbench-run-status {
+  height: 30px;
+  padding: 4px 4px 4px 5px;
+  flex: none;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.workbench-run-status.failed {
+  color: var(--vscode-errorForeground);
+}
+
+.workbench-run-status .codicon {
+  margin-right: 4px;
+}
+
+.workbench-run-duration {
+  display: flex;
+  flex: none;
+  align-items: center;
+  color: var(--vscode-editorCodeLens-foreground);
+}
+
+.workbench-actions-hidden-count {
+  padding-right: 4px;
+  user-select: none;
+  color: var(--vscode-editorCodeLens-foreground);
+}
+
+.workbench-action-filter {
+  margin-top: 3px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  flex: none;
+}
+
+.workbench-action-filter input[type=search] {
+  width: 100%;
+  padding: 4px 8px;
+  line-height: 20px;
+}
+
+/* ==== packages/trace-viewer/src/ui/actionList.css ==== */
+/*
+  Copyright (c) Microsoft Corporation.
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+*/
+
+.action-title > .hbox {
+  align-items: center;
+}
+
+.action-title-line {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.action-title-subtitle {
+  text-overflow: ellipsis;
+  overflow: hidden;
+  color: var(--vscode-tab-inactiveForeground);
+  margin-top: -8px;
+}
+
+.action-title-method {
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+
+.action-title-param {
+  color: var(--vscode-editorBracketHighlight-foreground1);
+}
+
+.action-location {
+  display: flex;
+  flex: none;
+  margin: 0 4px;
+  color: var(--vscode-foreground);
+}
+
+.action-location > button {
+  margin: 0 4px;
+  cursor: pointer;
+  text-decoration: underline;
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+}
+
+.action-location > button:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+.action-duration {
+  display: flex;
+  flex: none;
+  align-items: center;
+  margin: 0 4px;
+  color: var(--vscode-editorCodeLens-foreground);
+}
+
+.action-skipped {
+  margin-right: 4px;
+}
+
+.action-icon {
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding-right: 3px;
+}
+
+.action-error {
+  color: var(--vscode-errorForeground);
+  position: relative;
+  margin-right: 2px;
+  flex: none;
+}
+
+.action-parameter {
+  display: inline;
+  flex: none;
+  padding-left: 5px;
+}
+
+.action-locator-parameter {
+  color: var(--vscode-charts-orange);
+}
+
+.action-generic-parameter {
+  color: var(--vscode-charts-purple);
+}
+
+.action-url {
+  display: inline;
+  flex: none;
+  padding-left: 5px;
+  color: var(--vscode-charts-blue);
+}
+
+.action-list-show-all {
+  align-self: flex-start;
+  height: 28px;
+}
+
+.action-list-container {
+  min-height: 0;
+  flex: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ==== packages/trace-viewer/src/ui/timeline.css ==== */
+/*
+  Copyright (c) Microsoft Corporation.
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+*/
+
+.timeline-view-container {
+  flex: none;
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.timeline-view {
+  flex: none;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding-top: 16px;
+  cursor: text;
+  user-select: none;
+  margin-left: 10px;
+}
+
+.timeline-divider {
+  position: absolute;
+  width: 1px;
+  top: 0;
+  bottom: 0;
+  background-color: var(--vscode-panel-border);
+}
+
+.timeline-time {
+  position: absolute;
+  top: 4px;
+  right: 3px;
+  font-size: 80%;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.timeline-time-input {
+  cursor: pointer;
+}
+
+.timeline-grid {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+}
+
+.timeline-highlight {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  pointer-events: none;
+  background-color: #1a85ff33;
+  border-left: 2px solid var(--vscode-charts-blue);
+  border-right: 2px solid var(--vscode-charts-blue);
+}
+
+.timeline-window {
+  display: flex;
+  position: absolute;
+  top: 0;
+  bottom: 20px;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+}
+
+.timeline-window-center {
+  flex: auto;
+}
+
+.timeline-window-drag {
+  height: 20px;
+  cursor: grab;
+  pointer-events: all;
+}
+
+.timeline-window-curtain {
+  flex: none;
+  background-color: #3879d91a;
+}
+
+:root.dark-mode .timeline-window-curtain {
+  background-color: #161718bf;
+}
+
+.timeline-window-resizer {
+  flex: none;
+  width: 10px;
+  cursor: ew-resize;
+  pointer-events: all;
+  position: relative;
+  background-color: var(--vscode-panel-border);
+  border-left: 1px solid var(--vscode-panel-border);
+  border-right: 1px solid var(--vscode-panel-border);
+}
+
+/* ==== packages/trace-viewer/src/ui/filmStrip.css ==== */
+/*
+  Copyright (c) Microsoft Corporation.
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+*/
+
+.film-strip {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.film-strip-lanes {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  min-height: 50px;
+  max-height: 200px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.film-strip-lane {
+  flex: none;
+  display: flex;
+}
+
+.film-strip-frame {
+  flex: none;
+  pointer-events: none;
+  box-shadow: var(--box-shadow);
+}
+
+.film-strip-hover {
+  position: absolute;
+  top: 0;
+  left: 0;
+  background-color: var(--vscode-panel-background);
+  box-shadow: rgba(0, 0, 0, 0.133) 0px 1.6px 10px 0px, rgba(0, 0, 0, 0.11) 0px 0.3px 10px 0px;
+  z-index: 200;
+  pointer-events: none;
+}
+
+/* ==== packages/trace-viewer/src/ui/browserFrame.css ==== */
+/*
+  Copyright (c) Microsoft Corporation.
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+*/
+
+.browser-frame-dot {
+  border-radius: 50%;
+  display: inline-block;
+  height: 12px;
+  width: 12px;
+}
+
+.browser-frame-address-bar {
+  background-color: var(--vscode-input-background);
+  border-radius: 12.5px;
+  color: var(--vscode-input-foreground);
+  flex: 1 0;
+  font: 400 16px Arial,sans-serif;
+  margin: 0 16px 0 8px;
+  padding: 5px 15px;
+  display: flex;
+  align-items: center;
+  height: 28px;
+}
+
+.browser-frame-address {
+  flex: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-frame-menu-bar {
+  background-color: #aaa;
+  display: block;
+  height: 3px;
+  margin: 3px 0;
+  width: 17px;
+}
+
+.browser-frame-header {
+  align-items: center;
+  background: #ebedf0;
+  display: flex;
+  padding: 8px 16px;
+  border-top-left-radius: 6px;
+  border-top-right-radius: 6px;
+  height: var(--browser-frame-header-height);
+}
+
+:root.dark-mode .browser-frame-header {
+  background: #444950;
+}
+
+.browser-traffic-lights {
+  display: grid;
+  white-space: nowrap;
+  grid-template-columns: auto auto auto;
+  column-gap: 6px;
+  margin-right: 8px;
+}
+
+/* ==== packages/trace-viewer/src/ui/snapshotTab.css ==== */
+/*
+  Copyright (c) Microsoft Corporation.
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+*/
+
+.snapshot-tab {
+  align-items: stretch;
+  outline: none;
+  overflow: hidden;
+}
+
+.snapshot-tab .toolbar {
+  background-color: var(--vscode-sideBar-background);
+}
+
+.snapshot-tab .toolbar .pick-locator {
+  margin: 0 4px;
+}
+
+.snapshot-controls {
+  flex: none;
+  background-color: var(--vscode-sideBar-background);
+  color: var(--vscode-sideBarTitle-foreground);
+  display: flex;
+  box-shadow: var(--box-shadow);
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+}
+
+.snapshot-toggle {
+  margin-top: 4px;
+  padding: 4px 8px;
+  cursor: pointer;
+  border-radius: 20px;
+  margin-left: 4px;
+  width: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.snapshot-toggle:hover {
+  background-color: #ededed;
+}
+
+.snapshot-toggle.toggled {
+  background: var(--gray);
+  color: white;
+}
+
+.snapshot-tab:focus .snapshot-toggle.toggled {
+  background: var(--vscode-charts-blue);
+}
+
+.snapshot-wrapper {
+  flex: auto;
+  margin: 1px;
+  padding: 10px;
+  position: relative;
+  --browser-frame-header-height: 40px;
+}
+
+.snapshot-container {
+  display: block;
+  box-shadow: 0 12px 28px 0 rgba(0,0,0,.2),0 2px 4px 0 rgba(0,0,0,.1);
+}
+
+.snapshot-browser-body {
+  height: calc(100% - var(--browser-frame-header-height));
+
+  /* CSS checkerboard */
+  background: conic-gradient(#eee 25%, #ddd 0 50%, #eee 0 75%, #ddd 0) 0 0 / 40px 40px;
+}
+
+.snapshot-switcher {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+iframe[name=snapshot] {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: light-dark(white, #333);
+  visibility: hidden;
+}
+
+iframe.snapshot-visible[name=snapshot] {
+  visibility: visible;
+}
+
+.no-snapshot {
+  text-align: center;
+  padding: 50px;
+}
+
+.snapshot-tab .cm-wrapper {
+  line-height: 23px;
+  margin-right: 4px;
+}
+
+/* ==== packages/trace-viewer/src/ui/sourceTab.css ==== */
+/*
+  Copyright (c) Microsoft Corporation.
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+*/
+
+.source-tab {
+  flex: auto;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: row;
+}
+
+.source-tab-file-name {
+  padding-left: 8px;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+}
+
+.source-tab-file-name div {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ==== packages/trace-viewer/src/ui/stackTrace.css ==== */
+/*
+  Copyright (c) Microsoft Corporation.
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+*/
+
+.stack-trace-frame-function {
+  flex: 1 1 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stack-trace-frame-location {
+  flex: 1 1 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: end;
+}
+
+.stack-trace-frame-line {
+  flex: none;
+}
+
+/* ==== packages/trace-viewer/src/ui/callTab.css ==== */
+/*
+  Copyright (c) Microsoft Corporation.
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+*/
+
+.call-tab {
+  flex: auto;
+  line-height: 24px;
+  white-space: pre;
+  overflow: auto;
+  user-select: text;
+}
+
+.call-error {
+  border-bottom: 1px solid var(--vscode-panel-border);
+  padding: 3px 0 3px 12px;
+}
+
+.call-error .codicon {
+  color: var(--vscode-errorForeground);
+  position: relative;
+  top: 2px;
+  margin-right: 2px;
+}
+
+.call-section {
+  padding-left: 6px;
+  padding-top: 2px;
+  margin-top: 2px;
+  font-weight: bold;
+  text-transform: uppercase;
+  font-size: 10px;
+  color: var(--vscode-sideBarTitle-foreground);
+  line-height: 24px;
+}
+
+.call-section:not(:first-child) {
+  border-top: 1px solid var(--vscode-panel-border);
+}
+
+.call-line {
+  padding: 4px 0 4px 6px;
+  display: flex;
+  align-items: center;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.call-line:not(:hover) .toolbar-button.copy {
+  display: none;
+}
+
+.call-line .toolbar-button.copy {
+  margin-left: 5px;
+  margin-top: -2px;
+  margin-bottom: -2px;
+}
+
+.call-line .toolbar-button.check {
+  margin-left: 5px;
+  margin-top: -2px;
+  margin-bottom: -2px;
+}
+
+.call-value {
+  margin-left: 2px;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+
+a.call-value {
+  text-decoration: none;
+}
+
+a.call-value:hover {
+  text-decoration: underline;
+}
+
+.call-value::before {
+  content: '\00a0';
+}
+
+.call-value.datetime,
+.call-value.string,
+.call-value.literal,
+.call-value.locator {
+  color: var(--vscode-charts-orange);
+}
+
+.call-value.number,
+.call-value.bigint,
+.call-value.boolean,
+.call-value.symbol,
+.call-value.undefined,
+.call-value.function,
+.call-value.object {
+  color: var(--vscode-charts-blue);
+}
+
+.call-tab .error-message {
+  padding: 5px;
+  line-height: 17px;
+}
+
+/* ==== packages/trace-viewer/src/ui/logTab.css ==== */
+/**
+ * Copyright (c) Microsoft Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+.log-list-duration {
+  display: flex;
+  flex: none;
+  align-items: center;
+  color: var(--vscode-editorCodeLens-foreground);
+  float: right;
+  margin-right: 5px;
+  user-select: none;
+}
+
+.log-list-item {
+  text-wrap: wrap;
+  user-select: text;
+  width: 100%;
+}
+
+/* ==== packages/trace-viewer/src/ui/consoleTab.css ==== */
+/*
+  Copyright (c) Microsoft Corporation.
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+*/
+
+
+.console-tab {
+  display: flex;
+  flex: auto;
+  white-space: pre;
+}
+
+.console-line {
+  width: 100%;
+  user-select: text;
+}
+
+.console-line-message {
+  word-break: break-word;
+  white-space: pre-wrap;
+  position: relative;
+}
+
+.console-location {
+  padding-right: 3px;
+  float: right;
+  color: var(--vscode-editorCodeLens-foreground);
+  user-select: none;
+}
+
+.console-source {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  min-width: 48px;
+  height: 16px;
+  padding: 0 4px;
+  margin: 0 6px 0 3px;
+  font-size: 11px;
+  border-radius: 4px;
+  user-select: none;
+  flex: none;
+  vertical-align: middle;
+}
+
+.console-time {
+  float: left;
+  min-width: 50px;
+  color: var(--vscode-editorCodeLens-foreground);
+  user-select: none;
+}
+
+.console-stack {
+  white-space: pre-wrap;
+  margin-left: 50px;
+}
+
+.console-repeat {
+  display: inline-block;
+  padding: 0 2px;
+  font-size: 12px;
+  line-height: 18px;
+  border-radius: 6px;
+  background-color: #8c959f;
+  color: white;
+  margin-right: 10px;
+  flex: none;
+  font-weight: 600;
+}
+
+/* ==== packages/trace-viewer/src/ui/networkTab.css ==== */
+/*
+  Copyright (c) Microsoft Corporation.
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+*/
+
+.network-request-status-route {
+  color: var(--vscode-statusBar-foreground);
+  background-color: var(--vscode-statusBar-background);
+}
+
+.network-request-status-route.api {
+  color: var(--vscode-statusBar-foreground);
+  background-color: var(--vscode-statusBarItem-remoteBackground);
+}
+
+.network-grid-view .grid-view-column-method,
+.network-grid-view .grid-view-column-status {
+  text-align: center;  
+}
+
+.network-grid-view .grid-view-column-duration,
+.network-grid-view .grid-view-column-size,
+.network-grid-view .grid-view-column-start {
+  text-align: end;
+}
+
+/* ==== packages/trace-viewer/src/ui/networkFilters.css ==== */
+/*
+  Copyright (c) Microsoft Corporation.
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+*/
+
+.network-filters {
+  display: flex;
+  gap: 16px;
+  background-color: var(--vscode-sideBar-background);
+  padding: 4px 8px;
+  min-height: 32px;
+}
+
+.network-filters input[type="search"] {
+  padding: 0 5px;
+}
+
+.network-filters-resource-types {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.network-filters-resource-type {
+  cursor: pointer;
+  border-radius: 2px;
+  padding: 3px 8px;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+
+.network-filters-resource-type:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+.network-filters-resource-type.selected {
+  background-color: var(--vscode-list-inactiveSelectionBackground);
+}
+
+/* ==== packages/trace-viewer/src/ui/attachmentsTab.css ==== */
+/*
+  Copyright (c) Microsoft Corporation.
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+*/
+
+.attachments-tab {
+  flex: auto;
+  line-height: 24px;
+  white-space: pre;
+  overflow: auto;
+  user-select: text;
+}
+
+.attachments-section {
+  padding-left: 6px;
+  font-weight: bold;
+  text-transform: uppercase;
+  font-size: 12px;
+  color: var(--vscode-sideBarTitle-foreground);
+  line-height: 24px;
+}
+
+.attachments-section:not(:first-child) {
+  border-top: 1px solid var(--vscode-panel-border);
+  margin-top: 10px;
+}
+
+.attachment-item {
+  margin: 4px 8px;
+}
+
+.attachment-title-highlight {
+  text-decoration: underline var(--vscode-terminal-findMatchBackground);
+  text-decoration-thickness: 1.5px;
+}
+
+.attachment-item img {
+  flex: none;
+  min-width: 200px;
+  max-width: 80%;
+  box-shadow: 0 12px 28px 0 rgba(0,0,0,.2), 0 2px 4px 0 rgba(0,0,0,.1);
+}
+
+a.codicon-cloud-download:hover{
+  background-color: var(--vscode-list-inactiveSelectionBackground)
+}
+
+.yellow-flash {
+  animation: yellowflash-bg 2s;
+}
+@keyframes yellowflash-bg {
+  from { background: var(--vscode-peekViewEditor-matchHighlightBackground); }
+  to   { background: transparent; }
+}
+
+/* ==== written for this port ==== */
+
+/*
+  The source view.
+
+  Upstream hands the file to CodeMirror, which brings its own stylesheet.
+  This port draws numbered lines itself, so the few rules they need live
+  here; the line classes are upstream's, so `source-line-running` and
+  `source-line-error` above still apply.
+*/
+.source-lines {
+  flex: auto;
+  overflow: auto;
+  font-family: var(--vscode-editor-font-family);
+  font-size: var(--vscode-editor-font-size);
+  line-height: 18px;
+  user-select: text;
+  width: 100%;
+  height: 100%;
+}
+
+.source-line {
+  display: flex;
+  white-space: pre;
+  min-height: 18px;
+}
+
+.source-line-number {
+  flex: none;
+  width: 48px;
+  padding-right: 8px;
+  text-align: right;
+  user-select: none;
+  color: var(--vscode-editorLineNumber-foreground);
+}
+
+.source-line-text {
+  flex: auto;
+  padding-left: 8px;
+}
+
+.source-line-running {
+  background-color: var(--vscode-editor-selectionBackground);
+}
+
+.source-line-error {
+  background-color: var(--vscode-inputValidation-errorBackground);
+}
+
+/* An attachment's inlined text, which upstream renders with CodeMirror. */
+.attachments-tab .cm-wrapper pre {
+  margin: 0;
+  overflow: auto;
+  height: 100%;
+  font-family: var(--vscode-editor-font-family);
+  font-size: var(--vscode-editor-font-size);
+  user-select: text;
+}
