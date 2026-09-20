@@ -247,6 +247,23 @@ class FfPage extends EventEmitter
             workerSession, event['executionContextId'] as String?));
         worker.workerScriptLoaded();
       });
+      // Juggler gives the worker its own `Runtime.console`, which upstream
+      // routes through the page tagged with the worker (`ffPage.ts:344`).
+      workerSession.on('Runtime.console', (Map<String, dynamic> event) {
+        final location = event['location'] as Map<String, dynamic>?;
+        emit(
+            'console',
+            CoreConsoleMessage(
+              type: normalizeConsoleType(event['type'] as String?),
+              text: describeConsoleArgs(event['args']),
+              location: CoreSourceLocation(
+                url: location?['url'] as String? ?? '',
+                lineNumber: (location?['lineNumber'] as num?)?.toInt() ?? 0,
+                columnNumber: (location?['columnNumber'] as num?)?.toInt() ?? 0,
+              ),
+              worker: worker,
+            ));
+      });
       addWorker(workerId, worker);
     });
     session.on('Page.workerDestroyed', (Map<String, dynamic> params) {

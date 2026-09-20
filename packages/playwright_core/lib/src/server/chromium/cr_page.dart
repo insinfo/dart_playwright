@@ -258,6 +258,35 @@ class CrPage extends EventEmitter
     });
     addWorker(sessionId, worker);
 
+    // The worker's console rides its own session, and upstream routes it
+    // through the page tagged with the worker (`crPage.ts:797`), so a
+    // `page.on('console')` listener sees it.
+    workerSession.on('Runtime.consoleAPICalled', (Map<String, dynamic> event) {
+      final stack = event['stackTrace'] as Map<String, dynamic>?;
+      final frames = stack?['callFrames'] as List?;
+      final top = (frames != null && frames.isNotEmpty)
+          ? frames.first as Map<String, dynamic>
+          : null;
+      emit(
+          'console',
+          CoreConsoleMessage(
+            type: normalizeConsoleType(event['type'] as String?),
+            text: describeConsoleArgs(event['args']),
+            location: CoreSourceLocation(
+              url: top?['url'] as String? ?? '',
+              lineNumber: (top?['lineNumber'] as num?)?.toInt() ?? 0,
+              columnNumber: (top?['columnNumber'] as num?)?.toInt() ?? 0,
+            ),
+            worker: worker,
+          ));
+    });
+    // An uncaught error inside the worker is a page error upstream too.
+    workerSession.on('Runtime.exceptionThrown', (Map<String, dynamic> event) {
+      final details = event['exceptionDetails'] as Map<String, dynamic>?;
+      if (details == null) return;
+      emit('pageerror', pageErrorFromCdpExceptionDetails(details));
+    });
+
     // Best effort: the worker may be gone before any of this lands.
     await workerSession
         .send('Runtime.enable')

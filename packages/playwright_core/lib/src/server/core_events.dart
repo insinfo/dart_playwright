@@ -44,10 +44,20 @@ class CoreConsoleMessage {
   /// Where the message was produced.
   final CoreSourceLocation location;
 
+  /// The worker that logged it, or null for a message from the page.
+  ///
+  /// Upstream channels a worker's console through the page, tagging the
+  /// message with the worker (`page.addConsoleMessage(worker, ...)`), so
+  /// `page.on('console')` sees both and `message.worker()` tells them
+  /// apart. This is the same tag; it is an [Object] because the worker
+  /// type lives in a library this one cannot import without a cycle.
+  final Object? worker;
+
   const CoreConsoleMessage({
     required this.type,
     required this.text,
     this.location = const CoreSourceLocation(),
+    this.worker,
   });
 
   @override

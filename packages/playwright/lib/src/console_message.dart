@@ -1,4 +1,7 @@
 import 'package:playwright_core/src/server/core_events.dart' as core;
+import 'package:playwright_core/src/server/core_worker.dart';
+
+import 'worker.dart';
 
 /// Where a console message was produced in the page.
 typedef ConsoleMessageLocation = ({
@@ -23,6 +26,13 @@ abstract class ConsoleMessage {
 
   /// The script URL and 0-based position the message came from.
   ConsoleMessageLocation location();
+
+  /// The worker that logged the message, or null when the page did.
+  ///
+  /// A worker's console is channelled through its page, the way upstream does
+  /// it, so `page.on('console')` reports both and this is what tells them
+  /// apart.
+  Worker? worker();
 }
 
 class ConsoleMessageImpl implements ConsoleMessage {
@@ -42,6 +52,12 @@ class ConsoleMessageImpl implements ConsoleMessage {
         lineNumber: _message.location.lineNumber,
         columnNumber: _message.location.columnNumber,
       );
+
+  @override
+  Worker? worker() {
+    final core = _message.worker;
+    return core is CoreWorker ? WorkerImpl.forCore(core) : null;
+  }
 
   @override
   String toString() => _message.toString();

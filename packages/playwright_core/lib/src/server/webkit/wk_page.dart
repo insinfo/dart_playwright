@@ -201,6 +201,12 @@ class WkPage extends EventEmitter
       // the implicit one, addressed by leaving the id out.
       worker.createExecutionContext(WkExecutionContext(workerSession, null));
       worker.workerScriptLoaded();
+      // `wkWorkers.ts#_onConsoleMessage`: the worker's own Console domain,
+      // routed through the page tagged with the worker.
+      workerSession.on(
+          'Console.messageAdded',
+          (Map<String, dynamic> event) => _onWorkerConsoleMessage(
+              worker, event['message'] as Map<String, dynamic>?));
       addWorker(workerId, worker);
       Future.wait(<Future<dynamic>>[
         workerSession.sendToTarget('Runtime.enable'),
@@ -228,6 +234,31 @@ class WkPage extends EventEmitter
       _workerSessions.remove(workerId)?.dispose();
       removeWorker(workerId);
     });
+  }
+
+  /// Port of `wkWorkers.ts#_onConsoleMessage`.
+  void _onWorkerConsoleMessage(
+      CoreWorker worker, Map<String, dynamic>? message) {
+    if (message == null) return;
+    final rawType = message['type'] as String? ?? '';
+    final type = rawType == 'log'
+        ? message['level'] as String? ?? 'log'
+        : (rawType == 'timing' ? 'timeEnd' : rawType);
+    final parameters = message['parameters'];
+    emit(
+        'console',
+        CoreConsoleMessage(
+          type: normalizeConsoleType(type),
+          text: parameters is List && parameters.isNotEmpty
+              ? describeConsoleArgs(parameters)
+              : message['text'] as String? ?? '',
+          location: CoreSourceLocation(
+            url: message['url'] as String? ?? '',
+            lineNumber: ((message['line'] as num?)?.toInt() ?? 1) - 1,
+            columnNumber: ((message['column'] as num?)?.toInt() ?? 1) - 1,
+          ),
+          worker: worker,
+        ));
   }
 
   void _onDialogOpening(Map<String, dynamic> params) {
