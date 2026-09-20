@@ -24,6 +24,10 @@
 /// knows 10 and nothing changes.
 const int kTraceVersion = 9;
 
+/// Version of this port, reported in the trace metadata and as the `creator`
+/// of a recorded HAR.
+const String kPlaywrightDartVersion = '0.1.0';
+
 /// A monotonic clock shared by every trace event, in milliseconds.
 ///
 /// The viewer maps monotonic times onto the wall clock using the
@@ -212,6 +216,41 @@ class InputActionTraceEvent extends TraceEvent {
       });
 }
 
+/// `AfterActionTraceEventAttachment` of the contract: one file the viewer
+/// offers next to the action it belongs to, in its Attachments tab.
+///
+/// The bytes reach the viewer one of three ways, and it looks at them in this
+/// order: [file] names an entry of the archive, [path] a file on the machine
+/// that recorded (only resolvable by a viewer served from that machine), and
+/// [base64] carries the bytes inline. This recorder writes [file], because a
+/// trace that opens anywhere is the point of writing upstream's format at all.
+///
+/// A name starting with `_` marks an attachment the viewer keeps but does not
+/// list, which is upstream's convention for its own internal ones.
+class TraceAttachment {
+  final String name;
+  final String contentType;
+  final String? path;
+  final String? file;
+  final String? base64;
+
+  const TraceAttachment({
+    required this.name,
+    required this.contentType,
+    this.path,
+    this.file,
+    this.base64,
+  });
+
+  Map<String, dynamic> toJson() => _compact({
+        'name': name,
+        'contentType': contentType,
+        'path': path,
+        'file': file,
+        'base64': base64,
+      });
+}
+
 /// `after`: the call finished, with its error when it threw.
 class AfterActionTraceEvent extends TraceEvent {
   final String callId;
@@ -219,11 +258,17 @@ class AfterActionTraceEvent extends TraceEvent {
   final ({String message, String name, String? stack})? error;
   final Map<String, dynamic>? result;
 
+  /// Files produced while the call ran. Upstream fills these from its test
+  /// runner's `testInfo.attach`; here they come from `attach` inside a
+  /// `step`, which is the same idea with the same event shape.
+  final List<TraceAttachment>? attachments;
+
   const AfterActionTraceEvent({
     required this.callId,
     required this.endTime,
     this.error,
     this.result,
+    this.attachments,
   });
 
   @override
@@ -238,6 +283,9 @@ class AfterActionTraceEvent extends TraceEvent {
                 'name': error!.name,
                 'stack': error!.stack,
               }),
+        'attachments': attachments == null || attachments!.isEmpty
+            ? null
+            : [for (final a in attachments!) a.toJson()],
         'result': result,
       });
 }

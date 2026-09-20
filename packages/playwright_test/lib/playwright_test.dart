@@ -26,6 +26,6 @@ export 'src/assertions.dart';
 export 'src/fixture.dart';
 export 'src/fixtures.dart';
 export 'src/source_maps.dart';
-export 'src/step.dart' show step;
+export 'src/step.dart' show attach, step;
 export 'src/storage_state.dart' show StorageState, applyStorageState;
 export 'src/web_server.dart';

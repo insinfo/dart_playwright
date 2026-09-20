@@ -1,5 +1,8 @@
 import 'package:playwright_core/src/server/core_browser.dart';
+import 'package:playwright_core/src/server/trace/trace_events.dart';
 import 'package:playwright_core/src/server/trace/tracing.dart';
+
+import 'har.dart';
 
 /// Records a trace of a browser context that the official Playwright trace
 /// viewer opens.
@@ -69,6 +72,63 @@ abstract class Tracing {
   /// Closes the current chunk, writes it to [path] and stops recording,
   /// removing the temporary directory.
   Future<String?> stop({String? path});
+
+  /// Opens a named row in the viewer's action tree. Everything recorded until
+  /// the matching [groupEnd] is drawn nested under it.
+  ///
+  /// ```dart
+  /// await context.tracing.group('login');
+  /// await page.fill('#user', 'ana');
+  /// await page.click('#enter');
+  /// await context.tracing.groupEnd();
+  /// ```
+  ///
+  /// Groups nest. A chunk that ends with groups still open closes them
+  /// itself, so a `groupEnd` missed on an error path does not leave the
+  /// viewer with rows that never finish.
+  ///
+  /// [location] is the source position the viewer's Source tab jumps to.
+  /// Without one the caller's own line is used, but only while `sources` is
+  /// on — a `stack` pointing at a file the archive does not carry would give
+  /// the Source tab a line it cannot open.
+  Future<void> group(String name, {TracingGroupLocation? location});
+
+  /// Closes the innermost group opened by [group]. Doing this without an open
+  /// group is not an error.
+  Future<void> groupEnd();
+
+  /// Starts recording every request of this context into a HAR document at
+  /// [path], independent of any trace.
+  ///
+  /// A [path] ending in `.zip` produces an archive holding `har.har` plus the
+  /// response bodies as separate files; any other path writes a plain `.har`
+  /// with the bodies inside the document. [stopHar] writes it.
+  ///
+  /// This is `recordHar` of [Browser.newContext] with a start and an end of
+  /// its own, for when only part of a session is worth recording.
+  Future<void> startHar(
+    String path, {
+    HarMode mode = HarMode.full,
+    HarContent? content,
+    Object? urlFilter,
+  });
+
+  /// Writes the HAR document [startHar] has been filling.
+  Future<void> stopHar();
+}
+
+/// Where in the source a [Tracing.group] was opened, for the viewer's Source
+/// tab.
+class TracingGroupLocation {
+  final String file;
+  final int line;
+  final int column;
+
+  const TracingGroupLocation({
+    required this.file,
+    this.line = 0,
+    this.column = 0,
+  });
 }
 
 class TracingImpl implements Tracing {
@@ -100,6 +160,51 @@ class TracingImpl implements Tracing {
   @override
   Future<void> startChunk({String? name, String? title}) async {
     _tracing.startChunk(name: name, title: title);
+  }
+
+  @override
+  Future<void> group(String name, {TracingGroupLocation? location}) async {
+    _tracing.group(
+      name,
+      location: location == null
+          ? null
+          : TraceStackFrame(
+              file: location.file,
+              line: location.line,
+              column: location.column,
+            ),
+    );
+  }
+
+  @override
+  Future<void> groupEnd() async => _tracing.groupEnd();
+
+  @override
+  Future<void> startHar(
+    String path, {
+    HarMode mode = HarMode.full,
+    HarContent? content,
+    Object? urlFilter,
+  }) async {
+    if (_context.harRecorder != null) {
+      throw StateError('HAR recording has already been started');
+    }
+    _context.startHarRecording(CoreRecordHarOptions(
+      path: path,
+      mode: mode.toCore(),
+      content: content?.toCore(),
+      urlFilter: urlFilter,
+    ));
+  }
+
+  @override
+  Future<void> stopHar() async {
+    final recorder = _context.harRecorder;
+    if (recorder == null) {
+      throw StateError('HAR recording has not been started');
+    }
+    _context.harRecorder = null;
+    await recorder.flush();
   }
 
   @override

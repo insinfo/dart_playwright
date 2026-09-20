@@ -1583,3 +1583,214 @@ saem as acoes com os titulos renderizados, a rede com o corpo de cada
 resposta, a mensagem de console da pagina, o arquivo `.dart` da acao, a tira
 de filme, os snapshots de DOM das duas fases e a pagina redesenhada, com o
 alvo marcado e a folha de estilo servida do proprio trace.
+
+## Progresso da rodada de 2026-09-19 (grupos e har)
+
+Fecha o que faltava do gravador de trace, na lista que a rodada de 2026-09-14
+deixou escrita: `tracing.group`/`groupEnd`, o HAR autonomo, os anexos nos
+eventos `after` e a tira de filme do WebKit.
+
+### `tracing.group` e `tracing.groupEnd`
+
+`context.tracing.group('login')` abre uma linha na arvore de acoes do
+visualizador, e tudo o que for gravado ate o `groupEnd` aparece pendurado
+nela. Grupos aninham.
+
+Nao ha evento de grupo no formato: o par que sai e um `before`/`after` comum
+com `class: Tracing` e `method: tracingGroup`, e o aninhamento vem do
+`parentId` — e assim que o `tracing.ts` do upstream faz, e e por esse par que
+o visualizador decide desenhar a linha como grupo em vez de chamada. Duas
+consequencias diretas: um grupo vazio e uma linha, nao um erro; e o `step()`
+do `playwright_test`, que ja escrevia esse mesmo par, passou a ser o mesmo
+mecanismo por baixo em vez de uma coincidencia.
+
+Tres decisoes valem registro:
+
+- O `parentId` de uma acao e `metadata.parentId ?? grupo corrente`. A ordem
+  importa: uma chamada publica que chama outra ja tem pai, e sobrescrever
+  isso achataria a arvore justamente onde ela e mais util.
+- `stopChunk` fecha os grupos que sobraram. Um `before` sem `after` o
+  visualizador desenha como acao que nunca terminou, e um `groupEnd` perdido
+  num caminho de erro nao pode sujar o trace inteiro.
+- Sem `location`, a pilha do grupo so e escrita com `sources` ligado. Um
+  `stack` apontando para um arquivo que o zip nao carrega daria a aba
+  *Source* uma linha que ela nao abre.
+
+### HAR autonomo: `recordHar` e `startHar`/`stopHar`
+
+`browser.newContext(recordHar: RecordHarOptions(path: 'sessao.har'))` grava
+todas as requisicoes do contexto num documento HAR, escrito quando o contexto
+fecha. `context.tracing.startHar(path)`/`stopHar()` fazem o mesmo com comeco
+e fim proprios, para quando so um trecho da sessao interessa.
+
+O `har_tracer.dart` ja estava portado desde a rodada anterior; o que faltava
+era a ponta publica — o `harRecorder.ts` do upstream — e as opcoes que ele
+passa ao tracer. Entrou tudo:
+
+- `path`: terminando em `.zip` sai um arquivo com `har.har` mais os corpos
+  como arquivos irmaos; qualquer outro caminho sai um `.har` puro.
+- `content`: `embed` poe o corpo dentro do documento (base64 para o que nao e
+  texto), `attach` o escreve ao lado e aponta por `_file`, `omit` descarta.
+  O padrao segue a regra do upstream — `attach` para `.zip`, `embed` para
+  `.har` — porque um `.har` sozinho nao tem onde por um arquivo irmao que
+  viaje com ele.
+- `mode`: `minimal` e o `slimMode` do upstream. Some com cookies, tempos,
+  enderecos, tamanhos e a lista de paginas, e sobra o que um HAR e
+  reproduzido a partir de.
+- `urlFilter`: glob (o mesmo dialeto curto que `page.route` aceita neste
+  porte) ou `RegExp`.
+
+Duas coisas que o tracer nao tinha e o documento exige entraram junto: o
+envelope `log` (`version`, `creator`, `browser`) e o array `pages`. O
+`pageref` de uma entrada tem de nomear uma pagina desse array — antes o
+gravador escrevia o `pageref` sem nunca emitir a pagina, o que so nao
+aparecia porque o `trace.network` nao carrega o envelope.
+
+O documento e escrito campo a campo e entrada por entrada pelo
+`SerializedFs`, nao serializado inteiro de uma vez, pela mesma razao do
+upstream: uma sessao longa tem mais entradas do que e confortavel segurar
+como uma string so.
+
+### Anexos nos eventos `after`
+
+`attach('foto', body: await page.screenshot(), contentType: 'image/png')`
+dentro de um `step()` do `playwright_test` vira um item da aba *Attachments*
+do visualizador, no `after` do passo.
+
+O relatorio anterior listava os anexos como ausentes "porque no upstream vem
+do test runner", e e exatamente esse o ponto: la existe um `TestInfo` com uma
+lista de anexos que o runner drena para o `after` do passo; aqui a camada de
+teste e `package:test`, que nao tem esse objeto. O que substitui o `TestInfo`
+e a zona que a instrumentacao ja mantinha — `currentCallMetadata` devolve a
+chamada publica que esta rodando, e o anexo se pendura nela.
+
+Isso tem um limite que vale dizer em vez de esconder: **`attach` so faz
+sentido dentro de um `step`**. Na biblioteca pura o codigo do usuario nunca
+roda *dentro* de uma chamada instrumentada — as chamadas sao folhas — entao
+nao ha chamada corrente a que se pendurar, e `attach` fora de um passo nao
+faz nada. E a mesma restricao do upstream, onde anexo e coisa de step, por
+uma razao diferente.
+
+O que vai para o trace e `name`, `contentType`, `path` (quando o anexo veio
+de um arquivo) e `file`. O `file` e o que faz a coisa funcionar: aponta um
+`resources/<sha1>.<ext>` dentro do zip, entao o anexo sobrevive ao trace
+mudar de maquina. O upstream escreve `path` e `base64`; `path` so resolve num
+visualizador servido da maquina que gravou, e `base64` incha o
+`trace.trace`. O `file` e o que o modernizador do proprio upstream produz ao
+ler um trace antigo (`'resources/' + attachment.sha1`), entao e forma do
+contrato, nao invencao.
+
+Um `path` e lido no quadro assincrono de quem chama `attach`, nunca no
+gravador: o gravador roda em manipulador de evento e nao pode esperar por
+disco.
+
+### A tira de filme do WebKit ja existia
+
+O relatorio anterior dizia que faltava a tira para o WebKit, "cujo screencast
+grava direto num arquivo em vez de entregar quadros". **Isso nao vale mais**,
+e nao por trabalho desta rodada: a frente de video ja tinha descoberto que o
+`Screencast.startVideo` nao existe no WebKit 26.5 que este porte baixa (o
+comando responde `'Screencast.startVideo' was not found`) e portado o WebKit
+para `Screencast.startScreencast`, com evento `screencastFrame` e ack por
+`generation`. Os tres motores sao `ScreencastKind.frames`, e nenhuma
+implementacao devolve `directFile` hoje.
+
+Medido nesta rodada, nao deduzido: o teste `screenshots deve gravar a tira de
+filme em screencast-frame` passa no WebKit, e um trace de sonda gravado com
+`tracing_example.dart webkit` saiu com **3 quadros** `screencast-frame` de
+798x532, todos com o JPEG correspondente dentro do zip. O mesmo exemplo no
+Chromium saiu com **1** — nao por defeito do Chromium, mas porque a pagina de
+sonda e estatica e Chromium e WebKit so emitem quadro quando a pagina pinta,
+que e a licao que a rodada anterior ja tinha registrado.
+
+O que sobra e cosmetico e fica anotado: `ScreencastKind.directFile` continua
+no contrato sem implementacao. Tirar e mecanico; ficou porque gravar direto
+em arquivo pode voltar num roll de navegador.
+
+### Como isto foi conferido
+
+Pelo visualizador oficial, como sempre. O `tool/open_trace_in_viewer.dart`
+ganhou duas leituras novas, porque as antigas nao respondiam a pergunta desta
+rodada:
+
+- **A arvore de acoes com a profundidade de cada linha.** Ler so os titulos
+  diria que um grupo existe e nada sobre haver algo embaixo dele; a
+  profundidade e quantos `.tree-view-indent` o visualizador desenhou antes da
+  linha. E foi preciso **expandir**: o visualizador abre todo grupo fechado
+  (`autoExpandDepth` e 0 sem filtro), entao os filhos nem estao no DOM ate
+  alguem clicar no chevron — o script clica, em rodadas, ate nao sobrar linha
+  fechada. Sem isso a leitura volta vazia, que foi o primeiro resultado desta
+  rodada e por pouco passou por "o grupo nao aparece".
+- **A aba *Attachments***, que so existe quando alguma acao carrega anexo:
+  aba ausente e aba vazia sao respostas diferentes, e o script as distingue.
+
+E consertou duas leituras que estavam mentindo em silencio. A aba *Network*
+era lida por `.network-request-title-url` e a aba *Source* por `.source-tab`;
+nenhuma das duas classes existe no visualizador publicado. As requisicoes hoje
+sao um `GridView` e a URL e a celula `.grid-view-column-name`; o painel de
+fonte e `[data-testid=source-code]`. O script relatava zero requisicoes para
+um trace com quatro, e nenhuma fonte para um trace gravado com `sources:
+true` — e como o resultado vazio e exatamente o que um trace sem rede ou sem
+fontes produziria, ninguem notaria. Isto e o risco de conferir pela interface
+e vale ficar escrito: uma leitura que quebra em silencio nao vira falha, vira
+uma prova que passou a nao provar nada. Agora a leitura de rede distingue tres
+casos — linhas, grade vazia, e o painel de "No network calls" que o
+visualizador desenha quando nao ha grade nenhuma — e a de fonte diz quando nao
+ha painel em vez de devolver `null`.
+
+O que o visualizador oficial desenhou, com o trace de sonda do
+`tracing_example.dart`:
+
+```
+- Create page
+- open the page
+  - Navigate 127.0.0.1:62966/
+- load the items
+  - click and wait
+    - Click locator('#load')
+    - Wait for selector locator('li').first()
+- Wait for timeout
+```
+
+A aba *Network* contou as quatro requisicoes, a *Console* mostrou a mensagem
+da pagina e a *Source* abriu o `tracing_example.dart` na regiao da acao.
+
+E, com o trace de
+`packages/playwright_test/example/step_attachments_example.dart`, a aba
+*Attachments* com os dois itens: a imagem renderizada e o texto com link de
+download. Esse exemplo existe para que a conferencia dos anexos seja
+repetivel — o `attach` so vale dentro de um `step`, entao nao havia como
+gravar um trace com anexos a partir dos exemplos da biblioteca pura.
+
+### Cobertura de teste desta rodada
+
+Onze testes novos, todos medidos nesta maquina.
+
+`packages/playwright/test/integration/tracing_test.dart`, nove no grupo
+`[chromium]`: o par `class`/`method` do grupo e o `parentId` das acoes de
+dentro dele (e a ausencia de `parentId` no que rodou depois), grupos
+aninhados, o grupo deixado aberto que o `stopChunk` fecha, a `location`
+explicita na pilha; o `.har` com envelope, paginas e `pageref` casando, o
+`.zip` com `har.har` e o corpo apontado por `_file` presente no arquivo, o
+`minimal` sem cookies/tempos/paginas/`_transferSize`, o `urlFilter` deixando
+passar uma entrada so, e o `startHar`/`stopHar` escrevendo com o contexto
+ainda aberto (mais o `StateError` de parar duas vezes).
+
+`packages/playwright_test/test/step_trace_test.dart`, dois: o anexo por
+`body` com o `file` presente no zip, e o anexo por `path` que guarda o
+caminho e poe a copia dentro do arquivo.
+
+O arquivo de tracing passou a ter 24 testes: 9 por motor nos tres, mais 15 so
+no Chromium.
+
+Suite inteira medida nesta maquina com `dart test -j1`, por pacote: **1028
+testes verdes, 1 pulado** — 855 em `packages/playwright` (1 pulado), 80 em
+`packages/playwright_core` e 93 em `packages/playwright_test`.
+
+Uma nota de ambiente que custou duas execucoes inteiras e vale para quem vier
+depois: com varias sessoes rodando neste repositorio ao mesmo tempo, a limpeza
+de TEMP de uma apaga o `dart_test.kernel.<hash>` da outra no meio da corrida,
+e a suite morre com `Failed to load`. Isso nao e falha de teste, e o
+`tool/test_clean.ps1` ja avisa disso no cabecalho. O jeito de nao depender de
+sorte e dar um `TEMP`/`TMP` proprio a execucao — foi assim que esta contagem
+saiu.

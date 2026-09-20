@@ -33,6 +33,15 @@ void main() {
     ];
   }
 
+  /// Os nomes dos arquivos dentro do zip.
+  List<String> arquivos(String zip) {
+    final archive = ZipDecoder().decodeBytes(File(zip).readAsBytesSync());
+    return [
+      for (final file in archive.files)
+        if (file.isFile) file.name,
+    ];
+  }
+
   playwrightGroup('test.step no trace', () {
     const opcoes = PlaywrightTestOptions(artifactsPath: null);
 
@@ -121,6 +130,72 @@ void main() {
           (e) => e['type'] == 'after' && e['callId'] == antes['callId']);
       expect(depois['error'], isNotNull,
           reason: 'a linha vermelha e a razao de alguem abrir um trace');
+    }, options: opcoes);
+
+    playwrightTest('um anexo vira attachments no after do passo', (t) async {
+      final zip = '${saida.path}${Platform.pathSeparator}anexo.zip';
+      await t.context.tracing.start(sources: false);
+
+      await step('tira uma foto', () async {
+        await t.page.goto(app.url('/widgets'));
+        await attach('foto',
+            body: await t.page.screenshot(), contentType: 'image/png');
+        await attach('nota',
+            body: utf8.encode('deu certo'), contentType: 'text/plain');
+      });
+
+      await t.context.tracing.stop(path: zip);
+
+      final linhas = eventos(zip);
+      final antes = linhas.firstWhere(
+          (e) => e['type'] == 'before' && e['title'] == 'tira uma foto');
+      final depois = linhas.firstWhere(
+          (e) => e['type'] == 'after' && e['callId'] == antes['callId']);
+      final anexos =
+          (depois['attachments'] as List).cast<Map<String, dynamic>>();
+      expect(anexos, hasLength(2));
+      expect(anexos.map((a) => a['name']), containsAll(['foto', 'nota']));
+
+      final nomes = arquivos(zip);
+      for (final anexo in anexos) {
+        // O visualizador resolve o anexo pelo nome do arquivo dentro do
+        // arquivo: sem ele a aba de anexos mostra um link que nao abre.
+        expect(anexo['file'], isNotNull);
+        expect(nomes, contains(anexo['file']));
+      }
+      expect(anexos.firstWhere((a) => a['name'] == 'foto')['contentType'],
+          'image/png');
+    }, options: opcoes);
+
+    playwrightTest('anexo por caminho entra no zip e guarda o caminho',
+        (t) async {
+      final zip = '${saida.path}${Platform.pathSeparator}anexo-arquivo.zip';
+      final origem = File('${saida.path}${Platform.pathSeparator}nota.txt')
+        ..writeAsStringSync('conteudo do arquivo');
+      await t.context.tracing.start(sources: false);
+
+      await step('anexa um arquivo', () async {
+        await t.page.goto(app.url('/widgets'));
+        await attach('nota', path: origem.path);
+      });
+
+      await t.context.tracing.stop(path: zip);
+
+      final linhas = eventos(zip);
+      final antes = linhas.firstWhere(
+          (e) => e['type'] == 'before' && e['title'] == 'anexa um arquivo');
+      final depois = linhas.firstWhere(
+          (e) => e['type'] == 'after' && e['callId'] == antes['callId']);
+      final anexo =
+          (depois['attachments'] as List).first as Map<String, dynamic>;
+      expect(anexo['path'], origem.path);
+      expect(anexo['contentType'], 'text/plain');
+
+      // O que o visualizador abre e a copia de dentro do arquivo, para que o
+      // trace continue completo depois de mudar de maquina.
+      final archive = ZipDecoder().decodeBytes(File(zip).readAsBytesSync());
+      final dentro = archive.files.firstWhere((f) => f.name == anexo['file']);
+      expect(utf8.decode(dentro.content as List<int>), 'conteudo do arquivo');
     }, options: opcoes);
 
     playwrightTest('fora de um trace o passo so roda o corpo', (t) async {

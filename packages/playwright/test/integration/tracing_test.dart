@@ -506,6 +506,245 @@ void main() {
         expect(after, before);
       });
 
+      // --------------------------------------------------------- grupos
+
+      test('group e groupEnd devem aninhar as ações na árvore', () async {
+        await context.tracing.start();
+        final page = await context.newPage();
+        await context.tracing.group('login');
+        await page.goto(server.url('/hello'));
+        await context.tracing.groupEnd();
+        await page.title();
+        final path = nextPath();
+        await context.tracing.stop(path: path);
+
+        final trace = _Trace.read(path);
+        // O par é o que o visualizador conhece: é por `class`/`method` que ele
+        // decide desenhar a linha como um grupo em vez de uma chamada.
+        final group = trace
+            .ofType('before')
+            .firstWhere((e) => e['method'] == 'tracingGroup');
+        expect(group['class'], 'Tracing');
+        expect(group['title'], 'login');
+        expect(group['params'], isEmpty);
+        expect(group['parentId'], isNull);
+
+        final closed = trace
+            .ofType('after')
+            .where((e) => e['callId'] == group['callId'])
+            .toList();
+        expect(closed, hasLength(1));
+        expect(closed.first['endTime'],
+            greaterThanOrEqualTo(group['startTime'] as num));
+
+        // O que rodou dentro do grupo pendura nele; o que rodou depois, não.
+        final goto =
+            trace.ofType('before').firstWhere((e) => e['method'] == 'goto');
+        expect(goto['parentId'], group['callId']);
+        final title =
+            trace.ofType('before').firstWhere((e) => e['method'] == 'title');
+        expect(title['parentId'], isNull);
+      });
+
+      test('grupos aninhados devem aninhar entre si', () async {
+        await context.tracing.start();
+        final page = await context.newPage();
+        await context.tracing.group('fora');
+        await context.tracing.group('dentro');
+        await page.goto(server.url('/hello'));
+        await context.tracing.groupEnd();
+        await context.tracing.groupEnd();
+        final path = nextPath();
+        await context.tracing.stop(path: path);
+
+        final trace = _Trace.read(path);
+        Map<String, dynamic> group(String title) =>
+            trace.ofType('before').firstWhere((e) => e['title'] == title);
+        final outer = group('fora');
+        final inner = group('dentro');
+        expect(outer['parentId'], isNull);
+        expect(inner['parentId'], outer['callId']);
+        final goto =
+            trace.ofType('before').firstWhere((e) => e['method'] == 'goto');
+        expect(goto['parentId'], inner['callId']);
+      });
+
+      test('um grupo deixado aberto deve ser fechado pelo stopChunk', () async {
+        await context.tracing.start();
+        final page = await context.newPage();
+        await context.tracing.group('nunca fechado');
+        await page.goto(server.url('/hello'));
+        final path = nextPath();
+        await context.tracing.stop(path: path);
+
+        // Um `before` sem `after` o visualizador desenha como uma ação que
+        // nunca terminou: um `groupEnd` perdido num caminho de erro não pode
+        // sujar o trace inteiro.
+        final trace = _Trace.read(path);
+        final group = trace
+            .ofType('before')
+            .firstWhere((e) => e['method'] == 'tracingGroup');
+        expect(
+            trace.ofType('after').where((e) => e['callId'] == group['callId']),
+            hasLength(1));
+      });
+
+      test('group com location deve apontar o arquivo pedido', () async {
+        await context.tracing.start();
+        final page = await context.newPage();
+        await context.tracing.group('com lugar',
+            location: const TracingGroupLocation(
+                file: 'lib/fluxo.dart', line: 42, column: 7));
+        await page.goto(server.url('/hello'));
+        await context.tracing.groupEnd();
+        final path = nextPath();
+        await context.tracing.stop(path: path);
+
+        final group = _Trace.read(path)
+            .ofType('before')
+            .firstWhere((e) => e['method'] == 'tracingGroup');
+        expect(group['stack'], hasLength(1));
+        expect(group['stack'][0]['file'], 'lib/fluxo.dart');
+        expect(group['stack'][0]['line'], 42);
+        expect(group['stack'][0]['column'], 7);
+      });
+
+      // ------------------------------------------------------------- har
+
+      test('recordHar deve escrever um .har com o log e as entradas', () async {
+        final harPath = '${outputDir.path}/session.har';
+        final harContext = await browser.newContext(
+            recordHar: RecordHarOptions(path: harPath));
+        final page = await harContext.newPage();
+        await page.goto(server.url('/resources'));
+        await harContext.close();
+
+        final log = (jsonDecode(File(harPath).readAsStringSync())
+            as Map<String, dynamic>)['log'] as Map<String, dynamic>;
+        expect(log['version'], '1.2');
+        expect(log['creator']['name'], 'Playwright');
+        expect(log['browser']['name'], 'chromium');
+        expect(log['browser']['version'], isNotEmpty);
+
+        final pages = log['pages'] as List;
+        expect(pages, hasLength(1));
+        final entries = (log['entries'] as List).cast<Map<String, dynamic>>();
+        expect(entries, isNotEmpty);
+        // O `pageref` tem de nomear uma página do array, senão o documento é
+        // inválido e um leitor de HAR o recusa.
+        for (final entry in entries) {
+          expect(entry['pageref'], pages.first['id']);
+          expect(entry['request']['url'], isNotEmpty);
+          expect(entry['timings'], isNotNull);
+        }
+
+        final document = entries.firstWhere(
+            (e) => (e['request']['url'] as String).endsWith('/resources'));
+        expect(document['response']['status'], 200);
+        // Um `.har` sozinho não tem onde pôr um arquivo irmão que viaje com
+        // ele, então o corpo vai dentro do documento.
+        expect(document['response']['content']['text'], contains('styled'));
+        expect(document['response']['content'].containsKey('_file'), isFalse);
+      });
+
+      test('recordHar com .zip deve escrever har.har e os corpos separados',
+          () async {
+        final harPath = '${outputDir.path}/session-har.zip';
+        final harContext = await browser.newContext(
+            recordHar: RecordHarOptions(path: harPath));
+        final page = await harContext.newPage();
+        await page.goto(server.url('/resources'));
+        await harContext.close();
+
+        final archive =
+            ZipDecoder().decodeBytes(File(harPath).readAsBytesSync());
+        final names = [
+          for (final file in archive.files)
+            if (file.isFile) file.name,
+        ];
+        expect(names, contains('har.har'));
+        final harFile = archive.files.firstWhere((f) => f.name == 'har.har');
+        final log = (jsonDecode(utf8.decode(harFile.content as List<int>))
+            as Map<String, dynamic>)['log'] as Map<String, dynamic>;
+        final entries = (log['entries'] as List).cast<Map<String, dynamic>>();
+        final document = entries.firstWhere(
+            (e) => (e['request']['url'] as String).endsWith('/resources'));
+        // Num `.zip` o corpo vira um arquivo irmão e a entrada o aponta por
+        // `_file` — e esse arquivo tem de estar no arquivo, senão o documento
+        // referencia o que não existe.
+        final file = document['response']['content']['_file'] as String;
+        expect(names, contains(file));
+        expect(document['response']['content'].containsKey('text'), isFalse);
+      });
+
+      test('recordHar minimal deve omitir cookies, tempos e páginas', () async {
+        final harPath = '${outputDir.path}/minimal.har';
+        final harContext = await browser.newContext(
+            recordHar: RecordHarOptions(path: harPath, mode: HarMode.minimal));
+        final page = await harContext.newPage();
+        await page.goto(server.url('/resources'));
+        await harContext.close();
+
+        final log = (jsonDecode(File(harPath).readAsStringSync())
+            as Map<String, dynamic>)['log'] as Map<String, dynamic>;
+        expect(log.containsKey('pages'), isFalse);
+        final entries = (log['entries'] as List).cast<Map<String, dynamic>>();
+        expect(entries, isNotEmpty);
+        for (final entry in entries) {
+          expect(entry.containsKey('pageref'), isFalse);
+          expect(entry['request']['cookies'], isEmpty);
+          expect(entry['response']['cookies'], isEmpty);
+          expect(entry.containsKey('serverIPAddress'), isFalse);
+          expect(entry['response'].containsKey('_transferSize'), isFalse);
+          // O que sobra é o que um HAR é reproduzido a partir de: método, URL,
+          // status e corpo.
+          expect(entry['request']['method'], isNotEmpty);
+          expect(entry['response']['status'], greaterThan(0));
+        }
+      });
+
+      test('recordHar com urlFilter deve gravar só o que casa', () async {
+        final harPath = '${outputDir.path}/filtrado.har';
+        final harContext = await browser.newContext(
+            recordHar: RecordHarOptions(
+                path: harPath, urlFilter: RegExp(r'style\.css$')));
+        final page = await harContext.newPage();
+        await page.goto(server.url('/resources'));
+        await harContext.close();
+
+        final log = (jsonDecode(File(harPath).readAsStringSync())
+            as Map<String, dynamic>)['log'] as Map<String, dynamic>;
+        final entries = (log['entries'] as List).cast<Map<String, dynamic>>();
+        expect(entries, hasLength(1));
+        expect(entries.first['request']['url'], endsWith('/style.css'));
+      });
+
+      test('startHar e stopHar devem escrever sem esperar o contexto fechar',
+          () async {
+        final harPath = '${outputDir.path}/trecho.har';
+        final page = await context.newPage();
+        // Antes do startHar: não pode entrar no documento.
+        await page.goto(server.url('/hello'));
+        await context.tracing.startHar(harPath);
+        await page.goto(server.url('/resources'));
+        await context.tracing.stopHar();
+
+        // O arquivo existe com o contexto ainda aberto, que é a razão de
+        // startHar existir ao lado de recordHar.
+        expect(File(harPath).existsSync(), isTrue);
+        final log = (jsonDecode(File(harPath).readAsStringSync())
+            as Map<String, dynamic>)['log'] as Map<String, dynamic>;
+        final urls = [
+          for (final entry in log['entries'] as List)
+            entry['request']['url'] as String,
+        ];
+        expect(urls.any((u) => u.endsWith('/resources')), isTrue);
+        expect(urls.any((u) => u.endsWith('/hello')), isFalse);
+
+        // Parar duas vezes é erro de quem chama, não silêncio.
+        expect(context.tracing.stopHar(), throwsA(isA<StateError>()));
+      });
+
       test('sem tracing ligado a instrumentação não deve custar nada',
           () async {
         // Nothing to assert beyond "it still works": this is the path every

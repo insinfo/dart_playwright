@@ -48,11 +48,36 @@ Future<void> main(List<String> args) async {
       "() => document.querySelectorAll('.action-title').length > 0",
       timeout: const Duration(seconds: 30));
 
-  final titles = await page.evaluate(
-      "() => [...document.querySelectorAll('.action-title')].map(e => e.innerText.replace(/\\s+/g, ' ').trim())");
+  // The action list is a tree, and the nesting is the whole point of
+  // `tracing.group`: a row's depth is how many `.tree-view-indent` spacers the
+  // viewer drew before it, and its children only exist in the DOM once the row
+  // is expanded. The viewer opens every group collapsed (`autoExpandDepth` is
+  // 0 without a filter), so a run that only read the rows would report the
+  // groups and none of their contents.
+  for (var round = 0; round < 10; round++) {
+    final expanded = await page.evaluate('''
+      () => {
+        const rows = [...document.querySelectorAll('.actions-tree-view [role=treeitem]')]
+            .filter(row => row.getAttribute('aria-expanded') === 'false');
+        rows.forEach(row => row.querySelector('.codicon-chevron-right')?.click());
+        return rows.length;
+      }''');
+    if (expanded == 0) break;
+    await page.waitForTimeout(const Duration(milliseconds: 200));
+  }
+  final tree = await page.evaluate('''
+    () => [...document.querySelectorAll('.actions-tree-view [role=treeitem]')].map(row => {
+      const entry = row.querySelector(':scope > .tree-view-entry');
+      const title = entry && entry.querySelector('.action-title');
+      return {
+        depth: entry ? entry.querySelectorAll('.tree-view-indent').length : 0,
+        title: title ? title.innerText.replace(/\\s+/g, ' ').trim() : '',
+      };
+    }).filter(r => r.title)''');
   stdout.writeln('ACTIONS:');
-  for (final t in titles as List) {
-    stdout.writeln('  - $t');
+  for (final row in tree as List) {
+    final depth = (row as Map)['depth'] as int;
+    stdout.writeln('  ${'  ' * depth}- ${row['title']}');
   }
 
   // Film strip: the lanes only exist when the trace carries screencast
@@ -72,6 +97,17 @@ Future<void> main(List<String> args) async {
     }''');
   stdout.writeln('FILMSTRIP: $filmStrip');
 
+  // Pick an action before reading the tabs. The Source tab follows the
+  // selection — with nothing selected it has no file to show, which reads
+  // exactly like "the trace carries no sources".
+  await page.evaluate('''
+    () => {
+      const entries = [...document.querySelectorAll('.actions-tree-view .tree-view-entry')]
+          .filter(e => e.querySelector('.action-title'));
+      entries[entries.length - 1]?.click();
+    }''');
+  await page.waitForTimeout(const Duration(milliseconds: 500));
+
   // Metadata pane: browser name, title, duration.
   final meta = await page
       .evaluate("() => document.body.innerText.includes('Trace probe')");
@@ -81,8 +117,23 @@ Future<void> main(List<String> args) async {
   await page.evaluate(
       "() => [...document.querySelectorAll('.tabbed-pane-tab-label')].find(e => e.textContent === 'Network')?.click()");
   await page.waitForTimeout(const Duration(milliseconds: 1500));
-  final network = await page.evaluate(
-      "() => [...document.querySelectorAll('.network-request-title-url')].map(e => e.textContent)");
+  // The rows are a `GridView`, and `grid-view-column-name` is the URL cell.
+  // An empty tab renders a `PlaceholderPanel` instead of the grid, so the two
+  // answers are told apart rather than both coming back as an empty list —
+  // this read used to look for `.network-request-title-url`, a class the
+  // shipped viewer no longer has, and reported no requests for a trace that
+  // had four.
+  final network = await page.evaluate('''
+    () => {
+      const cells = [...document.querySelectorAll('.network-grid-view .grid-view-column-name')];
+      if (cells.length)
+        return cells.map(e => e.textContent);
+      // No grid at all means the viewer drew its "No network calls"
+      // placeholder, which is a different answer from a grid with no rows.
+      return document.querySelector('.network-grid-view')
+          ? 'grid with no rows'
+          : 'no network grid (viewer says the trace has no requests)';
+    }''');
   stdout.writeln('NETWORK: $network');
 
   // Console tab.
@@ -97,9 +148,38 @@ Future<void> main(List<String> args) async {
   await page.evaluate(
       "() => [...document.querySelectorAll('.tabbed-pane-tab-label')].find(e => e.textContent === 'Source')?.click()");
   await page.waitForTimeout(const Duration(milliseconds: 800));
-  final source = await page.evaluate(
-      "() => document.querySelector('.source-tab')?.innerText?.replace(/\\s+/g, ' ').trim().slice(0, 200)");
+  // `[data-testid=source-code]` and not `.source-tab`: the shipped viewer has
+  // no such class, and this read reported no source for traces recorded with
+  // `sources: true` — the same silent nothing the Network read used to give.
+  final source = await page.evaluate('''
+    () => {
+      const pane = document.querySelector('[data-testid=source-code]');
+      if (!pane) return 'no source pane';
+      const name = pane.querySelector('.source-tab-file-name')?.textContent ?? '(no file name)';
+      const code = pane.querySelector('[data-testid=source-code-mirror]')?.innerText
+          ?.replace(/\\s+/g, ' ').trim().slice(0, 160) ?? '';
+      return name + ' | ' + code;
+    }''');
   stdout.writeln('SOURCE: $source');
+
+  // Attachments tab. It only exists when some action carried attachments, so
+  // an absent tab and an empty one are different answers.
+  final attachmentsTab = await page.evaluate('''
+    () => {
+      const tab = [...document.querySelectorAll('.tabbed-pane-tab-label')]
+          .find(e => e.textContent === 'Attachments');
+      if (!tab) return 'no Attachments tab';
+      tab.click();
+      return null;
+    }''');
+  if (attachmentsTab == null) {
+    await page.waitForTimeout(const Duration(milliseconds: 800));
+    final items = await page.evaluate(
+        "() => [...document.querySelectorAll('.attachments-tab .attachment-item')].map(e => e.innerText.replace(/\\s+/g, ' ').trim().slice(0, 80))");
+    stdout.writeln('ATTACHMENTS: $items');
+  } else {
+    stdout.writeln('ATTACHMENTS: $attachmentsTab');
+  }
 
   if (shot != null) {
     await page.screenshot(path: shot, fullPage: false);

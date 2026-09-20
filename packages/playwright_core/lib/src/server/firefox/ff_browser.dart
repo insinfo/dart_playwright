@@ -173,7 +173,8 @@ class FfBrowser extends EventEmitter implements CoreBrowser {
           'Browser.setBrowserProxy', jugglerProxyOptions(proxy.normalized()));
     }
     if (persistentContext) {
-      final context = FfBrowserContext(this, null, contextOptions);
+      final context = FfBrowserContext(this, null, contextOptions)
+        ..startHarRecordingIfNeeded();
       _contexts.add(context);
       await applyContextOptions(null, contextOptions);
       await applyDownloadOptions(context);
@@ -200,7 +201,8 @@ class FfBrowser extends EventEmitter implements CoreBrowser {
     });
     final browserContextId = result['browserContextId'] as String;
     await applyContextOptions(browserContextId, options);
-    final context = FfBrowserContext(this, browserContextId, options);
+    final context = FfBrowserContext(this, browserContextId, options)
+      ..startHarRecordingIfNeeded();
     _contexts.add(context);
     await applyDownloadOptions(context);
     return context;
@@ -506,6 +508,9 @@ class FfBrowserContext extends EventEmitter
     // the pages are still there, which is the order upstream's
     // `BrowserContext.close` uses too.
     await finishVideos();
+    // The HAR wants the same window the videos do: the pages are
+    // still alive, so a response body can still be read.
+    await finishHar();
     if (isDefault) {
       // The default context belongs to the profile, not to us: there is no
       // context to remove, and closing it means closing the browser — which

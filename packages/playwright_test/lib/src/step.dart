@@ -1,6 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 
+import 'package:path/path.dart' as p;
 import 'package:playwright/playwright.dart';
+import 'package:playwright_core/src/server/trace/instrumentation.dart'
+    show CoreCallAttachment;
 // Import de implementacao de proposito: `instrumented` e o unico caminho que
 // existe para reportar uma chamada ao gravador de trace, e um passo de teste e
 // exatamente isso — uma chamada com nome proprio. A alternativa seria montar o
@@ -67,4 +71,90 @@ Future<T> step<T>(
     title: title,
     body: () async => await body(),
   );
+}
+
+/// Attaches a file to the step that is running, so it shows up in the trace
+/// next to that step.
+///
+/// ```dart
+/// await step('checkout', () async {
+///   await page.click('#pay');
+///   await attach('receipt', body: await page.screenshot(),
+///       contentType: 'image/png');
+/// });
+/// ```
+///
+/// This is where upstream's `testInfo.attach` lands in the trace: the same
+/// `attachments` array on the step's `after` event, which the viewer draws as
+/// its Attachments tab. What differs is only the source — upstream has a test
+/// runner holding a `TestInfo`, and this port's test layer is `package:test`,
+/// which has no such object. So the attachment hangs off the innermost
+/// running call, found through the zone the instrumentation already keeps.
+///
+/// Give it [body] or [path]. A [path] is read here, in the caller's own
+/// async frame, because the recorder runs in event handlers and cannot wait
+/// for a disk read; the path travels into the trace as well, but what the
+/// viewer opens is the copy inside the archive, so the attachment survives
+/// the trace being carried to another machine.
+///
+/// [contentType] decides whether the viewer renders the body inline. Without
+/// one it is guessed from the file extension, falling back to
+/// `application/octet-stream`.
+///
+/// Outside a [step] — or with nothing recording — this does nothing, which is
+/// what lets an attach stay in the code when tracing is off.
+Future<void> attach(
+  String name, {
+  String? contentType,
+  List<int>? body,
+  String? path,
+}) async {
+  if (body == null && path == null) {
+    throw ArgumentError('attach needs either a body or a path');
+  }
+  final metadata = currentCallMetadata;
+  // Nothing is recording, or this is not inside a step: reading the file
+  // would be work whose result nobody can see.
+  if (metadata == null) return;
+  final bytes = body ?? await File(path!).readAsBytes();
+  metadata.attachments.add(CoreCallAttachment(
+    name: name,
+    contentType: contentType ?? _contentTypeFor(path),
+    body: bytes,
+    path: path,
+  ));
+}
+
+/// The content type a file name suggests. Deliberately short: the viewer only
+/// treats a handful specially and shows a download link for everything else.
+String _contentTypeFor(String? path) {
+  if (path == null) return 'application/octet-stream';
+  switch (p.extension(path).toLowerCase()) {
+    case '.png':
+      return 'image/png';
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg';
+    case '.gif':
+      return 'image/gif';
+    case '.webp':
+      return 'image/webp';
+    case '.svg':
+      return 'image/svg+xml';
+    case '.json':
+      return 'application/json';
+    case '.txt':
+    case '.log':
+      return 'text/plain';
+    case '.html':
+      return 'text/html';
+    case '.csv':
+      return 'text/csv';
+    case '.zip':
+      return 'application/zip';
+    case '.webm':
+      return 'video/webm';
+    default:
+      return 'application/octet-stream';
+  }
 }

@@ -3,11 +3,15 @@ import 'package:playwright_protocol/playwright_protocol.dart';
 import 'core_clock.dart';
 import 'core_page.dart';
 import 'launch_options.dart';
+import 'trace/har_recorder.dart';
 import 'trace/instrumentation.dart';
 import 'trace/tracing.dart';
 import 'video/core_video.dart';
 import 'video/record_video_options.dart';
 
+export 'trace/har_recorder.dart'
+    show CoreHarRecorder, CoreRecordHarOptions, HarRecordMode;
+export 'trace/har_tracer.dart' show HarContentPolicy;
 export 'video/core_video.dart' show CoreVideo;
 export 'video/record_video_options.dart' show CoreRecordVideoOptions;
 
@@ -88,6 +92,10 @@ class CoreContextOptions {
   /// Records a video of every page of this context. Null records nothing.
   final CoreRecordVideoOptions? recordVideo;
 
+  /// Records every request of this context into a standalone HAR document,
+  /// written when the context closes. Null records nothing.
+  final CoreRecordHarOptions? recordHar;
+
   const CoreContextOptions({
     this.viewport,
     this.userAgent,
@@ -108,6 +116,7 @@ class CoreContextOptions {
     this.permissions,
     this.proxy,
     this.recordVideo,
+    this.recordHar,
   });
 
   /// Whether anything here needs emulation applied at all.
@@ -243,6 +252,19 @@ abstract class CoreBrowserContext extends EventEmitter {
   /// opens.
   CoreTracing get tracing;
 
+  /// The standalone HAR recorder of this context, while one is recording.
+  ///
+  /// Settable so `tracing.stopHar` can hand the recording back before
+  /// flushing it: the context's own `close` must not flush a document the
+  /// caller has already written.
+  CoreHarRecorder? harRecorder;
+
+  /// Starts recording a HAR into `options.path`.
+  void startHarRecording(CoreRecordHarOptions options);
+
+  /// Writes the HAR document, if one is being recorded.
+  Future<void> finishHar();
+
   /// Pages opened in this context.
   List<CorePage> get pages;
 
@@ -309,6 +331,38 @@ mixin BrowserContextStorage on EventEmitter {
   /// The trace recorder for this context, created on first use so a context
   /// that never traces pays nothing.
   late final CoreTracing tracing = CoreTracing(this as CoreBrowserContext);
+
+  /// The standalone HAR recorder, when `recordHar` asked for one.
+  CoreHarRecorder? harRecorder;
+
+  /// Starts the HAR recording this context was configured with.
+  ///
+  /// Eager and not lazy, unlike [tracing]: the recorder has to be listening
+  /// before the context's first request, and by the time anybody asks for it
+  /// the first navigation has already happened. Called by each engine right
+  /// after it builds the context object.
+  void startHarRecordingIfNeeded() {
+    final options = (this as CoreBrowserContext).options.recordHar;
+    if (options == null || harRecorder != null) return;
+    startHarRecording(options);
+  }
+
+  /// Starts recording a HAR into `options.path`.
+  void startHarRecording(CoreRecordHarOptions options) {
+    harRecorder?.dispose();
+    harRecorder = CoreHarRecorder.start(this as CoreBrowserContext, options);
+  }
+
+  /// Writes the HAR document, if one was being recorded.
+  ///
+  /// Called from `close` while the pages are still there, for the same reason
+  /// [finishVideos] is: a response body still in flight is read over the
+  /// protocol, and a closed context cannot answer.
+  Future<void> finishHar() async {
+    final recorder = harRecorder;
+    if (recorder == null) return;
+    await recorder.flush();
+  }
 
   /// Pages opened by this context, used to snapshot localStorage per origin.
   final List<CorePage> trackedPages = [];
@@ -404,6 +458,10 @@ mixin BrowserContextStorage on EventEmitter {
     // Before the streams go: the recorder has to drop its listeners and its
     // temporary directory, and it cannot talk to a closed context.
     tracing.dispose();
+    // A context that went away without being closed — a crashed browser, a
+    // killed process — still wrote whatever it had. `flush` is idempotent, so
+    // the ordinary `close` path that already flushed costs nothing here.
+    unawaited(finishHar());
     // The browser can also die without anyone closing the context — a crash,
     // a killed process. There is nothing left to await on, but the videos
     // still have to stop resolving into futures nobody will ever complete.

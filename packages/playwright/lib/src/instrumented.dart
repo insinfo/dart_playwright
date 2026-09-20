@@ -14,6 +14,18 @@ import 'package:playwright_core/src/server/trace/trace_utils.dart';
 /// once, which a plain field would not.
 const _callIdKey = #playwrightTraceCallId;
 
+/// Zone key holding the metadata of the call currently running.
+///
+/// [currentCallMetadata] is the only way in for something that wants to add
+/// to a call it did not start — an attachment, today. The id alone would not
+/// do: the recorder holds no table of calls by id, on purpose, because a
+/// table of every call that ever ran is a leak with a nicer name.
+const _metadataKey = #playwrightTraceCallMetadata;
+
+/// The public API call running in this zone, or null outside one.
+CoreCallMetadata? get currentCallMetadata =>
+    Zone.current[_metadataKey] as CoreCallMetadata?;
+
 /// Reports one public API call to the context's instrumentation and runs it.
 ///
 /// This is where the trace gets its actions. Upstream mints a `CallMetadata`
@@ -108,7 +120,7 @@ Future<T> _report<T>(
       await instrumentation.onAfterCall(metadata);
       rethrow;
     }
-  }, zoneValues: {_callIdKey: metadata.id});
+  }, zoneValues: {_callIdKey: metadata.id, _metadataKey: metadata});
 }
 
 /// `Exception: boom` reads badly in the viewer's error row; `boom` is what the

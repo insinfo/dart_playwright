@@ -81,10 +81,22 @@ Future<void> main(List<String> args) async {
       sources: true);
 
   final page = await context.newPage();
+
+  // `group`/`groupEnd` is what turns a flat list of actions into a tree in the
+  // viewer, so the probe opens two of them, one inside the other: a flat run
+  // would prove the trace opens and say nothing about the nesting.
+  await context.tracing.group('open the page');
   await page.goto('$base/');
+  await context.tracing.groupEnd();
+
+  await context.tracing.group('load the items');
+  await context.tracing.group('click and wait');
   await page.locator('#load').click();
   await page.locator('li').first.waitFor();
+  await context.tracing.groupEnd();
   final text = await page.locator('#items').innerText();
+  await context.tracing.groupEnd();
+
   await page.title();
   // A tira de filme segue o relogio, nao as acoes: sem tempo com a pagina
   // aberta o trace sai com um quadro so e nao ha o que olhar no visualizador.
