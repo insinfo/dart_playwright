@@ -37,7 +37,7 @@ class WebSocketFrame {
 
 /// A WebSocket the page opened.
 ///
-/// Obtained from [Page.onWebSocket] or [Page.waitForWebSocket]. The socket is
+/// Obtained from `page.onWebSocket` or `page.waitForWebSocket`. The socket is
 /// observed, never driven: to take one over, route it with
 /// `page.routeWebSocket`.
 abstract class WebSocket {
@@ -53,11 +53,13 @@ abstract class WebSocket {
   /// Frames the page received.
   Stream<WebSocketFrame> get onFrameReceived;
 
-  /// Socket errors, as the engine words them.
+  /// Socket errors, as the engine words them, so the text differs by engine.
   ///
-  /// Chromium and WebKit report a frame-level error; Firefox reports the
-  /// error carried by `Page.webSocketClosed`. All three report a refused
-  /// handshake as `"<statusText>: <status>"`.
+  /// Chromium and WebKit have a frame-level error event; the Juggler does
+  /// not, and reports only the `error` field of `Page.webSocketClosed`. On
+  /// top of that, a handshake answered with 400 or worse is turned into
+  /// `"<statusText>: <status>"` — which Chromium never reaches, because it
+  /// does not report the refused handshake response at all.
   Stream<String> get onSocketError;
 
   /// Fires once, when the socket closes.
