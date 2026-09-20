@@ -26,6 +26,21 @@
   it breaks that one with `Failed to load ... dart_test.kernel.<hash>`. That
   happened, which is why the rule is age and only age.
 
+  It also reaps processes the tests left behind. That matters more than the
+  disk: a stranded browser or viewer server holds its profile directory open --
+  so the sweep below cannot remove it -- and sits on a port and a few hundred
+  megabytes until the machine is rebooted. Three `playwright show-trace`
+  servers once held ports 9299, 9301 and 61772 for over three hours.
+
+  Processes are matched on their COMMAND LINE, never on their name. That is the
+  lesson from the leak above: `show-trace` runs under `node.exe`, so a sweep
+  looking for `dart`, `chrome` or `playwright_` walked past it. Matching on the
+  name alone is also dangerous the other way round, since a bare `chrome.exe`
+  is far more likely to be someone's browser than a test. Every pattern names
+  this repository's path, a test profile under TEMP, or an npx invocation of
+  upstream's viewer; and a deny list keeps the personal browser, other agents'
+  runtimes and the user's MCP servers out of reach. `-NoReap` turns it off.
+
   The exit code is the test runner's, so this is a drop-in replacement for
   `dart test` in scripts and in CI.
 
@@ -35,7 +50,10 @@
 .PARAMETER StaleMinutes
   Only remove leftovers untouched for this many minutes. Default 30. A live
   run keeps writing to its own directories, so this is what keeps a concurrent
-  run safe. Setting it to 0 disables cleaning entirely.
+  run safe. Setting it to 0 disables cleaning entirely, processes included.
+
+.PARAMETER NoReap
+  Leave stranded processes alone and only clean directories.
 
 .PARAMETER CleanOnly
   Clean and exit without running tests.
@@ -50,7 +68,8 @@
 param(
   [string[]] $TestArgs = @(),
   [int] $StaleMinutes = 30,
-  [switch] $CleanOnly
+  [switch] $CleanOnly,
+  [switch] $NoReap
 )
 
 $ErrorActionPreference = 'Stop'
@@ -65,6 +84,71 @@ $patterns = @(
 )
 
 $temp = [System.IO.Path]::GetTempPath()
+$repo = Split-Path -Parent $PSScriptRoot
+
+# A leftover *process* is worse than a leftover directory: it holds the
+# directory open so the cleanup below cannot remove it, and it keeps a port and
+# a few hundred megabytes for as long as the machine is up. Three
+# `playwright show-trace` servers once sat on ports 9299, 9301 and 61772 for
+# over three hours this way.
+#
+# Matching is on the COMMAND LINE, never on the process name alone. That is the
+# whole lesson of the show-trace leak: it runs under `node.exe`, so a sweep
+# looking for `dart`, `chrome` or `playwright_` walked straight past it. And
+# matching on name alone would be dangerous in the other direction -- a bare
+# `chrome.exe` is far more likely to be somebody's browser than a test.
+#
+# Each pattern therefore has to name something no ordinary process would carry:
+# this repository's path, a test profile under TEMP, or an npx invocation of
+# upstream's viewer.
+$processPatterns = @(
+  # `dart test` and anything it spawned out of this checkout.
+  [regex]::Escape($repo) + '.*(dart|test|show_trace|open_trace|open_report)',
+  # Browser profiles this port mints, wherever TEMP happens to be.
+  'playwright_\w+_profile-',
+  'dart_test_[0-9a-f]{6,}',
+  # Upstream's viewer, served by npx. Runs under node.exe -- the one that got
+  # away last time.
+  'playwright@[\d.]+ show-trace',
+  'playwright-core[\\/].*show-trace'
+)
+
+# Never touched, whatever the patterns say. The personal browser, other
+# agents' runtimes and the user's MCP servers are not ours to reap, and a
+# cleanup script that kills someone's open tabs gets switched off forever.
+$processNeverKill = @(
+  'brave', 'msedge', 'msedgewebview2', 'Code', 'devenv', 'Antigravity',
+  'OpenAI\\Codex', 'chrome-devtools-mcp', 'language_server'
+)
+
+function Get-StaleProcesses([int] $minutes) {
+  $cutoff = (Get-Date).AddMinutes(-$minutes)
+  $all = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue
+  $mine = foreach ($p in $all) {
+    $cmd = $p.CommandLine
+    if (-not $cmd) { continue }
+    if ($p.ProcessId -eq $PID) { continue }
+    $skip = $false
+    foreach ($deny in $processNeverKill) { if ($cmd -match $deny) { $skip = $true; break } }
+    if ($skip) { continue }
+    $hit = $false
+    foreach ($pat in $processPatterns) { if ($cmd -match $pat) { $hit = $true; break } }
+    if (-not $hit) { continue }
+    if ($p.CreationDate -and $p.CreationDate -ge $cutoff) { continue }
+    $p
+  }
+  # Whole trees: a browser's renderers are children, and killing the parent
+  # alone orphans them onto init.
+  $targets = [System.Collections.Generic.HashSet[int]]::new()
+  function Add-Tree([int] $processId, $all, $targets) {
+    if (-not $targets.Add($processId)) { return }
+    foreach ($c in ($all | Where-Object ParentProcessId -eq $processId)) {
+      Add-Tree ([int]$c.ProcessId) $all $targets
+    }
+  }
+  foreach ($p in $mine) { Add-Tree ([int]$p.ProcessId) $all $targets }
+  return $targets
+}
 
 function Get-Leftovers {
   $found = @()
@@ -107,6 +191,25 @@ $live = @(Get-CimInstance Win32_Process -Filter "Name='dart.exe'" -ErrorAction S
 if ($live.Count -gt 0) {
   Write-Host "TEMP: $($live.Count) test run(s) still active, skipping cleanup." -ForegroundColor DarkYellow
   $StaleMinutes = 0
+}
+
+# Processes first: one of them is probably holding a directory the sweep below
+# wants, and killing it is what lets that directory go.
+if (-not $NoReap -and $StaleMinutes -gt 0) {
+  $stale = Get-StaleProcesses $StaleMinutes
+  if ($stale.Count -eq 0) {
+    Write-Host "Processes: none left behind." -ForegroundColor DarkGray
+  } else {
+    # Children first, so a parent does not respawn one on the way down.
+    foreach ($processId in ($stale | Sort-Object -Descending)) {
+      try { Stop-Process -Id $processId -Force -ErrorAction Stop } catch { }
+    }
+    Start-Sleep -Milliseconds 500
+    $left = @($stale | Where-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue })
+    $msg = "Processes: reaped $($stale.Count - $left.Count) of $($stale.Count) left behind"
+    if ($left.Count -gt 0) { $msg += "; $($left.Count) would not die" }
+    Write-Host $msg -ForegroundColor Green
+  }
 }
 
 $toRemove = @()
