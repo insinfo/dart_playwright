@@ -9,7 +9,19 @@ import '../../transport/transport.dart';
 /// - pageProxy-level messages carry a top-level `pageProxyId` on the wire.
 /// - page (target) level messages are wrapped in `Target.sendMessageToTarget`
 ///   and responses/events come back via `Target.dispatchMessageFromTarget`.
-class WkPageProxySession extends EventEmitter {
+/// What an execution context needs from a WebKit session: a way to send a
+/// target-scoped command.
+///
+/// Two things answer it — [WkPageProxySession], which wraps the command in
+/// `Target.sendMessageToTarget`, and [WkWorkerSession], which wraps it in
+/// `Worker.sendMessageToWorker`. Upstream has a single `WKSession` taking the
+/// raw send as a callback; the split here keeps both dispatch paths typed.
+abstract class WkTargetSession extends EventEmitter {
+  Future<Map<String, dynamic>> sendToTarget(String method,
+      [Map<String, dynamic>? params]);
+}
+
+class WkPageProxySession extends WkTargetSession {
   final WkConnection connection;
   final String pageProxyId;
 
@@ -39,6 +51,7 @@ class WkPageProxySession extends EventEmitter {
   }
 
   /// Send a page-level command, wrapped in `Target.sendMessageToTarget`.
+  @override
   Future<Map<String, dynamic>> sendToTarget(String method,
       [Map<String, dynamic>? params]) {
     if (_isClosed) throw PlaywrightException('Session closed');
@@ -121,6 +134,79 @@ class WkPageProxySession extends EventEmitter {
     if (_isClosed) return;
     _isClosed = true;
     emit('closed');
+  }
+}
+
+/// A session with a WebKit worker.
+///
+/// The worker has no target of its own: commands go out as a JSON string in
+/// `Worker.sendMessageToWorker` on the page session, and replies and events
+/// come back in `Worker.dispatchMessageFromWorker`. Ids are minted inside the
+/// tunnel, so they cannot collide with the connection's.
+class WkWorkerSession extends WkTargetSession {
+  final WkPageProxySession pageSession;
+  final String workerId;
+
+  final _callbacks = <int, Completer<Map<String, dynamic>>>{};
+  int _lastId = 0;
+  bool _isClosed = false;
+
+  WkWorkerSession(this.pageSession, this.workerId);
+
+  @override
+  Future<Map<String, dynamic>> sendToTarget(String method,
+      [Map<String, dynamic>? params]) {
+    if (_isClosed) throw PlaywrightException('Worker session closed');
+    final id = ++_lastId;
+    final completer = Completer<Map<String, dynamic>>();
+    _callbacks[id] = completer;
+    pageSession.sendToTarget('Worker.sendMessageToWorker', {
+      'workerId': workerId,
+      'message': jsonEncode({
+        'id': id,
+        'method': method,
+        if (params != null) 'params': params,
+      }),
+    }).catchError((Object error) {
+      final pending = _callbacks.remove(id);
+      if (pending != null && !pending.isCompleted) {
+        pending.completeError(error);
+      }
+      return <String, dynamic>{};
+    });
+    return completer.future;
+  }
+
+  /// Feeds one message that arrived in `Worker.dispatchMessageFromWorker`.
+  void dispatchMessage(Map<String, dynamic> message) {
+    final id = message['id'] as int?;
+    if (id != null) {
+      final completer = _callbacks.remove(id);
+      if (completer == null || completer.isCompleted) return;
+      final error = message['error'];
+      if (error is Map) {
+        completer.completeError(
+            PlaywrightException(error['message'] as String? ?? 'Worker error'));
+      } else {
+        completer.complete((message['result'] as Map<String, dynamic>?) ?? {});
+      }
+      return;
+    }
+    final method = message['method'] as String?;
+    if (method != null) emit(method, message['params']);
+  }
+
+  void dispose() {
+    if (_isClosed) return;
+    _isClosed = true;
+    for (final completer in _callbacks.values) {
+      if (completer.isCompleted) continue;
+      completer.future.ignore();
+      completer.completeError(PlaywrightException('Worker session closed'));
+    }
+    _callbacks.clear();
+    emit('closed');
+    disposeStreams();
   }
 }
 

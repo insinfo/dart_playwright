@@ -41,7 +41,7 @@ What is **missing**, and will stay missing until later milestones:
 | Tracing and video recording | 3 |
 | Screenshot `mask`, `caret`, `animations`, `omitBackground`, `style` | 3 |
 | Multipart uploads and `storageState` on `APIRequestContext` | 3 |
-| `WebSocket`, `WebSocketRoute`, `Worker` | 3 |
+| Worker console messages, and service workers (`context.serviceWorkers`) | 3 |
 | Context options: proxy, `forcedColors` on Chromium's older builds, `screen`, `videosPath` | 4 |
 | `Clock`, `Coverage`, `Selectors.register` | 4 |
 | `addInitScript`, `exposeFunction`, `exposeBinding` | 4 |

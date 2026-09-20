@@ -11,7 +11,9 @@ import 'wk_connection.dart';
 /// through `Target.sendMessageToTarget`, so everything here goes through
 /// [WkPageProxySession.sendToTarget].
 class WkExecutionContext implements CoreExecutionContext {
-  final WkPageProxySession session;
+  /// Either the page proxy session or a worker tunnel; both answer
+  /// `Runtime.*` through [WkTargetSession.sendToTarget].
+  final WkTargetSession session;
   final int? executionContextId;
 
   WkExecutionContext(this.session, this.executionContextId);

@@ -142,7 +142,18 @@ class EventEmitter {
   /// the emitter believe somebody is listening. Upstream relies on that
   /// distinction (an unobserved dialog is dismissed instead of blocking the
   /// page), so it has to hold here too.
-  Stream<T> stream<T>(String event) {
+  /// With [sync], the controller delivers to its subscribers *during* [emit]
+  /// instead of on a later microtask.
+  ///
+  /// This matters for an event whose payload is itself an emitter that starts
+  /// emitting in the same synchronous burst — `websocket` and `worker` are
+  /// the two. Node's EventEmitter is synchronous, so upstream's
+  /// `page.on('websocket', ws => ws.on('socketerror', ...))` cannot miss
+  /// anything; an asynchronous delivery here would hand the socket over after
+  /// its first events had already gone by. The controller is cached per event
+  /// name, so the first caller decides, and callers of the same event name
+  /// have to agree.
+  Stream<T> stream<T>(String event, {bool sync = false}) {
     final controller = _streamControllers.putIfAbsent(event, () {
       late final StreamController<dynamic> created;
       void forward([dynamic arg]) {
@@ -152,6 +163,7 @@ class EventEmitter {
       created = StreamController<dynamic>.broadcast(
         onListen: () => on(event, forward),
         onCancel: () => off(event, forward),
+        sync: sync,
       );
       return created;
     });

@@ -177,7 +177,7 @@ What is missing:
 | Video recording, and the screencast filmstrip of the trace viewer | 3 |
 | Screenshot `mask`, `caret`, `animations`, `omitBackground`, `style` | 3 |
 | Multipart uploads and `storageState` on `APIRequestContext` | 3 |
-| `WebSocket`, `WebSocketRoute`, `Worker` | 3 |
+| Worker console messages, and service workers (`context.serviceWorkers`) | 3 |
 | Context options: proxy, `forcedColors` on Chromium's older builds, `screen`, `videosPath` | 4 |
 | `Selectors.register` | 4 |
 | `BrowserType.connect`, `connectOverCDP`, `launchPersistentContext`, `launchServer` | 4 |

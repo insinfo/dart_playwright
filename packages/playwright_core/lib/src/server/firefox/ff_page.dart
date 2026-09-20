@@ -16,6 +16,8 @@ import '../core_js_handle.dart';
 class FfPage extends EventEmitter
     with
         CorePageOwnership,
+        CorePageWebSockets,
+        CorePageWorkers,
         CorePageRoutes,
         CorePageFileChooser,
         CorePageScreenshot,
@@ -46,6 +48,8 @@ class FfPage extends EventEmitter
     touchscreen = Touchscreen(FfRawTouchscreen(session));
     networkManager = FfNetworkManager(session);
     forwardNetworkEvents(networkManager, this);
+    _wireWebSocketEvents();
+    _wireWorkerEvents();
     session.on('Page.dialogOpened', _onDialogOpened);
     session.on('Page.fileChooserOpened', _onFileChooserOpened);
     session.on('Runtime.console', _onConsole);
@@ -64,6 +68,8 @@ class FfPage extends EventEmitter
     // Firefox Juggler reports document navigations as
     // Page.navigationCommitted (not Page.navigated).
     session.on('Page.navigationCommitted', (params) {
+      // See the same call in cr_page: only the top document may clear it.
+      if (params['parentFrameId'] == null) clearWebSockets();
       frameManager.frameNavigated(
         params['frameId'] as String,
         params['url'] as String,
@@ -99,6 +105,176 @@ class FfPage extends EventEmitter
       forgetExecutionContext(id);
     });
     session.on('closed', () => _onClosed());
+  }
+
+  // ------------------------------------------------------------ websockets
+
+  /// The handshake pieces, keyed by the *network* request id, until
+  /// `Page.webSocketOpened` names the socket they belong to. Juggler is the
+  /// only protocol that splits the handshake across two domains.
+  final _webSocketRequests =
+      <String, ({String url, List<({String name, String value})> headers})>{};
+  final _webSocketResponses = <String,
+      ({
+    int status,
+    String statusText,
+    List<({String name, String value})> headers
+  })>{};
+
+  /// Juggler identifies a socket by frame plus per-frame id, never by the
+  /// network request id. Port of `ffPage.ts#webSocketId`.
+  static String _webSocketId(String frameId, String wsid) => '$frameId---$wsid';
+
+  /// Juggler timestamps frames in seconds since the epoch; upstream scales
+  /// them to milliseconds (`ffPage.ts:184`). A frame without one gets `-1`.
+  static double _wsWallTime(dynamic timestamp) {
+    final value = (timestamp as num?)?.toDouble();
+    return value == null ? -1 : value * 1000;
+  }
+
+  void _wireWebSocketEvents() {
+    networkManager.on('webSocketRequestWillBeSent', (dynamic event) {
+      final e = event as ({
+        String requestId,
+        String url,
+        List<({String name, String value})> headers
+      });
+      _webSocketRequests[e.requestId] = (url: e.url, headers: e.headers);
+    });
+    networkManager.on('webSocketResponseReceived', (dynamic event) {
+      final e = event as ({
+        String requestId,
+        int status,
+        String statusText,
+        List<({String name, String value})> headers
+      });
+      _webSocketResponses[e.requestId] =
+          (status: e.status, statusText: e.statusText, headers: e.headers);
+    });
+    networkManager.on('webSocketRequestFinished', (dynamic event) {
+      _onWebSocketRequestFinished((event as ({String requestId})).requestId);
+    });
+
+    session.on('Page.webSocketCreated', (Map<String, dynamic> params) {
+      onWebSocketCreated(
+          _webSocketId(params['frameId'] as String? ?? '',
+              params['wsid'] as String? ?? ''),
+          params['requestURL'] as String? ?? '');
+    });
+    session.on('Page.webSocketOpened', (Map<String, dynamic> params) {
+      final requestId = params['requestId'] as String? ?? '';
+      final request = _webSocketRequests.remove(requestId);
+      final response = _webSocketResponses.remove(requestId);
+      if (request == null || response == null) return;
+      final id = _webSocketId(
+          params['frameId'] as String? ?? '', params['wsid'] as String? ?? '');
+      // Juggler reports no wall time for the handshake, so the socket keeps
+      // a null one rather than a made-up zero.
+      onWebSocketRequest(id, headers: request.headers);
+      onWebSocketResponse(id,
+          status: response.status,
+          statusText: response.statusText,
+          headers: response.headers);
+    });
+    session.on('Page.webSocketClosed', (Map<String, dynamic> params) {
+      final id = _webSocketId(
+          params['frameId'] as String? ?? '', params['wsid'] as String? ?? '');
+      final error = params['error'] as String?;
+      if (error != null && error.isNotEmpty) webSocketError(id, error);
+      webSocketClosed(id);
+    });
+    session.on('Page.webSocketFrameReceived', (Map<String, dynamic> params) {
+      webSocketFrameReceived(
+          _webSocketId(params['frameId'] as String? ?? '',
+              params['wsid'] as String? ?? ''),
+          (params['opcode'] as num?)?.toInt() ?? 0,
+          params['data'] as String? ?? '',
+          _wsWallTime(params['timestamp']));
+    });
+    session.on('Page.webSocketFrameSent', (Map<String, dynamic> params) {
+      onWebSocketFrameSent(
+          _webSocketId(params['frameId'] as String? ?? '',
+              params['wsid'] as String? ?? ''),
+          (params['opcode'] as num?)?.toInt() ?? 0,
+          params['data'] as String? ?? '',
+          _wsWallTime(params['timestamp']));
+    });
+  }
+
+  /// A handshake that was refused never produces `Page.webSocketOpened`, so
+  /// Juggler would leave the socket invisible. Upstream synthesises the whole
+  /// life of the socket from the network events instead
+  /// (`ffPage.ts#_onWebSocketRequestFinished`), keyed by the request id, and
+  /// rewrites the scheme, because the network layer reports `http(s)`.
+  void _onWebSocketRequestFinished(String requestId) {
+    final response = _webSocketResponses[requestId];
+    if (response == null || response.status < 400) return;
+    final request = _webSocketRequests.remove(requestId);
+    _webSocketResponses.remove(requestId);
+    if (request == null) return;
+
+    final parsed = Uri.tryParse(request.url);
+    if (parsed == null) return;
+    final url = parsed
+        .replace(scheme: parsed.scheme == 'https' ? 'wss' : 'ws')
+        .toString();
+
+    onWebSocketCreated(requestId, url);
+    onWebSocketRequest(requestId, headers: request.headers);
+    onWebSocketResponse(requestId,
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers);
+    webSocketClosed(requestId);
+  }
+
+  // --------------------------------------------------------------- workers
+
+  final _workerSessions =
+      <String, ({FfWorkerSession session, String frameId})>{};
+
+  void _wireWorkerEvents() {
+    session.on('Page.workerCreated', (Map<String, dynamic> params) {
+      final workerId = params['workerId'] as String?;
+      if (workerId == null) return;
+      final frameId = params['frameId'] as String? ?? '';
+      final worker = CoreWorker(params['url'] as String? ?? '');
+      final workerSession = FfWorkerSession(session, frameId, workerId);
+      _workerSessions[workerId] = (session: workerSession, frameId: frameId);
+      workerSession.once('Runtime.executionContextCreated',
+          (Map<String, dynamic> event) {
+        worker.createExecutionContext(FfExecutionContext(
+            workerSession, event['executionContextId'] as String?));
+        worker.workerScriptLoaded();
+      });
+      addWorker(workerId, worker);
+    });
+    session.on('Page.workerDestroyed', (Map<String, dynamic> params) {
+      final workerId = params['workerId'] as String?;
+      if (workerId == null) return;
+      _workerSessions.remove(workerId)?.session.dispose();
+      removeWorker(workerId);
+    });
+    session.on('Page.dispatchMessageFromWorker', (Map<String, dynamic> params) {
+      final entry = _workerSessions[params['workerId'] as String? ?? ''];
+      if (entry == null) return;
+      final message = params['message'] as String?;
+      if (message == null) return;
+      entry.session
+          .dispatchMessage(jsonDecode(message) as Map<String, dynamic>);
+    });
+    // Juggler keeps the worker alive past a navigation of its frame, but the
+    // page is gone by then; upstream tears them down with the frame
+    // (`ffPage.ts:245`).
+    session.on('Page.frameDetached', (Map<String, dynamic> params) {
+      final frameId = params['frameId'] as String?;
+      if (frameId == null) return;
+      for (final workerId in _workerSessions.keys.toList()) {
+        if (_workerSessions[workerId]?.frameId != frameId) continue;
+        _workerSessions.remove(workerId)?.session.dispose();
+        removeWorker(workerId);
+      }
+    });
   }
 
   void _onDialogOpened(Map<String, dynamic> params) {
@@ -510,6 +686,9 @@ class FfPage extends EventEmitter
   void _onClosed() {
     if (_isClosed) return;
     _isClosed = true;
+    // Upstream closes the page's workers before the page itself reports
+    // closed, so a `worker.on('close')` listener still fires.
+    clearWorkers();
     emit('close', true);
     disposeStreams();
   }

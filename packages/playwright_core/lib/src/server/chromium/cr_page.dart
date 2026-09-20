@@ -17,6 +17,8 @@ import '../core_js_handle.dart';
 class CrPage extends EventEmitter
     with
         CorePageOwnership,
+        CorePageWebSockets,
+        CorePageWorkers,
         CorePageRoutes,
         CorePageFileChooser,
         CorePageScreenshot,
@@ -76,6 +78,8 @@ class CrPage extends EventEmitter
     // The renderer died: the tab is showing "Aw, Snap!". The session survives,
     // so the page object stays usable enough to report the crash.
     session.on('Inspector.targetCrashed', (_) => emit('crash', true));
+    _wireWebSocketEvents();
+    _wireWorkerEvents();
 
     // Frame events
     session.on('Page.frameAttached', (params) {
@@ -84,6 +88,10 @@ class CrPage extends EventEmitter
     });
     session.on('Page.frameNavigated', (params) {
       final frame = params['frame'] as Map<String, dynamic>;
+      // Upstream drops the socket registry when the top document changes
+      // (`frames.ts#_clearWebSockets`); sockets are not attributed to frames,
+      // so only a main-frame navigation may clear it.
+      if (frame['parentId'] == null) clearWebSockets();
       frameManager.frameNavigated(
         frame['id'] as String,
         frame['url'] as String,
@@ -123,6 +131,140 @@ class CrPage extends EventEmitter
         frameManager.frameLifecycleEvent(frame.id, 'DOMContentLoaded');
       }
     });
+  }
+
+  // ------------------------------------------------------------ websockets
+
+  /// CDP reports frame timestamps on the monotonic clock. The baseline is the
+  /// difference between the wall time and the monotonic time of the handshake,
+  /// which is the only event carrying both (`crNetworkManager.ts:541`).
+  final _wsWallTimeBaseline = <String, double>{};
+
+  double _wsWallTime(String requestId, dynamic timestamp) {
+    final baseline = _wsWallTimeBaseline[requestId];
+    final value = (timestamp as num?)?.toDouble();
+    if (baseline == null || value == null) return -1;
+    return baseline + value * 1000;
+  }
+
+  void _wireWebSocketEvents() {
+    // Upstream wires these in crNetworkManager and forwards straight to the
+    // frame manager; here the page owns the registry, so the page is where
+    // they land. The protocol events and their payloads are unchanged.
+    session.on('Network.webSocketCreated', (Map<String, dynamic> params) {
+      onWebSocketCreated(
+          params['requestId'] as String, params['url'] as String? ?? '');
+    });
+    session.on('Network.webSocketWillSendHandshakeRequest',
+        (Map<String, dynamic> params) {
+      final requestId = params['requestId'] as String;
+      final wallTimeMs = ((params['wallTime'] as num?)?.toDouble() ?? 0) * 1000;
+      final timestamp = (params['timestamp'] as num?)?.toDouble() ?? 0;
+      _wsWallTimeBaseline[requestId] = wallTimeMs - timestamp * 1000;
+      final request = params['request'] as Map<String, dynamic>? ?? const {};
+      onWebSocketRequest(requestId,
+          headers: headersObjectToArray(request['headers'], separator: '\n'),
+          wallTimeMs: wallTimeMs);
+    });
+    session.on('Network.webSocketHandshakeResponseReceived',
+        (Map<String, dynamic> params) {
+      final response = params['response'] as Map<String, dynamic>? ?? const {};
+      onWebSocketResponse(
+        params['requestId'] as String,
+        status: (response['status'] as num?)?.toInt() ?? 0,
+        statusText: response['statusText'] as String? ?? '',
+        headers: headersObjectToArray(response['headers'], separator: '\n'),
+      );
+    });
+    session.on('Network.webSocketFrameSent', (Map<String, dynamic> params) {
+      final response = params['response'] as Map<String, dynamic>? ?? const {};
+      final payload = response['payloadData'] as String?;
+      if (payload == null || payload.isEmpty) return;
+      final requestId = params['requestId'] as String;
+      onWebSocketFrameSent(
+          requestId,
+          (response['opcode'] as num?)?.toInt() ?? 0,
+          payload,
+          _wsWallTime(requestId, params['timestamp']));
+    });
+    session.on('Network.webSocketFrameReceived', (Map<String, dynamic> params) {
+      final response = params['response'] as Map<String, dynamic>? ?? const {};
+      final payload = response['payloadData'] as String?;
+      if (payload == null || payload.isEmpty) return;
+      final requestId = params['requestId'] as String;
+      webSocketFrameReceived(
+          requestId,
+          (response['opcode'] as num?)?.toInt() ?? 0,
+          payload,
+          _wsWallTime(requestId, params['timestamp']));
+    });
+    session.on('Network.webSocketClosed', (Map<String, dynamic> params) {
+      final requestId = params['requestId'] as String;
+      _wsWallTimeBaseline.remove(requestId);
+      webSocketClosed(requestId);
+    });
+    session.on('Network.webSocketFrameError', (Map<String, dynamic> params) {
+      webSocketError(params['requestId'] as String,
+          params['errorMessage'] as String? ?? '');
+    });
+  }
+
+  // --------------------------------------------------------------- workers
+
+  final _workerSessions = <String, dynamic>{};
+
+  void _wireWorkerEvents() {
+    session.on('Target.attachedToTarget', (Map<String, dynamic> params) {
+      _onAttachedToTarget(params).catchError((Object _) {});
+    });
+    session.on('Target.detachedFromTarget', (Map<String, dynamic> params) {
+      final sessionId = params['sessionId'] as String?;
+      if (sessionId == null) return;
+      if (_workerSessions.remove(sessionId) == null) return;
+      (session.connection as dynamic).closeSession(sessionId);
+      removeWorker(sessionId);
+    });
+  }
+
+  Future<void> _onAttachedToTarget(Map<String, dynamic> params) async {
+    final targetInfo = params['targetInfo'] as Map<String, dynamic>?;
+    final sessionId = params['sessionId'] as String?;
+    if (targetInfo == null || sessionId == null) return;
+    if (targetInfo['type'] != 'worker') {
+      // Not something this port models (an OOPIF, most often). Detaching
+      // releases it; leaving it attached and paused would hang the page.
+      await session
+          .send('Target.detachFromTarget', {'sessionId': sessionId}).catchError(
+              (Object _) => <String, dynamic>{});
+      return;
+    }
+
+    final connection = session.connection as dynamic;
+    final workerSession = connection.createSession(sessionId, 'worker');
+    _workerSessions[sessionId] = workerSession;
+    final worker = CoreWorker(targetInfo['url'] as String? ?? '');
+
+    workerSession.once('Runtime.executionContextCreated',
+        (Map<String, dynamic> event) {
+      final context = event['context'] as Map<String, dynamic>? ?? const {};
+      worker.createExecutionContext(
+          CrExecutionContext(workerSession, (context['id'] as num?)?.toInt()));
+      // Upstream gates this on `Inspector.workerScriptLoaded` for Chromium
+      // 143+, which only matters when the target starts paused. This port
+      // never pauses a worker (see the setAutoAttach below), so the context
+      // is usable the moment it is announced — which is what upstream does
+      // for every older Chromium.
+      worker.workerScriptLoaded();
+    });
+    addWorker(sessionId, worker);
+
+    // Best effort: the worker may be gone before any of this lands.
+    await workerSession
+        .send('Runtime.enable')
+        .catchError((Object _) => <String, dynamic>{});
+    await workerSession
+        .send('Runtime.runIfWaitingForDebugger')
+        .catchError((Object _) => <String, dynamic>{});
   }
 
   void _onDialogOpening(Map<String, dynamic> params) {
@@ -214,6 +356,21 @@ class CrPage extends EventEmitter
     // existing tree or waitForMainFrame() would never complete.
     final result = await session.send('Page.getFrameTree');
     _handleFrameTree(result['frameTree'] as Map<String, dynamic>);
+    // Workers are sub-targets of the page, so the page session is where they
+    // auto-attach; the browser-level auto-attach only sees page targets.
+    //
+    // Upstream uses `waitForDebuggerOnStart: true` here so that the very
+    // first console messages of the worker are not missed. This port leaves
+    // it off, as it already does at the browser level: a paused target that
+    // nobody resumes hangs the page, and `Runtime.enable` replays the
+    // execution context anyway, so nothing this port exposes needs the pause.
+    // The cost is the one upstream pays for: messages logged before the
+    // worker session is attached are lost.
+    await session.send('Target.setAutoAttach', {
+      'autoAttach': true,
+      'waitForDebuggerOnStart': false,
+      'flatten': true,
+    });
     // Upstream sends this last, after everything the page needs is enabled
     // (crPage.ts:548). It is not only about paused targets: while a target
     // auto-attached from `window.open` has not been resumed, the opener's
@@ -655,6 +812,9 @@ class CrPage extends EventEmitter
   void _onClosed() {
     if (_isClosed) return;
     _isClosed = true;
+    // Upstream closes the page's workers before the page itself reports
+    // closed, so a `worker.on('close')` listener still fires.
+    clearWorkers();
     emit('close', true);
     disposeStreams();
   }

@@ -295,6 +295,13 @@ mixin CoreBrowserContextBindings on EventEmitter {
   late final CoreClock clock =
       CoreClock(this as CoreBrowserContext, engineName);
 
+  /// `routeWebSocket` for every page of this context, created on first use.
+  ///
+  /// It lives here because upstream's does: the binding the injected mock
+  /// calls is a context binding even when a single page is routed.
+  late final CoreWebSocketRouteManager webSocketRoutes =
+      CoreWebSocketRouteManager(this as CoreBrowserContext);
+
   final List<CoreInitScript> contextInitScripts = <CoreInitScript>[];
   final Map<String, CoreBinding> contextBindings = <String, CoreBinding>{};
 

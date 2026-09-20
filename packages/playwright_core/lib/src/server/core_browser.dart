@@ -306,6 +306,9 @@ abstract class CoreBrowserContext extends EventEmitter {
   /// Deterministic time for every page of this context.
   CoreClock get clock;
 
+  /// `routeWebSocket` for every page of this context.
+  CoreWebSocketRouteManager get webSocketRoutes;
+
   /// Every video this context started, finished ones included.
   List<CoreVideo> get videos;
 

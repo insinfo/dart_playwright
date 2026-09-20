@@ -25,6 +25,9 @@ import 'route.dart';
 import 'dialog.dart';
 import 'video.dart';
 import 'network.dart';
+import 'web_socket.dart';
+import 'web_socket_route.dart';
+import 'worker.dart';
 import 'instrumented.dart';
 import 'package:playwright_core/src/accessibility.dart';
 
@@ -194,6 +197,19 @@ abstract class Page {
 
   /// Remove all route handlers.
   Future<void> unrouteAll();
+
+  /// Intercept the WebSockets this page opens whose URL matches
+  /// [urlPattern].
+  ///
+  /// The page's `WebSocket` is replaced by a mock, so this has to be called
+  /// **before** the document that opens the socket loads — like
+  /// [addInitScript], it does not touch the document that is open now.
+  ///
+  /// The handler receives the page side of the socket: what it does not
+  /// forward does not reach the server, and a handler that never calls
+  /// [WebSocketRoute.connectToServer] makes the socket fully mocked — no
+  /// connection is opened at all.
+  Future<void> routeWebSocket(String urlPattern, WebSocketRouteHandler handler);
 
   /// Evaluate JavaScript expression in the page.
   Future<dynamic> evaluate(String expression);
@@ -477,6 +493,29 @@ abstract class Page {
   /// The page becomes unusable; every pending operation on it fails.
   Stream<void> get onCrash;
 
+  /// Event emitted when the page opens a WebSocket.
+  ///
+  /// The socket is announced once, at the handshake, and never again — a
+  /// socket that fails its handshake is announced when it closes instead, so
+  /// nothing is silently dropped.
+  Stream<WebSocket> get onWebSocket;
+
+  /// Wait for the page to open a WebSocket.
+  ///
+  /// Start the wait before the action that opens it, then await both.
+  Future<WebSocket> waitForWebSocket(
+      {bool Function(WebSocket)? predicate, Duration? timeout});
+
+  /// Workers currently attached to this page.
+  List<Worker> workers();
+
+  /// Event emitted when the page spawns a Web Worker.
+  Stream<Worker> get onWorker;
+
+  /// Wait for the page to spawn a Web Worker.
+  Future<Worker> waitForWorker(
+      {bool Function(Worker)? predicate, Duration? timeout});
+
   /// Wait for the page to open a popup.
   ///
   /// Start the wait before the action that triggers it, then await both, or
@@ -749,6 +788,21 @@ class PageImpl implements Page {
     for (final pattern in _routePatterns.toList()) {
       await unroute(pattern);
     }
+  }
+
+  @override
+  Future<void> routeWebSocket(
+      String urlPattern, WebSocketRouteHandler handler) async {
+    final context = _corePage.browserContext;
+    if (context == null) {
+      throw PlaywrightException(
+          'routeWebSocket needs the page to belong to a browser context');
+    }
+    await context.webSocketRoutes.route(
+      urlPattern,
+      (route) => handler(WebSocketRouteImpl(route)),
+      page: _corePage,
+    );
   }
 
   @override
@@ -1102,6 +1156,42 @@ class PageImpl implements Page {
           error: () => PlaywrightException('Page crashed'),
         ),
       ];
+
+  @override
+  Stream<WebSocket> get onWebSocket => _corePage
+      .stream<CoreWebSocket>('websocket', sync: true)
+      .map(WebSocketImpl.forCore);
+
+  @override
+  Future<WebSocket> waitForWebSocket(
+          {bool Function(WebSocket)? predicate, Duration? timeout}) =>
+      waitForStreamEvent(
+        'websocket',
+        onWebSocket,
+        predicate: predicate,
+        timeout: timeout,
+        abortOn: _pageAborts,
+      );
+
+  @override
+  List<Worker> workers() =>
+      _corePage.workers.map(WorkerImpl.forCore).toList(growable: false);
+
+  @override
+  Stream<Worker> get onWorker => _corePage
+      .stream<CoreWorker>('worker', sync: true)
+      .map(WorkerImpl.forCore);
+
+  @override
+  Future<Worker> waitForWorker(
+          {bool Function(Worker)? predicate, Duration? timeout}) =>
+      waitForStreamEvent(
+        'worker',
+        onWorker,
+        predicate: predicate,
+        timeout: timeout,
+        abortOn: _pageAborts,
+      );
 
   @override
   Future<Page> waitForPopup({Duration? timeout}) => waitForStreamEvent(

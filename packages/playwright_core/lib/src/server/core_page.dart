@@ -19,6 +19,24 @@ import 'frames.dart';
 import 'mouse.dart';
 import 'injected/injected_script_source.dart';
 import 'init_scripts.dart';
+import 'core_web_socket.dart';
+import 'core_worker.dart';
+export 'core_web_socket.dart'
+    show
+        CorePageWebSockets,
+        CoreWebSocket,
+        CoreWebSocketFrame,
+        CoreWebSocketRequest,
+        CoreWebSocketResponse,
+        headersObjectToArray,
+        stripFragmentFromUrl;
+export 'core_worker.dart' show CorePageWorkers, CoreWorker;
+export 'core_web_socket_route.dart'
+    show
+        CoreWebSocketData,
+        CoreWebSocketRoute,
+        CoreWebSocketRouteHandler,
+        CoreWebSocketRouteManager;
 export 'video/core_video.dart' show CoreVideo;
 export 'core_download.dart' show CoreDownload;
 export 'core_file_chooser.dart' show CoreFileChooser;
@@ -325,6 +343,15 @@ abstract class CorePage extends EventEmitter {
 
   /// Declares [binding] in the documents that are already open.
   Future<void> installBindingInLiveFrames(CoreBinding binding);
+
+  /// WebSockets currently open on this page.
+  ///
+  /// The registry is dropped when the top document navigates, as upstream
+  /// does; see [CorePageWebSockets].
+  List<CoreWebSocket> get webSockets;
+
+  /// Workers currently attached to this page. See [CorePageWorkers].
+  List<CoreWorker> get workers;
 
   /// JavaScript and CSS coverage.
   ///

@@ -19,6 +19,8 @@ import 'wk_route.dart';
 class WkPage extends EventEmitter
     with
         CorePageOwnership,
+        CorePageWebSockets,
+        CorePageWorkers,
         CorePageRoutes,
         CorePageFileChooser,
         CorePageScreenshot,
@@ -50,6 +52,8 @@ class WkPage extends EventEmitter
     touchscreen = Touchscreen(WkRawTouchscreen(session));
     networkManager = WkNetworkManager(session);
     forwardNetworkEvents(networkManager, this);
+    _wireWebSocketEvents();
+    _wireWorkerEvents();
     // WebKit reports dialogs via the Dialog domain on the pageProxy session.
     session.on('Dialog.javascriptDialogOpening', _onDialogOpening);
     session.on('Page.fileChooserOpened', _onFileChooserOpened);
@@ -61,6 +65,8 @@ class WkPage extends EventEmitter
     });
     session.on('Page.frameNavigated', (params) {
       final frame = params['frame'] as Map<String, dynamic>;
+      // See the same call in cr_page: only the top document may clear it.
+      if (frame['parentId'] == null) clearWebSockets();
       frameManager.frameNavigated(
         frame['id'] as String,
         frame['url'] as String,
@@ -101,6 +107,127 @@ class WkPage extends EventEmitter
       }
     });
     session.on('closed', () => _onClosed());
+  }
+
+  // ------------------------------------------------------------ websockets
+
+  /// See the same map in cr_page: WebKit also timestamps frames on a
+  /// monotonic clock and only gives the wall time once, on the handshake
+  /// (`wkPage.ts:1236`). Note the spelling: `walltime`, not CDP's `wallTime`.
+  final _wsWallTimeBaseline = <String, double>{};
+
+  double _wsWallTime(String requestId, dynamic timestamp) {
+    final baseline = _wsWallTimeBaseline[requestId];
+    final value = (timestamp as num?)?.toDouble();
+    if (baseline == null || value == null) return -1;
+    return baseline + value * 1000;
+  }
+
+  void _wireWebSocketEvents() {
+    session.on('Network.webSocketCreated', (Map<String, dynamic> params) {
+      onWebSocketCreated(
+          params['requestId'] as String, params['url'] as String? ?? '');
+    });
+    session.on('Network.webSocketWillSendHandshakeRequest',
+        (Map<String, dynamic> params) {
+      final requestId = params['requestId'] as String;
+      final wallTimeMs = ((params['walltime'] as num?)?.toDouble() ?? 0) * 1000;
+      final timestamp = (params['timestamp'] as num?)?.toDouble() ?? 0;
+      _wsWallTimeBaseline[requestId] = wallTimeMs - timestamp * 1000;
+      final request = params['request'] as Map<String, dynamic>? ?? const {};
+      onWebSocketRequest(requestId,
+          headers: headersObjectToArray(request['headers']),
+          wallTimeMs: wallTimeMs);
+    });
+    session.on('Network.webSocketHandshakeResponseReceived',
+        (Map<String, dynamic> params) {
+      final response = params['response'] as Map<String, dynamic>? ?? const {};
+      onWebSocketResponse(
+        params['requestId'] as String,
+        status: (response['status'] as num?)?.toInt() ?? 0,
+        statusText: response['statusText'] as String? ?? '',
+        // WebKit joins repeated headers with a comma, except set-cookie,
+        // which it joins with a newline — same rule the response path uses.
+        headers: headersObjectToArray(response['headers'],
+            separator: ',', setCookieSeparator: '\n'),
+      );
+    });
+    session.on('Network.webSocketFrameSent', (Map<String, dynamic> params) {
+      final response = params['response'] as Map<String, dynamic>? ?? const {};
+      final payload = response['payloadData'] as String?;
+      if (payload == null || payload.isEmpty) return;
+      final requestId = params['requestId'] as String;
+      onWebSocketFrameSent(
+          requestId,
+          (response['opcode'] as num?)?.toInt() ?? 0,
+          payload,
+          _wsWallTime(requestId, params['timestamp']));
+    });
+    session.on('Network.webSocketFrameReceived', (Map<String, dynamic> params) {
+      final response = params['response'] as Map<String, dynamic>? ?? const {};
+      final payload = response['payloadData'] as String?;
+      if (payload == null || payload.isEmpty) return;
+      final requestId = params['requestId'] as String;
+      webSocketFrameReceived(
+          requestId,
+          (response['opcode'] as num?)?.toInt() ?? 0,
+          payload,
+          _wsWallTime(requestId, params['timestamp']));
+    });
+    session.on('Network.webSocketClosed', (Map<String, dynamic> params) {
+      final requestId = params['requestId'] as String;
+      _wsWallTimeBaseline.remove(requestId);
+      webSocketClosed(requestId);
+    });
+    session.on('Network.webSocketFrameError', (Map<String, dynamic> params) {
+      webSocketError(params['requestId'] as String,
+          params['errorMessage'] as String? ?? '');
+    });
+  }
+
+  // --------------------------------------------------------------- workers
+
+  final _workerSessions = <String, WkWorkerSession>{};
+
+  void _wireWorkerEvents() {
+    // Port of `wkWorkers.ts`. The three events ride the page target session.
+    session.on('Worker.workerCreated', (Map<String, dynamic> params) {
+      final workerId = params['workerId'] as String?;
+      if (workerId == null) return;
+      final worker = CoreWorker(params['url'] as String? ?? '');
+      final workerSession = WkWorkerSession(session, workerId);
+      _workerSessions[workerId] = workerSession;
+      // WebKit has no executionContextCreated for a worker: its context is
+      // the implicit one, addressed by leaving the id out.
+      worker.createExecutionContext(WkExecutionContext(workerSession, null));
+      worker.workerScriptLoaded();
+      addWorker(workerId, worker);
+      Future.wait(<Future<dynamic>>[
+        workerSession.sendToTarget('Runtime.enable'),
+        workerSession.sendToTarget('Console.enable'),
+        session.sendToTarget('Worker.initialized', {'workerId': workerId}),
+      ]).catchError((Object _) {
+        // The worker can go away while it is being initialized.
+        _workerSessions.remove(workerId)?.dispose();
+        removeWorker(workerId);
+        return <dynamic>[];
+      });
+    });
+    session.on('Worker.dispatchMessageFromWorker',
+        (Map<String, dynamic> params) {
+      final workerSession =
+          _workerSessions[params['workerId'] as String? ?? ''];
+      final message = params['message'] as String?;
+      if (workerSession == null || message == null) return;
+      workerSession
+          .dispatchMessage(jsonDecode(message) as Map<String, dynamic>);
+    });
+    session.on('Worker.workerTerminated', (Map<String, dynamic> params) {
+      final workerId = params['workerId'] as String?;
+      if (workerId == null) return;
+      _workerSessions.remove(workerId)?.dispose();
+      removeWorker(workerId);
+    });
   }
 
   void _onDialogOpening(Map<String, dynamic> params) {
@@ -176,6 +303,8 @@ class WkPage extends EventEmitter
     await session.sendToTarget('Console.enable');
     // Network events (requestWillBeSent & friends) only flow after enable.
     await session.sendToTarget('Network.enable');
+    // Without this WebKit never reports Worker.workerCreated.
+    await session.sendToTarget('Worker.enable');
     // WebKit only reports frame changes that happen after Page.enable. The
     // main frame predates it, so seed the existing tree (mirrors upstream
     // _handleFrameTree) or waitForMainFrame() would never complete.
@@ -573,6 +702,9 @@ class WkPage extends EventEmitter
   void _onClosed() {
     if (_isClosed) return;
     _isClosed = true;
+    // Upstream closes the page's workers before the page itself reports
+    // closed, so a `worker.on('close')` listener still fires.
+    clearWorkers();
     emit('close', true);
     disposeStreams();
   }
