@@ -238,22 +238,15 @@ class CoreWebSocketRouteManager {
 
   CoreWebSocketRouteManager(this.context);
 
-  /// Whether anything is routed. The public layer uses it to decide whether
-  /// installing is worth it at all.
-  bool get hasHandlers => _handlers.isNotEmpty;
-
   /// Routes the sockets matching [pattern]. With [page], only that page's.
+  ///
+  /// The newest handler wins, which is what upstream's `unshift` into
+  /// `_webSocketRoutes` buys it (`client/page.ts:588`).
   Future<void> route(String pattern, CoreWebSocketRouteHandler handler,
       {CorePage? page}) async {
-    _handlers.add(_HandlerEntry(pattern, handler, page));
+    _handlers.insert(0, _HandlerEntry(pattern, handler, page));
     await _install();
   }
-
-  /// Drops every handler. The injected mock stays in place — this port has no
-  /// way to remove an init script — but with nothing matching, every socket
-  /// is handed straight through to the real server, which is what an
-  /// unrouted socket does anyway.
-  void unrouteAll() => _handlers.clear();
 
   Future<void> _install() async {
     if (!_bindingInstalled) {

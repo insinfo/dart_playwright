@@ -1262,3 +1262,122 @@ Para considerar o port tão completo quanto o Playwright original na camada de b
 O port atual tem uma vantagem forte sobre wrappers baseados em Node: ele controla o caminho nativo em Dart. Para alcançar o Playwright original, o trabalho principal agora é transformar essa base em uma API ampla e estável.
 
 A ordem mais eficiente é: primeiro corrigir as abstrações multi-engine e eventos; depois expandir `Page`/`Locator`/`Frame`; depois completar rede, artefatos e contexto; por último, construir o ecossistema de testes e ferramentas.
+
+## Progresso da rodada de 2026-09-19 (websocket e worker)
+
+Branch `feat/websocket-worker`. Fecha a ultima lacuna grande da API de
+browser listada no plano da Onda 1: `WebSocket`, `WebSocketRoute` e `Worker`,
+nos tres motores.
+
+A suite nova e
+`packages/playwright/test/integration/websocket_worker_parity_test.dart`:
+**63 testes verdes**, 21 por motor, rodados de fato em Chromium, Firefox e
+WebKit nesta maquina.
+
+### O que foi portado
+
+- **`WebSocket`**: `url()`, `isClosed()`, os eventos `framesent`,
+  `framereceived`, `socketerror` e `close` com as grafias do upstream, e
+  `page.waitForWebSocket` no estilo dos waiters que ja existiam. O frame
+  chega como bytes mais o texto UTF-8 desses bytes, que e a forma do binding
+  .NET - Dart nao tem a uniao `string | Buffer` do TypeScript.
+- **`WebSocketRoute`**: `page.routeWebSocket` e `context.routeWebSocket`, com
+  o `webSocketMock.ts` do upstream portado inteiro para
+  `injected/injected_web_socket_mock_source.dart` e instalado pelo
+  `addInitScript` que este porte ja tinha. O objeto entregue ao handler e o
+  lado da pagina; `connectToServer()` abre a conexao real e devolve o lado do
+  servidor. O repasse padrao e o do upstream: o que um lado nao trata vai
+  para o outro, e um handler que nunca conecta deixa o socket inteiramente
+  mockado (o `ensureOpened`, que abre o socket sem servidor nenhum).
+- **`Worker`**: `url()`, `evaluate`, `evaluateHandle`, evento `close`,
+  `page.workers()`, `page.onWorker` e `page.waitForWorker`. O contexto de
+  execucao do worker reusa o `CoreExecutionContext` de cada motor.
+
+### Como cada motor entrega, e onde eles divergem
+
+| | Chromium | Firefox (Juggler) | WebKit |
+| --- | --- | --- | --- |
+| eventos de socket | `Network.webSocket*` | `Page.webSocket*` mais o `Network.requestWillBeSent` com `cause: TYPE_WEBSOCKET` | `Network.webSocket*` |
+| identidade do socket | `requestId` | `frameId---wsid` | `requestId` |
+| wall time do handshake | `wallTime` | **nao reporta** | `walltime` (t minusculo) |
+| erro de frame | `Network.webSocketFrameError` | **nao existe**; so o campo `error` do `Page.webSocketClosed` | `Network.webSocketFrameError` |
+| sessao do worker | sub-alvo CDP com `sessionId` proprio | tunel `Page.sendMessageToWorker` | tunel `Worker.sendMessageToWorker` |
+| contexto do worker | `Runtime.executionContextCreated` | `Runtime.executionContextCreated` | **nenhum**: usa-se o contexto implicito |
+
+Divergencias que o teste prova em vez de esconder:
+
+1. **O `wallTimeMs` do handshake e nulo no Firefox**, e nao zero. O
+   `Page.webSocketOpened` do Juggler nao carrega timestamp nenhum, e o
+   handshake dele chega pela camada de rede, que tambem nao tem. Chromium e
+   WebKit dao o valor; o campo fica `null` no Firefox, seguindo a mesma regra
+   do `-1` de tamanho de header.
+2. **Um handshake recusado vira dois sockets no Firefox.** A camada de rede
+   ve a resposta >= 400 e sintetiza o socket inteiro (`ffPage.ts:143`),
+   enquanto o Juggler reporta separadamente `Page.webSocketCreated` e um
+   `Page.webSocketClosed` com `error: CLOSE_ABNORMAL`. Os dois erros sao
+   reais e o upstream tambem reporta os dois. Chromium reporta um socket com
+   um erro so (`Error during WebSocket handshake: Unexpected response code:
+   404`) e WebKit reporta um socket com dois (`Not Found: 404`, vindo da
+   resposta, e `Unexpected response code: 404`, vindo do frame error). O
+   teste `Handshake recusado vira socketerror e close` afirma exatamente isso
+   por motor.
+3. **No Firefox o handshake deixou de aparecer como request comum.** Ele era
+   o unico motor que reportava a requisicao de upgrade em `page.onRequest`;
+   o upstream filtra isso "para alinhar com Chromium e WebKit"
+   (`ffNetworkManager.ts:71`) e agora este porte tambem. E uma mudanca de
+   comportamento visivel, e e a fiel.
+4. **`close()` sem codigo chega ao handler como nulo**, nao como 1000. O
+   `undefined` do upstream e o que `WebSocketRoute.onClose` recebe; 1000 e o
+   que o browser poria no fio. O teste `Fechamento sem codigo chega como
+   nulo` existe para que ninguem "conserte" isso depois.
+
+### Decisoes de desenho que fogem do upstream
+
+- **O stream de `websocket` e de `worker` da pagina e sincrono.** O
+  `EventEmitter` do Node entrega na hora, entao
+  `page.on("websocket", ws => ws.on("socketerror", ...))` do upstream nunca
+  perde nada. Com a entrega assincrona padrao dos `Stream` do Dart, um socket
+  que erra no mesmo turno em que nasce - exatamente o handshake recusado -
+  ficava invisivel: a primeira versao deste teste media o proprio porte, nao
+  o motor. O `EventEmitter.stream` ganhou um parametro `sync`, usado so
+  nesses dois eventos.
+- **Nao ha camada de dispatcher.** O `webSocketRouteDispatcher.ts` foi
+  portado como comportamento, nao como RPC: o binding
+  `__pwWebSocketBinding` e o `__pwWebSocketDispatch` sao os do upstream; o
+  canal que os ligava nao existe aqui.
+- **O auto-attach de worker no Chromium usa
+  `waitForDebuggerOnStart: false`**, onde o upstream usa `true`. A razao e a
+  mesma ja registrada para o auto-attach de nivel de browser: um alvo pausado
+  que ninguem retoma trava a pagina, e o `Runtime.enable` reapresenta o
+  contexto de execucao de qualquer forma. O preco e o mesmo que o upstream
+  paga nos Chromium anteriores a 143: mensagens de console emitidas antes de
+  a sessao do worker existir se perdem.
+- **`WkExecutionContext` e `FfExecutionContext` passaram a aceitar uma
+  interface de sessao** (`WkTargetSession`, `FfProtocolSession`) em vez da
+  sessao concreta da pagina, porque a sessao do worker e um tunel com
+  despacho proprio. O upstream resolve isso com um `rawSend` injetado no
+  construtor da sessao; o efeito e o mesmo.
+
+### O que ficou de fora, e por que
+
+- **Console do worker.** O upstream encaminha as mensagens do worker para
+  `page.addConsoleMessage(worker, ...)` e expoe `worker.on("console")`
+  apenas para o `chromium._connectToWorker`. O pipeline de console deste
+  porte e por pagina e monta o texto a partir do objeto remoto, sem
+  atribuicao a worker; ligar os dois e uma mudanca no console, nao no worker,
+  e nao cabia nesta rodada.
+- **Service workers**: `context.serviceWorkers()` e o evento
+  `serviceworker`. No upstream isso e so Chromium e depende do alvo de
+  service worker em nivel de browser, com um `crServiceWorker` proprio que
+  tem network manager separado. E uma frente inteira.
+- **`chromium._connectToWorker`** e `worker.waitForEvent("console")`, pelo
+  mesmo motivo do console.
+- **Remover uma rota de websocket.** O upstream nao tem `unrouteWebSocket`
+  publico e o `unrouteAll` dele nao mexe em `_webSocketRoutes`, entao nao ha
+  o que portar; vale registrar mesmo assim que este porte nao sabe remover um
+  init script, logo o mock injetado fica instalado ate a pagina morrer. Sem
+  handler que case, todo socket segue em `passthrough`, que e o que um socket
+  nao roteado faz de qualquer jeito.
+- **O casamento de URL e o glob simplificado deste porte**
+  (`CorePageRoutes.matchesPattern`), o mesmo que `page.route` ja usava, e nao
+  o `URLPattern` completo do upstream. A limitacao e anterior a esta rodada.
