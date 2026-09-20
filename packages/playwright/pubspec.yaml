@@ -21,7 +21,6 @@ resolution: workspace
 
 dependencies:
   playwright_core: ^0.1.0
-  playwright_isomorphic: ^0.1.0
   playwright_protocol: ^0.1.0
   # The code generators the recorder feeds; shared with the trace viewer.
   playwright_isomorphic: ^0.1.0
