@@ -1958,3 +1958,120 @@ a.codicon-cloud-download:hover{
   font-size: var(--vscode-editor-font-size);
   user-select: text;
 }
+
+/* playbackControl.css, taken from upstream nearly unchanged. `.playback-bar`
+   and `.playback-ticks` are this port's own: upstream lays the buttons and the
+   scrubber out from React, and draws the ticks as siblings of the thumb. Here
+   they get a row and a layer so the DOM can be built once and only updated. */
+
+.playback-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  flex: none;
+}
+
+.playback-buttons {
+  display: flex;
+  align-items: center;
+  flex: none;
+}
+
+.playback-scrubber {
+  position: relative;
+  height: 16px;
+  cursor: pointer;
+  user-select: none;
+  flex: auto;
+  outline: none;
+}
+
+.playback-scrubber:focus-visible .playback-thumb {
+  box-shadow: 0 0 0 2px var(--vscode-focusBorder);
+}
+
+.playback-track {
+  position: absolute;
+  top: 7px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background-color: var(--vscode-panel-border);
+  border-radius: 1px;
+}
+
+.playback-track-filled {
+  position: absolute;
+  top: 7px;
+  left: 0;
+  height: 2px;
+  background-color: var(--vscode-focusBorder);
+  border-radius: 1px;
+}
+
+.playback-track-filled.animated {
+  transition: width 150ms ease-out;
+}
+
+.playback-ticks {
+  position: absolute;
+  inset: 0;
+}
+
+.playback-tick {
+  position: absolute;
+  top: 4px;
+  width: 1px;
+  height: 8px;
+  background-color: var(--vscode-foreground);
+}
+
+.playback-thumb {
+  position: absolute;
+  top: 3px;
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  border-radius: 50%;
+  background-color: var(--vscode-focusBorder);
+  z-index: 1;
+}
+
+.playback-thumb.animated {
+  transition: left 150ms ease-out;
+}
+
+.playback-speed {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 6px;
+  min-width: 36px;
+  text-align: center;
+  user-select: none;
+  border-radius: 3px;
+}
+
+.playback-speed:hover {
+  background-color: var(--vscode-toolbar-hoverBackground);
+}
+
+/* annotationsTab.css */
+
+.annotations-tab {
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  padding: 5px 10px;
+  line-height: 20px;
+}
+
+.annotation-item {
+  display: flex;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre-wrap;
+}

@@ -14,6 +14,7 @@ import 'package:web/web.dart' as web;
 
 import 'action_list.dart';
 import 'components.dart';
+import 'playback_control.dart';
 import 'dom.dart';
 import 'network_tab.dart';
 import 'snapshot_tab.dart';
@@ -37,6 +38,7 @@ class Workbench {
   late final SourceTab sourceTab;
   late final AttachmentsTab attachmentsTab;
   late final AnnotationsTab annotationsTab;
+  late final PlaybackControl playback;
   late final MetadataView metadataView;
   late final TabbedPane propertiesPane;
   late final TabbedPane navigatorPane;
@@ -67,6 +69,7 @@ class Workbench {
     sourceTab = SourceTab()..model = model;
     attachmentsTab = AttachmentsTab();
     annotationsTab = AnnotationsTab();
+    playback = PlaybackControl();
     metadataView = MetadataView();
 
     _filterInput = el('input', attrs: {
@@ -131,6 +134,10 @@ class Workbench {
     propertiesSplit.main.append(actionsSplit.element);
     propertiesSplit.sidebar.append(propertiesPane.element);
 
+    element.append(div(className: 'playback-bar', children: [
+      playback.buttons,
+      playback.scrubber,
+    ]));
     element.append(timeline.element);
     element.append(propertiesSplit.element);
 
@@ -186,6 +193,18 @@ class Workbench {
       _selectedCallId = action.callId;
       _renderActions();
       _renderProperties();
+    };
+    playback.onActionSelected = (action) {
+      _selectedCallId = action.callId;
+      _renderActions();
+      _renderProperties();
+    };
+    // A janela da linha do tempo tambem limita a reproducao: com um trecho
+    // selecionado, o play anda dentro dele e para no fim dele.
+    final previousSelectedTimeChanged = timeline.onSelectedTimeChanged;
+    timeline.onSelectedTimeChanged = (span) {
+      playback.timeWindow = span;
+      previousSelectedTimeChanged?.call(span);
     };
   }
 
@@ -276,6 +295,8 @@ class Workbench {
     _hiddenCount.textContent = hidden > 0 ? '$hidden hidden' : '';
     _hiddenCount.setAttribute('title', '$hidden actions hidden by filters');
     actionList.update(actions, selectedAction: selectedAction);
+    playback.selectedAction = selectedAction;
+    playback.update(actions, timeline.boundaries);
   }
 
   void _renderProperties() {
