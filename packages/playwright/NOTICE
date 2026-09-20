@@ -29,3 +29,13 @@ lib/src/*.dart
     and docs/src/api/ of the upstream project; the code is written from
     scratch in Dart. Individual alignments are cited in the comments of the
     file they appear in.
+
+lib/src/recorder/*.dart
+    Port of the recorder: packages/playwright-core/src/server/recorder.ts,
+    recorder/recorderSignalProcessor.ts, recorder/recorderUtils.ts,
+    recorder/recorderRunner.ts, recorder/throttledFile.ts, the
+    `ProgrammaticRecorderApp` half of recorder/recorderApp.ts, and the
+    `codegen` command of src/cli/program.ts. Modified: no inspector (this
+    port has no debugger), no `api` recorder mode, no auto-expect
+    precondition, and the user interface of packages/recorder/src is
+    replaced by terminal output.

@@ -345,6 +345,7 @@ class Selectors {
     if (body.isEmpty) {
       throw ArgumentError('Selector part must not be empty');
     }
+    if (body.startsWith('internal:')) return _parseInternalPart(body);
     if (body.startsWith('css=')) return css(body.substring(4));
     // `css:light=` is upstream's opt-out from shadow piercing; it is spelled
     // `:light()` once it reaches the evaluator.
@@ -368,6 +369,152 @@ class Selectors {
       return _parseTextBody(body);
     }
     return css(body);
+  }
+
+  /// The `internal:*` engines, which is the spelling the in-page selector
+  /// generator produces and `asLocator` consumes.
+  ///
+  /// `internal:text=`, `internal:label=`, `internal:has-text=` and
+  /// `internal:has-not-text=` take a text spec; `internal:attr=[name=spec]`
+  /// and `internal:testid=[attr=spec]` take a bracketed one; `internal:role=`
+  /// takes a role followed by zero or more `[key=spec]` pairs;
+  /// `internal:control=enter-frame` is the frame boundary.
+  static Map<String, dynamic> _parseInternalPart(String body) {
+    final equals = body.indexOf('=');
+    final name = equals == -1 ? body : body.substring(0, equals);
+    final value = equals == -1 ? '' : body.substring(equals + 1);
+    switch (name) {
+      case 'internal:control':
+        if (value == 'enter-frame') return frame();
+        throw ArgumentError('Unsupported selector: $body');
+      case 'internal:text':
+        return {'engine': 'text', 'text': _parseTextSpec(value)};
+      case 'internal:label':
+        return {'engine': 'label', 'text': _parseTextSpec(value)};
+      case 'internal:has-text':
+        return {'engine': 'hasText', 'text': _parseTextSpec(value)};
+      case 'internal:has-not-text':
+        return {'engine': 'hasNotText', 'text': _parseTextSpec(value)};
+      case 'internal:attr':
+        final attribute = _parseBracketed(value, body);
+        return {
+          'engine': 'attr',
+          'name': attribute.key,
+          'text': _parseTextSpec(attribute.value),
+        };
+      case 'internal:testid':
+        final attribute = _parseBracketed(value, body);
+        return {
+          'engine': 'testid',
+          'names': attribute.key.split(','),
+          'text': _parseTextSpec(attribute.value),
+        };
+      case 'internal:role':
+        return _parseRoleBody(value, body);
+      default:
+        throw ArgumentError('Unsupported selector engine: $name');
+    }
+  }
+
+  /// `[name=spec]` into its two halves.
+  static MapEntry<String, String> _parseBracketed(String value, String body) {
+    if (!value.startsWith('[') || !value.endsWith(']')) {
+      throw ArgumentError('Malformed selector: $body');
+    }
+    final inner = value.substring(1, value.length - 1);
+    final equals = inner.indexOf('=');
+    if (equals == -1) throw ArgumentError('Malformed selector: $body');
+    return MapEntry(inner.substring(0, equals), inner.substring(equals + 1));
+  }
+
+  /// `role[key=spec][key=spec]`.
+  static Map<String, dynamic> _parseRoleBody(String value, String body) {
+    final bracket = value.indexOf('[');
+    final role = bracket == -1 ? value : value.substring(0, bracket);
+    final part = <String, dynamic>{'engine': 'role', 'role': role};
+    if (bracket == -1) return part;
+    var rest = value.substring(bracket);
+    while (rest.isNotEmpty) {
+      if (!rest.startsWith('['))
+        throw ArgumentError('Malformed selector: $body');
+      final end = _closingBracket(rest, body);
+      final attribute = _parseBracketed(rest.substring(0, end + 1), body);
+      switch (attribute.key) {
+        case 'name':
+        case 'description':
+          part[attribute.key] = _parseTextSpec(attribute.value);
+          break;
+        case 'level':
+          part['level'] = int.parse(attribute.value);
+          break;
+        case 'checked':
+        case 'pressed':
+          part[attribute.key] =
+              attribute.value == 'mixed' ? 'mixed' : attribute.value == 'true';
+          break;
+        default:
+          part[attribute.key] = attribute.value == 'true';
+      }
+      rest = rest.substring(end + 1);
+    }
+    return part;
+  }
+
+  /// The `]` that closes the `[` at index 0, skipping quoted sections.
+  static int _closingBracket(String value, String body) {
+    String? quote;
+    for (var i = 1; i < value.length; i++) {
+      final ch = value[i];
+      if (quote != null) {
+        if (ch == r'\') {
+          i++;
+          continue;
+        }
+        if (ch == quote) quote = null;
+        continue;
+      }
+      if (ch == '"' || ch == "'") {
+        quote = ch;
+        continue;
+      }
+      if (ch == ']') return i;
+    }
+    throw ArgumentError('Malformed selector: $body');
+  }
+
+  /// A text spec as the `internal:*` engines spell it: `"foo"s` exact,
+  /// `"foo"i` case-insensitive substring, `/re/flags` a regular expression and
+  /// a bare word a case-insensitive substring.
+  static Map<String, dynamic> _parseTextSpec(String spec) {
+    if (spec.startsWith('/') && spec.lastIndexOf('/') > 0) {
+      final lastSlash = spec.lastIndexOf('/');
+      final flags = spec.substring(lastSlash + 1);
+      return TextMatch.pattern(RegExp(spec.substring(1, lastSlash),
+              caseSensitive: !flags.contains('i'),
+              multiLine: flags.contains('m'),
+              dotAll: flags.contains('s'),
+              unicode: flags.contains('u')))
+          .toJson();
+    }
+    var exact = false;
+    var text = spec;
+    if (text.endsWith('s') || text.endsWith('i')) {
+      final quoted = text.substring(0, text.length - 1);
+      if (quoted.length > 1 &&
+          ((quoted.startsWith('"') && quoted.endsWith('"')) ||
+              (quoted.startsWith("'") && quoted.endsWith("'")))) {
+        exact = text.endsWith('s');
+        text = quoted;
+      }
+    }
+    if (text.length > 1 && text.startsWith('"') && text.endsWith('"')) {
+      return TextMatch.text(jsonDecode(text) as String, exact: exact).toJson();
+    }
+    if (text.length > 1 && text.startsWith("'") && text.endsWith("'")) {
+      return TextMatch.text(text.substring(1, text.length - 1), exact: exact)
+          .toJson();
+    }
+    return TextMatch.text(text).toJson();
   }
 
   /// `text="foo"` is exact; `text=foo` is a case-insensitive substring;

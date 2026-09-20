@@ -227,6 +227,40 @@ class TestServer {
             ''');
           break;
 
+        case '/recorder-page':
+          // The fixture the recorder tests drive. Every control is reachable
+          // by a locator the selector generator should prefer over CSS: a
+          // role with an accessible name, a label, a placeholder and a test
+          // id. The second page the link opens proves the popup signal.
+          request.response
+            ..statusCode = 200
+            ..headers.contentType = ContentType.html
+            ..write('''
+              <html><head><title>Recorder fixture</title>
+              <style>
+                /* Uma linha por controle, tudo encostado a esquerda e abaixo
+                   dos 40px de topo: a barra flutuante do recorder fica no
+                   centro-superior e engoliria o clique de qualquer controle
+                   que passasse por baixo dela. */
+                body { margin: 0; padding: 40px 0 0 0; }
+                body > div { display: block; margin: 8px 0; width: 260px; }
+              </style></head><body>
+                <div><button id="submit-button">Submit</button></div>
+                <div><label for="name">Full name</label>
+                     <input id="name" type="text" /></div>
+                <div><input id="search" type="text" placeholder="Search here" /></div>
+                <div><input id="agree" type="checkbox" />
+                     <label for="agree">I agree</label></div>
+                <div><select id="pet" data-testid="pet-picker">
+                  <option value="cat">Cat</option>
+                  <option value="dog">Dog</option>
+                </select></div>
+                <div><a id="next" href="/text">Go to text</a></div>
+                <div id="status">Ready</div>
+              </body></html>
+            ''');
+          break;
+
         case '/text':
           request.response
             ..statusCode = 200

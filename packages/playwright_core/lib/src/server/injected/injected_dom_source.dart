@@ -34,14 +34,25 @@ function enclosingShadowHost(element) {
   return parentElementOrShadowHost(element);
 }
 
-function closestCrossShadow(element, css) {
+function closestCrossShadow(element, css, scope) {
   while (element) {
     const closest = element.closest(css);
+    if (scope && closest !== scope && closest && closest.contains(scope))
+      return undefined;
     if (closest)
       return closest;
     element = enclosingShadowHost(element);
   }
   return undefined;
+}
+
+function isInsideScope(scope, element) {
+  while (element) {
+    if (scope.contains(element))
+      return true;
+    element = enclosingShadowHost(element);
+  }
+  return false;
 }
 
 function enclosingShadowRootOrDocument(element) {
@@ -211,10 +222,13 @@ function elementMatchesText(cache, element, matcher) {
   return 'self';
 }
 
-function getElementLabels(cache, element) {
-  const labels = getAriaLabelledByElements(element);
-  if (labels)
+function getElementLabels(cache, element, options) {
+  let labels = getAriaLabelledByElements(element);
+  if (labels) {
+    if (options && options.skipRefsInsideElement)
+      labels = labels.filter(label => label !== element && !element.contains(label));
     return labels.map(label => elementText(cache, label));
+  }
   const ariaLabel = element.getAttribute('aria-label');
   if (ariaLabel !== null && !!ariaLabel.trim())
     return [{ full: ariaLabel, normalized: normalizeWhiteSpace(ariaLabel), immediate: [ariaLabel] }];
@@ -668,29 +682,54 @@ function allowsNameFromContent(role, targetDescendant) {
   return alwaysAllowsNameFromContent || descendantAllowsNameFromContent;
 }
 
-function getElementAccessibleName(element, includeHidden) {
+// Upstream's `insideTargetElement`: whether the name being computed is the
+// name of the element the caller asked about, rather than of a reference it
+// pulled in. Only such a name can be "derived from content".
+function insideTargetElement(options) {
+  return options.embeddedInTargetElement === 'self' || options.embeddedInTargetElement === 'descendant';
+}
+
+// Upstream's `AccessibleName`, minus the contributing elements: the text plus
+// whether it came from the element's own content. The selector generator needs
+// the flag to drop a role name that merely repeats the text it was told not to
+// use.
+function getElementAccessibleNameComposite(element, includeHidden) {
   const elementProhibitsNaming = ['caption', 'code', 'definition', 'deletion', 'emphasis', 'generic', 'insertion', 'mark', 'paragraph', 'presentation', 'strong', 'subscript', 'suggestion', 'superscript', 'term', 'time'].includes(getAriaRole(element) || '');
   if (elementProhibitsNaming)
-    return '';
-  return asFlatString(getTextAlternativeInternal(element, {
+    return { text: '', derivedFromContent: false };
+  const outDerivedFromContent = { value: false };
+  const text = asFlatString(getTextAlternativeInternal(element, {
     includeHidden,
     visitedElements: new Set(),
     embeddedInTargetElement: 'self',
+    outDerivedFromContent,
   }));
+  return { text, derivedFromContent: outDerivedFromContent.value };
+}
+
+function getElementAccessibleName(element, includeHidden) {
+  return getElementAccessibleNameComposite(element, includeHidden).text;
+}
+
+function getElementAccessibleDescriptionComposite(element, includeHidden) {
+  if (element.hasAttribute('aria-describedby')) {
+    const describedBy = getIdRefs(element, element.getAttribute('aria-describedby'));
+    return {
+      text: asFlatString(describedBy.map(ref => getTextAlternativeInternal(ref, {
+        includeHidden,
+        visitedElements: new Set(),
+        embeddedInDescribedBy: { element: ref, hidden: isElementHiddenForAria(ref) },
+      })).join(' ')),
+      derivedFromContent: describedBy.some(ref => ref === element || element.contains(ref)),
+    };
+  }
+  if (element.hasAttribute('aria-description'))
+    return { text: asFlatString(element.getAttribute('aria-description') || ''), derivedFromContent: false };
+  return { text: asFlatString(element.getAttribute('title') || ''), derivedFromContent: false };
 }
 
 function getElementAccessibleDescription(element, includeHidden) {
-  if (element.hasAttribute('aria-describedby')) {
-    const describedBy = getIdRefs(element, element.getAttribute('aria-describedby'));
-    return asFlatString(describedBy.map(ref => getTextAlternativeInternal(ref, {
-      includeHidden,
-      visitedElements: new Set(),
-      embeddedInDescribedBy: { element: ref, hidden: isElementHiddenForAria(ref) },
-    })).join(' '));
-  }
-  if (element.hasAttribute('aria-description'))
-    return asFlatString(element.getAttribute('aria-description') || '');
-  return asFlatString(element.getAttribute('title') || '');
+  return getElementAccessibleDescriptionComposite(element, includeHidden).text;
 }
 
 function getAccessibleNameFromAssociatedLabels(labels, options) {
@@ -739,8 +778,11 @@ function getTextAlternativeInternal(element, options) {
       embeddedInLabel: undefined,
       embeddedInNativeTextAlternative: undefined,
     })).join(' ');
-    if (accessibleName)
+    if (accessibleName) {
+      if (options.outDerivedFromContent && insideTargetElement(options) && (labelledBy || []).some(ref => ref === element || element.contains(ref)))
+        options.outDerivedFromContent.value = true;
       return accessibleName;
+    }
   }
 
   const role = getAriaRole(element) || '';
@@ -948,8 +990,11 @@ function getTextAlternativeInternal(element, options) {
     options.visitedElements.add(element);
     const accessibleName = innerAccumulatedElementText(element, childOptions);
     const maybeTrimmed = options.embeddedInTargetElement === 'self' ? trimFlatString(accessibleName) : accessibleName;
-    if (maybeTrimmed)
+    if (maybeTrimmed) {
+      if (options.outDerivedFromContent && insideTargetElement(options) && trimFlatString(accessibleName))
+        options.outDerivedFromContent.value = true;
       return accessibleName;
+    }
   }
 
   // step 2i.
