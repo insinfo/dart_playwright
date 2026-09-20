@@ -560,3 +560,44 @@ class AttachmentsTab {
       contentType.contains('xml') ||
       contentType.contains('javascript');
 }
+
+/// `AnnotationsTab`: the annotations the test runner attached to this test.
+class AnnotationsTab {
+  final web.HTMLElement element;
+
+  AnnotationsTab() : element = div(className: 'vbox');
+
+  void update(TraceModel? model) {
+    removeChildren(element);
+    final annotations = model?.annotations ?? const <TraceEventAnnotation>[];
+    if (annotations.isEmpty) {
+      element.append(placeholderPanel('No annotations'));
+      return;
+    }
+    final tab = div(className: 'annotations-tab');
+    for (final annotation in annotations) {
+      final item = div(className: 'annotation-item', children: [
+        span(text: annotation.type, style: {'font-weight': 'bold'}),
+      ]);
+      final description = annotation.description;
+      if (description != null && description.isNotEmpty) {
+        item.append(span(children: [
+          textNode(': '),
+          for (final piece in linkifyText(description))
+            if (piece.isLink)
+              el('a',
+                  attrs: {
+                    'href': piece.href,
+                    'target': '_blank',
+                    'rel': 'noopener noreferrer'
+                  },
+                  text: piece.text)
+            else
+              textNode(piece.text),
+        ]));
+      }
+      tab.append(item);
+    }
+    element.append(tab);
+  }
+}

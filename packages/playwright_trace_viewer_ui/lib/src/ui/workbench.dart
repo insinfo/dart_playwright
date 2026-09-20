@@ -36,6 +36,7 @@ class Workbench {
   late final NetworkTab networkTab;
   late final SourceTab sourceTab;
   late final AttachmentsTab attachmentsTab;
+  late final AnnotationsTab annotationsTab;
   late final MetadataView metadataView;
   late final TabbedPane propertiesPane;
   late final TabbedPane navigatorPane;
@@ -65,6 +66,7 @@ class Workbench {
     networkTab = NetworkTab();
     sourceTab = SourceTab()..model = model;
     attachmentsTab = AttachmentsTab();
+    annotationsTab = AnnotationsTab();
     metadataView = MetadataView();
 
     _filterInput = el('input', attrs: {
@@ -105,6 +107,10 @@ class Workbench {
             id: 'attachments',
             title: 'Attachments',
             body: attachmentsTab.element),
+        PaneTab(
+            id: 'annotations',
+            title: 'Annotations',
+            body: annotationsTab.element),
       ],
     );
 
@@ -257,6 +263,7 @@ class Workbench {
     consoleTab.update(model);
     networkTab.update(model);
     attachmentsTab.update(model);
+    annotationsTab.update(model);
     errorsTab.update(model.errorDescriptors);
     _renderActions();
     _renderProperties();
